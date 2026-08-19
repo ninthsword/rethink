@@ -17,7 +17,14 @@ const STATUS: Record<number, string> = {
 }
 const DRY_LEVEL = ['NO', 'DAMP', 'LESS', 'IRON', 'CUPBOARD', 'VERY_DRY']
 const ECO_HYBRID = ['NONE', 'ECO', 'NORMAL', 'TURBO']
-const COURSE: Record<number, string> = { 0: 'NONE' }
+/*
+ * Only the entry confirmed against the appliance is here. The model schema lists
+ * seventeen courses but gives them no numbers, and their order in the file does not line
+ * up with the wire: the appliance reported 5 while its panel showed 표준, which is fourth
+ * in that list. Guessing an offset from one point would mislabel every other course, so
+ * the rest wait for the dial to be stepped through with a capture running.
+ */
+const COURSE: Record<number, string> = { 0: 'NONE', 5: 'COTTON_NORMAL' }
 const DOWNLOADED_COURSE: Record<number, string> = { 0: 'NONE', 0x83: 'SELFCLEANING' }
 // Exact RH16KR processState table from the installed model diagnostic.
 const PROCESS: Record<number, string> = {
