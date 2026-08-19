@@ -11,16 +11,70 @@ const MONITOR_STATUS: Record<number, string> = {
     2: 'MONITOR_NORMAL',
 }
 
-function temperature(name: string) {
+/*
+ * The bytes that look like a compartment temperature are really a storage mode: the
+ * model schema maps each raw value to a mode label through roomNTemp_C, and every
+ * compartment has its own list. The names below follow those labels; the Korean
+ * wording comes from LG's own language pack for this product type.
+ *
+ * "Strong" and "weak" are the appliance's own words for the two steps around the
+ * middle setting of a mode, which is why they read as high and low here.
+ */
+const KIMCHI_MODES: Record<number, string> = {
+    0: 'kimchi_medium',
+    1: 'kimchi_high',
+    2: 'kimchi_low',
+}
+
+const TOP_ROOM_MODES: Record<number, string> = {
+    ...KIMCHI_MODES,
+    3: 'fridge_medium',
+    4: 'fridge_high',
+    5: 'fridge_low',
+    6: 'freezer',
+    7: 'fermenting',
+    8: 'fermentation_done',
+    9: 'top_off',
+}
+
+const MIDDLE_ROOM_MODES: Record<number, string> = {
+    ...KIMCHI_MODES,
+    3: 'produce_medium',
+    4: 'produce_high',
+    5: 'produce_low',
+    6: 'meat_fish',
+    7: 'lacto_kimchi',
+    8: 'lacto_kimchi_step_1',
+    9: 'lacto_kimchi_step_2',
+    10: 'lacto_kimchi_step_3',
+    11: 'fermenting',
+    12: 'fermentation_done',
+    13: 'middle_off',
+}
+
+const BOTTOM_ROOM_MODES: Record<number, string> = {
+    ...KIMCHI_MODES,
+    3: 'produce_medium',
+    4: 'produce_high',
+    5: 'produce_low',
+    6: 'rice_grain',
+    7: 'bought_kimchi',
+    8: 'long_storage',
+    9: 'bottom_off',
+}
+
+/** The appliance sends this for a compartment it does not have, or a value it will not report. */
+const IGNORE = 0xff
+
+function mode(name: string, label: string, modes: Record<number, string>) {
     return {
         platform: 'sensor',
         unique_id: `$deviceid-${name}`,
         state_topic: `$this/${name}`,
-        name,
-        icon: 'mdi:thermometer',
-        device_class: 'temperature',
-        unit_of_measurement: '°C',
-        state_class: 'measurement',
+        name: label,
+        icon: 'mdi:fridge-outline',
+        device_class: 'enum',
+        options: Object.values(modes),
     }
 }
 
@@ -41,9 +95,9 @@ export default class Device extends AABBDevice {
             allowExtendedType({
                 ...HADevice.config(meta, { name: 'LG Kimchi Refrigerator' }),
                 components: {
-                    top_room_temperature: temperature('top_room_temperature'),
-                    middle_room_temperature: temperature('middle_room_temperature'),
-                    bottom_room_temperature: temperature('bottom_room_temperature'),
+                    top_room_mode: mode('top_room_mode', 'Top room', TOP_ROOM_MODES),
+                    middle_room_mode: mode('middle_room_mode', 'Middle room', MIDDLE_ROOM_MODES),
+                    bottom_room_mode: mode('bottom_room_mode', 'Bottom room', BOTTOM_ROOM_MODES),
                     door: binary('door', 'mdi:fridge-outline'),
                     display_lock: binary('display_lock', 'mdi:lock'),
                     one_touch_filter: binary('one_touch_filter', 'mdi:air-filter'),
@@ -57,19 +111,34 @@ export default class Device extends AABBDevice {
                     },
                 },
             }),
+            // These three used to be temperature sensors publishing the raw mode byte as
+            // degrees Celsius. Home Assistant keeps an entity whose component disappears,
+            // so the old ids have to be retired by name.
+            {
+                top_room_temperature: { platform: 'sensor' },
+                middle_room_temperature: { platform: 'sensor' },
+                bottom_room_temperature: { platform: 'sensor' },
+            },
         )
+    }
+
+    private publishMode(comp: string, raw: number, modes: Record<number, string>) {
+        if (raw === IGNORE) return
+        this.publishProperty(comp, modes[raw] ?? `RAW_${raw}`)
     }
 
     private processStatus(status: Buffer) {
         if (status.length !== 9) return
 
-        if (status[1] !== 0xff) this.publishProperty('top_room_temperature', status[1])
-        if (status[3] !== 0xff) this.publishProperty('middle_room_temperature', status[3])
-        if (status[4] !== 0xff) this.publishProperty('bottom_room_temperature', status[4])
-        if (status[6] !== 0xff) this.publishProperty('door', status[6] === 1 ? 'ON' : 'OFF')
-        if (status[7] !== 0xff) this.publishProperty('display_lock', status[7] === 1 ? 'ON' : 'OFF')
-        if (status[8] !== 0xff) this.publishProperty('one_touch_filter', status[8] === 1 ? 'ON' : 'OFF')
-        if (status[0] !== 0xff) this.publishProperty('monitor_status', MONITOR_STATUS[status[0]] ?? `RAW_${status[0]}`)
+        // status[2] is room2, the right-hand top compartment of the wider models. This one
+        // does not have it and always reports the ignore value.
+        this.publishMode('top_room_mode', status[1], TOP_ROOM_MODES)
+        this.publishMode('middle_room_mode', status[3], MIDDLE_ROOM_MODES)
+        this.publishMode('bottom_room_mode', status[4], BOTTOM_ROOM_MODES)
+        if (status[6] !== IGNORE) this.publishProperty('door', status[6] === 1 ? 'ON' : 'OFF')
+        if (status[7] !== IGNORE) this.publishProperty('display_lock', status[7] === 1 ? 'ON' : 'OFF')
+        if (status[8] !== IGNORE) this.publishProperty('one_touch_filter', status[8] === 1 ? 'ON' : 'OFF')
+        if (status[0] !== IGNORE) this.publishProperty('monitor_status', MONITOR_STATUS[status[0]] ?? `RAW_${status[0]}`)
     }
 
     processAABB(buf: Buffer) {

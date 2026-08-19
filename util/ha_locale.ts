@@ -106,6 +106,9 @@ const KOREAN_NAMES: Record<string, string> = {
     top_room_temperature: '상칸 온도',
     middle_room_temperature: '중칸 온도',
     bottom_room_temperature: '하칸 온도',
+    'Top room': '상칸',
+    'Middle room': '중칸',
+    'Bottom room': '하칸',
     door: '문',
     display_lock: '조작판 잠금',
     one_touch_filter: '원터치 필터',
@@ -349,6 +352,32 @@ const KOREAN_VALUES: Record<string, string> = {
     'long power': '롱파워',
     '운전 중에만': '운전 중에만',
     항상: '항상',
+
+    // Kimchi refrigerator compartment modes. The wording is LG's own, taken from the
+    // Korean product-type language pack that the ThinQ app uses for this model.
+    kimchi_medium: '맛지킴 김치 중',
+    kimchi_high: '맛지킴 김치 강',
+    kimchi_low: '맛지킴 김치 약',
+    fridge_medium: '냉장 중',
+    fridge_high: '냉장 강',
+    fridge_low: '냉장 약',
+    freezer: '냉동',
+    fermenting: '익힘',
+    fermentation_done: '맛지킴 김치 중 · 익힘 완료',
+    produce_medium: '야채/과일 중',
+    produce_high: '야채/과일 강',
+    produce_low: '야채/과일 약',
+    meat_fish: '육류/생선',
+    lacto_kimchi: '유산균 김치+',
+    lacto_kimchi_step_1: '유산균 김치+ 1/3단계',
+    lacto_kimchi_step_2: '유산균 김치+ 2/3단계',
+    lacto_kimchi_step_3: '유산균 김치+ 3/3단계',
+    rice_grain: '쌀/잡곡',
+    bought_kimchi: '구입 김치',
+    long_storage: '오래 보관',
+    top_off: '상칸 꺼짐',
+    middle_off: '중칸 꺼짐',
+    bottom_off: '하칸 꺼짐',
 }
 
 const KOREAN_VALUES_REVERSE = Object.fromEntries(
