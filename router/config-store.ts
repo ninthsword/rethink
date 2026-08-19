@@ -18,6 +18,12 @@ export type RouterDeviceEntry = {
     detectedName?: string
     customName?: string
     platform?: 'thinq1' | 'thinq2'
+    /**
+     * Whether this device is meant to have its DNAT rules in place. The router holds the
+     * rules themselves and loses them on reboot, so this is the only record of what the
+     * user asked for; the reconciler restores from it.
+     */
+    dnatDesired?: boolean
 }
 
 export type RouterConfig = {
@@ -182,6 +188,14 @@ export class RouterConfigStore {
         }
         if (changed) this.save()
         return changed
+    }
+
+    setDnatDesired(entryId: string, desired: boolean) {
+        const entry = this.requireDevice(entryId)
+        if (entry.dnatDesired === desired) return entry
+        entry.dnatDesired = desired
+        this.save()
+        return entry
     }
 
     refreshDetectedName(deviceId: string, detectedName: string | undefined) {

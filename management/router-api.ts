@@ -5,11 +5,13 @@ import type { AnyDevice, DeviceManager } from '@/cloud/devmgr'
 import type { Bridge } from '@/bridge'
 import { RouterConfigStore } from '@/router/config-store'
 import { DNATManager, type DNATState } from '@/router/dnat-manager'
+import { DNATReconciler } from '@/router/dnat-reconciler'
 
 type Handler = (req: Request, res: Response) => Promise<any>
 
 export class RouterAPI {
     readonly store: RouterConfigStore
+    readonly reconciler: DNATReconciler
 
     constructor(
         filename: string,
@@ -21,6 +23,8 @@ export class RouterAPI {
         manager.on('newDevice', (device) => this.syncDevice(device))
         bridge?.on('deviceNamesChanged', () => this.syncAllDevices())
         Object.values(manager.allDevices).forEach((device) => this.syncDevice(device))
+        this.reconciler = new DNATReconciler(this.store, () => new DNATManager(this.store.router()))
+        this.reconciler.start()
     }
 
     register(app: WebSocketExpress) {
@@ -106,6 +110,9 @@ export class RouterAPI {
                 this.requireConfigured()
                 const entry = this.store.requireDevice(this.param(req, 'entryId'))
                 await new DNATManager(this.store.router()).enable(entry)
+                // Recorded only once the router accepted the rules, so a failed attempt
+                // does not leave the reconciler chasing a device the user never got on.
+                this.store.setDnatDesired(entry.entryId, true)
                 res.json(await this.snapshot())
             }),
         )
@@ -118,6 +125,7 @@ export class RouterAPI {
                 if (entry.deviceId && this.bridge?.status(entry.deviceId))
                     throw new ConflictError('Suspend Bridge before turning DNAT off')
                 await new DNATManager(this.store.router()).disable(entry)
+                this.store.setDnatDesired(entry.entryId, false)
                 res.json(await this.snapshot())
             }),
         )
