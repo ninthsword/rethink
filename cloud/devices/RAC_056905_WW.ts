@@ -62,6 +62,11 @@ const HORIZONTAL_RAW_TO_SWING: Record<number, string> = Object.fromEntries(
     Object.entries(HORIZONTAL_SWING_TO_RAW).map(([name, raw]) => [raw, name]),
 )
 
+const TEMPERATURE_STEPS: Record<number, string> = {
+    0: 'half_degree',
+    1: 'one_degree',
+}
+
 export default class Device extends TLVDevice {
     meta: Metadata
     initialValuesReceived: boolean = false
@@ -587,6 +592,46 @@ export default class Device extends TLVDevice {
             )
         }
 
+        // Confirmed on the appliance panel: the sound button reports 0x3a0, inverted the
+        // same way as the display, and the dehumidifiers store their button sound on the
+        // same tag with the same meaning.
+        config['components']['sound'] = allowExtendedType({
+            platform: 'switch',
+            unique_id: '$deviceid-sound',
+            name: 'Sound',
+            icon: 'mdi:volume-high',
+            entity_category: 'config',
+        })
+        this.addField(config, {
+            id: 0x3a0,
+            name: '',
+            comp: 'sound',
+            read_xform: (raw) => (raw ? 'OFF' : 'ON'),
+            write_xform: (value) => (value === 'ON' ? 0 : 1),
+        })
+
+        // The temperature step the appliance's own panel switches between. Confirmed by
+        // pressing the button: 0x1fb reads 1 for whole degrees and 0 for half degrees.
+        config['components']['temperature_step'] = allowExtendedType({
+            platform: 'select',
+            unique_id: '$deviceid-temperature_step',
+            name: 'Temperature step',
+            icon: 'mdi:thermometer-lines',
+            entity_category: 'config',
+            options: Object.values(TEMPERATURE_STEPS),
+        })
+        this.addField(config, {
+            id: 0x1fb,
+            name: '',
+            comp: 'temperature_step',
+            read_xform: (raw) => TEMPERATURE_STEPS[raw],
+            write_xform: (value) => (value === TEMPERATURE_STEPS[1] ? 1 : 0),
+            read_callback: (value) => {
+                this.applyTemperatureStep(value === TEMPERATURE_STEPS[1] ? 1 : 0.5)
+                return true
+            },
+        })
+
         // Confirmed on the appliance panel: pressing the display button reports 0x21f,
         // and the value is inverted — 1 is the display switched off.
         config['components']['display'] = allowExtendedType({
@@ -860,6 +905,18 @@ export default class Device extends TLVDevice {
             write_xform: (val) => Math.round(Number(val) * 60),
             write_callback: requiresPower ? () => this.allowSleepTimerWriteWhilePowered() : undefined,
         })
+    }
+
+    /**
+     * The thermostat card rounds what the user picks to the step it was told about, so the
+     * published step has to follow the one the appliance is actually set to.
+     */
+    applyTemperatureStep(step: 0.5 | 1) {
+        const climate = this.config?.components.climate as { temp_step?: number; precision?: number } | undefined
+        if (!climate || climate.temp_step === step) return
+        climate.temp_step = step
+        climate.precision = step
+        this.publishConfig()
     }
 
     allowSleepTimerWriteWhilePowered() {

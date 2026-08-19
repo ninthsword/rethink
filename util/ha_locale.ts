@@ -187,6 +187,8 @@ const KOREAN_NAMES: Record<string, string> = {
     'Humidity sensor': '습도 센서',
     'Button sound': '제품 버튼음',
     Display: '제품 화면',
+    Sound: '제품 소리',
+    'Temperature step': '온도 단위',
     'Status display': '제품 상태 표시부',
     'Water tank light': '물통 조명',
     // The owner's dehumidifiers label this feature 공기제균 on the appliance itself; LG's
@@ -366,6 +368,8 @@ const KOREAN_VALUES: Record<string, string> = {
 
     // Kimchi refrigerator compartment modes. The wording is LG's own, taken from the
     // Korean product-type language pack that the ThinQ app uses for this model.
+    half_degree: '0.5도',
+    one_degree: '1도',
     kimchi_medium: '맛지킴 김치 중',
     kimchi_high: '맛지킴 김치 강',
     kimchi_low: '맛지킴 김치 약',

@@ -300,6 +300,44 @@ describe(MODEL_ID, () => {
         dev.drop()
     })
 
+    test('the sound switch and the temperature step follow the appliance panel', (t) => {
+        enableMockTimers(t)
+        const ha = new MockHAConnection()
+        const thinq = new MockThinq2Device(DEVICE_ID, META)
+        const dev = new DUT(ha.asConnection(), thinq, META)
+        ha.on('setProperty', (id: string, prop: string, value: string) => dev.setProperty(prop, value))
+        thinq.emit('data', buf(CAPS_RESPONSE_HEX))
+        thinq.emit('data', buf(QUERY_RESPONSE_HEX))
+        tickMockTimers(t, 6000)
+
+        // Captured from the panel: sound on then off reported 0x3a0 = 0 then 1, and the
+        // step button reported 0x1fb = 1 for whole degrees and 0 for half.
+        thinq.resetRecorder()
+        ha.setProperty(DEVICE_ID, 'sound', 'command', 'ON')
+        ha.setProperty(DEVICE_ID, 'sound', 'command', 'OFF')
+        ha.setProperty(DEVICE_ID, 'temperature_step', 'command', 'one_degree')
+        ha.setProperty(DEVICE_ID, 'temperature_step', 'command', 'half_degree')
+        assert.deepEqual(
+            thinq.outbox.map((packet) => TLV.parse(packet.subarray(11, packet.length - 2))),
+            [
+                [{ t: 0x3a0, l: 0, v: 0 }],
+                [{ t: 0x3a0, l: 0, v: 1 }],
+                [{ t: 0x1fb, l: 0, v: 1 }],
+                [{ t: 0x1fb, l: 0, v: 0 }],
+            ],
+        )
+
+        // The thermostat card rounds to the step it was told about, so the published step
+        // has to follow the appliance.
+        dev.processKeyValue(0x1fb, 1)
+        const climate = ha.devices[DEVICE_ID].config!.components.climate as Record<string, unknown>
+        assert.equal(climate.temp_step, 1)
+        assert.equal(climate.precision, 1)
+        dev.processKeyValue(0x1fb, 0)
+        assert.equal(climate.temp_step, 0.5)
+        dev.drop()
+    })
+
     test('WINF variant advertises only its diagnostic-confirmed cooling modes', (t) => {
         enableMockTimers(t)
         const ha = new MockHAConnection()
