@@ -111,7 +111,8 @@ const KOREAN_NAMES: Record<string, string> = {
     'Bottom room': '하칸',
     door: '문',
     display_lock: '조작판 잠금',
-    one_touch_filter: '원터치 필터',
+    // LG calls this feature 원터치 탈취 on this product, not 필터.
+    one_touch_filter: '원터치 탈취',
     monitor_status: '모니터 상태',
     'Night glare prevention': '야간 눈부심 방지',
     'Pre-wash': '예비 세탁',

@@ -72,6 +72,26 @@ test('2REK1G03VI1902 skips a compartment the appliance does not have', () => {
     ])
 })
 
+test('2REK1G03VI1902 reports compartment power off through the mode lists', () => {
+    const { ha, thinq } = makeDevice()
+
+    // The appliance has no separate power flag: turning a compartment off is a storage
+    // mode, and the raw value differs per compartment.
+    thinq.emit('data', buf('AA0F11EB0209FF0D09FF00000081BB'))
+    const p = ha.devices['kimchi-id'].properties
+    assert.equal(p.top_room_mode, 'top_off')
+    assert.equal(p.middle_room_mode, 'middle_off')
+    assert.equal(p.bottom_room_mode, 'bottom_off')
+})
+
+test('2REK1G03VI1902 reports the one touch deodorizing cycle', () => {
+    const { ha, thinq } = makeDevice()
+
+    // Byte 8 is oneTouchFilter, which LG calls 원터치 탈취.
+    thinq.emit('data', buf('AA0F11EB0200FF0300FF000101EFBB'))
+    assert.equal(ha.devices['kimchi-id'].properties.one_touch_filter, 'ON')
+})
+
 test('2REK1G03VI1902 keeps the raw compartment sensors alongside the modes', () => {
     const { ha } = makeDevice()
     const components = ha.devices['kimchi-id'].config!.components as Record<string, Record<string, unknown>>

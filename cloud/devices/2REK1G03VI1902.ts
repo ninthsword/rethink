@@ -121,6 +121,7 @@ export default class Device extends AABBDevice {
                     bottom_room_temperature: temperature('bottom_room_temperature'),
                     door: binary('door', 'mdi:fridge-outline'),
                     display_lock: binary('display_lock', 'mdi:lock'),
+                    // LG's own name for this is 원터치 탈취; it is a deodorizing cycle, not a filter state.
                     one_touch_filter: binary('one_touch_filter', 'mdi:air-filter'),
                     monitor_status: {
                         platform: 'sensor',
