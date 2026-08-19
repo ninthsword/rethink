@@ -587,6 +587,23 @@ export default class Device extends TLVDevice {
             )
         }
 
+        // Confirmed on the appliance panel: pressing the display button reports 0x21f,
+        // and the value is inverted — 1 is the display switched off.
+        config['components']['display'] = allowExtendedType({
+            platform: 'switch',
+            unique_id: '$deviceid-display',
+            name: 'Display',
+            icon: 'mdi:television-ambient-light',
+            entity_category: 'config',
+        })
+        this.addField(config, {
+            id: 0x21f,
+            name: '',
+            comp: 'display',
+            read_xform: (raw) => (raw ? 'OFF' : 'ON'),
+            write_xform: (value) => (value === 'ON' ? 0 : 1),
+        })
+
         const jetCool: boolean = !!(this.raw_clip_state[0x2cd] & 1)
         const jetHeat: boolean = !!(this.raw_clip_state[0x2cd] & 2)
         if (jetCool || jetHeat) {
@@ -622,11 +639,11 @@ export default class Device extends TLVDevice {
 
         if (this.raw_clip_state[0x2cc] & 4) {
             const compADry = {
-                platform: 'binary_sensor',
+                platform: 'switch',
                 unique_id: '$deviceid-autodry',
                 name: 'Auto dry',
                 icon: 'mdi:hair-dryer',
-                entity_category: 'diagnostic',
+                entity_category: 'config',
             }
             const compADryRem = {
                 platform: 'sensor',
@@ -644,8 +661,8 @@ export default class Device extends TLVDevice {
                 id: 0x20e,
                 name: '',
                 comp: 'autodry',
-                writable: false,
                 read_xform: (raw) => (raw ? 'ON' : 'OFF'),
+                write_xform: (value) => (value === 'ON' ? 1 : 0),
             })
 
             this.addField(config, {
@@ -782,7 +799,12 @@ export default class Device extends TLVDevice {
         // component id, so Home Assistant registered select.<device>_sleep_timer alongside
         // the number entity that replaced it. Home Assistant does not retire an entity when
         // a component changes platform, so the select has to be removed explicitly.
-        this.setConfig(config, isWinf ? { sleeptimer: { platform: 'select' } } : undefined)
+        this.setConfig(config, {
+            // Auto dry used to be a read-only sensor on this id, and Home Assistant keeps
+            // the old entity when a component changes platform.
+            autodry: { platform: 'binary_sensor' },
+            ...(isWinf ? { sleeptimer: { platform: 'select' as const } } : {}),
+        })
 
         if (this.filterLifeTime) {
             this.publishFilterData()

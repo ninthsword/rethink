@@ -186,6 +186,7 @@ const KOREAN_NAMES: Record<string, string> = {
     'Humidity sensor mode': '공기질 센서',
     'Humidity sensor': '습도 센서',
     'Button sound': '제품 버튼음',
+    Display: '제품 화면',
     'Status display': '제품 상태 표시부',
     'Water tank light': '물통 조명',
     // The owner's dehumidifiers label this feature 공기제균 on the appliance itself; LG's

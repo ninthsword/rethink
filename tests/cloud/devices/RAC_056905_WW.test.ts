@@ -257,6 +257,49 @@ describe(MODEL_ID, () => {
         dev.drop()
     })
 
+    test('auto dry and the display are writable switches', (t) => {
+        enableMockTimers(t)
+        const ha = new MockHAConnection()
+        const thinq = new MockThinq2Device(DEVICE_ID, META)
+        const dev = new DUT(ha.asConnection(), thinq, META)
+        ha.on('setProperty', (id: string, prop: string, value: string) => dev.setProperty(prop, value))
+        thinq.emit('data', buf(CAPS_RESPONSE_HEX))
+        thinq.emit('data', buf(QUERY_RESPONSE_HEX))
+        tickMockTimers(t, 6000)
+
+        const components = ha.devices[DEVICE_ID].config!.components as Record<string, Record<string, unknown>>
+        assert.equal(components.autodry.platform, 'switch')
+        assert.equal(components.display.platform, 'switch')
+
+        // Captured from the appliance's own buttons, in this order: auto dry off, auto dry
+        // on, display off, display on. The display is inverted on the wire.
+        thinq.resetRecorder()
+        ha.setProperty(DEVICE_ID, 'autodry', 'command', 'OFF')
+        ha.setProperty(DEVICE_ID, 'autodry', 'command', 'ON')
+        ha.setProperty(DEVICE_ID, 'display', 'command', 'OFF')
+        ha.setProperty(DEVICE_ID, 'display', 'command', 'ON')
+        assert.deepEqual(
+            thinq.outbox.map((packet) => TLV.parse(packet.subarray(11, packet.length - 2))),
+            [
+                [{ t: 0x20e, l: 0, v: 0 }],
+                [{ t: 0x20e, l: 0, v: 1 }],
+                [{ t: 0x21f, l: 0, v: 1 }],
+                [{ t: 0x21f, l: 0, v: 0 }],
+            ],
+        )
+
+        dev.processKeyValue(0x21f, 1)
+        assert.equal(ha.getProperty(DEVICE_ID, 'display', 'state'), 'OFF')
+
+        // The old read-only sensor has to be retired, or Home Assistant keeps both.
+        assert.ok(
+            ha.publishedConfigs.some(
+                (config) => (config.components.autodry as Record<string, unknown>)?.platform === 'binary_sensor',
+            ),
+        )
+        dev.drop()
+    })
+
     test('WINF variant advertises only its diagnostic-confirmed cooling modes', (t) => {
         enableMockTimers(t)
         const ha = new MockHAConnection()
