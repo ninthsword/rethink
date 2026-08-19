@@ -249,7 +249,23 @@ export function app(ha: HA_bridge, manager: DeviceManager, bridge: Bridge | unde
                     if (json.sendFromDevice && dev) {
                         try {
                             injectFlag = true
-                            dev.emit('data', Buffer.from(json.sendFromDevice, 'hex'))
+                            const packet = Buffer.from(json.sendFromDevice, 'hex')
+                            dev.emit('data', packet)
+                            // A real ThinQ2 device packet reaches both the local HA handler and
+                            // the JSON-preserving cloud bridge. Mirror both paths for analysis
+                            // injections as well; otherwise the cloud oracle never sees them.
+                            if (dev instanceof T2Device) {
+                                dev.emitBridgeMessage({
+                                    did: dev.id,
+                                    // ThinQ message ids are signed 31-bit values. Date.now()
+                                    // is rejected by the cloud bridge even though local injection works.
+                                    mid: Date.now() % 0x7fffffff,
+                                    kind: dev.meta.modelName,
+                                    cmd: 'device_packet',
+                                    type: 1,
+                                    data: packet.toString('hex'),
+                                })
+                            }
                         } finally {
                             injectFlag = false
                         }

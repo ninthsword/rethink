@@ -11,8 +11,11 @@ export const DEFAULT_STATE_FILE = 'oauth.json'
 // file yields undefined ("not logged in").
 export function loadState(path: string = DEFAULT_STATE_FILE): State | undefined {
     try {
-        const s = JSON.parse(fs.readFileSync(path, 'utf-8')) as Partial<State>
-        if (s.countryCode && s.refreshToken) return s as State
+        const s = JSON.parse(fs.readFileSync(path, 'utf-8')) as Partial<State> & {
+            env?: { countryCode?: string }
+        }
+        const countryCode = s.countryCode ?? s.env?.countryCode
+        if (countryCode && s.refreshToken) return { countryCode, refreshToken: s.refreshToken }
     } catch {}
     return undefined
 }

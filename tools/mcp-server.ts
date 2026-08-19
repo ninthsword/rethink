@@ -23,6 +23,7 @@ import { connect as cloudConnect } from '@/util/lgcloud/monitor'
 import { loadState } from '@/util/lgcloud/state'
 
 const DEFAULT_MGMT = process.env.RETHINK_MGMT ?? 'localhost:44401'
+const CLOUD_STATE_PATH = process.env.RETHINK_CLOUD_STATE
 
 // Session-level management host[:port] that the device tools connect to. Starts at
 // DEFAULT_MGMT and is changeable at runtime via the set_mgmt_host tool.
@@ -48,7 +49,7 @@ let cloudFeed: Promise<CloudFeedStatus> | undefined
 function ensureCloudFeed(): Promise<CloudFeedStatus> {
     if (!cloudFeed) {
         cloudFeed = (async () => {
-            const state = loadState()
+            const state = loadState(CLOUD_STATE_PATH)
             if (!state) {
                 console.error(
                     '[cloud] not logged in; run `npx tsx tools/lgcloud-monitor.ts` once to enable observation',

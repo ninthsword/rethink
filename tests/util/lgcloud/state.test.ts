@@ -28,3 +28,13 @@ test('saveState then loadState round-trips a complete state', () => {
         fs.unlinkSync(path)
     }
 })
+
+test('loadState accepts the bridge credential layout', () => {
+    const path = '/tmp/rethink-test-bridge-state.json'
+    try {
+        fs.writeFileSync(path, JSON.stringify({ env: { countryCode: 'KR' }, refreshToken: 'bridge-token' }))
+        assert.deepEqual(loadState(path), { countryCode: 'KR', refreshToken: 'bridge-token' })
+    } finally {
+        fs.unlinkSync(path)
+    }
+})
