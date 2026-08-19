@@ -46,6 +46,12 @@ export type HAConfig = {
     mqtt_pass: string
     /** Language used for MQTT discovery labels and appliance enum states. */
     language?: 'english' | 'korean'
+    /**
+     * Seconds a disconnected appliance keeps its Home Assistant entities available.
+     * LG appliances power their Wi-Fi module down while idle, so a short grace makes
+     * every entity flip to "unavailable" on the appliance's own standby cycle.
+     */
+    offline_grace_seconds?: number
 }
 
 export type CA = {
@@ -72,6 +78,7 @@ export function normalize(config: RawConfig): Config {
         ...config,
         homeassistant: {
             language: 'english',
+            offline_grace_seconds: 1800,
             ...config.homeassistant,
         },
         bridge: config.bridge

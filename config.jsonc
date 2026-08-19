@@ -6,6 +6,10 @@
     "discovery_prefix": "homeassistant", // corresponds to discovery_prefix in homeassistant config
     "rethink_prefix": "rethink", // rethink topics will be prefixed with this
     "language": "korean", // "english" or "korean" for entity names and appliance states
+    // Seconds a disconnected appliance keeps its entities available. LG appliances
+    // drop their MQTT session while idle, so a short grace makes every entity flip
+    // to "unavailable" on the appliance's own standby cycle.
+    "offline_grace_seconds": 1800,
     "mqtt_user": "",
     "mqtt_pass": ""
   },

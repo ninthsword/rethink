@@ -145,7 +145,11 @@ function t2setup(manager: DeviceManager) {
 
 // HA connector
 const haConnection = new HA_connection(config.homeassistant)
-const ha = new HA_bridge(haConnection)
+// An appliance that drops its connection is usually only entering standby, not going
+// away. Keep its entities available for the configured grace period; a real rethink
+// outage is still signalled immediately through the global availability topic.
+const offlineGraceMs = Math.max(2000, (config.homeassistant.offline_grace_seconds ?? 1800) * 1000)
+const ha = new HA_bridge(haConnection, offlineGraceMs)
 const manager = new DeviceManager()
 manager.on('newDevice', (dev) => ha.newDevice(dev))
 

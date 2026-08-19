@@ -207,6 +207,7 @@ nano ~/docker/rethink-data/config.json
 - `homeassistant.mqtt_url`: MQTT 브로커 주소와 포트. 같은 Ubuntu 서버의 1883 포트를 사용하면 `mqtt://127.0.0.1:1883`
 - `homeassistant.mqtt_user`, `homeassistant.mqtt_pass`: MQTT 접속 ID와 비밀번호
 - `homeassistant.language`: `english`(기본값) 또는 `korean`. `korean`이면 기존 핸들러를 포함한 MQTT 엔티티 이름과 가전 상태·선택값을 한국어로 발행하며, 한국어 선택 명령은 내부 프로토콜 값으로 다시 변환합니다. Home Assistant가 정해 둔 HVAC·ON/OFF 값은 호환성을 위해 변환하지 않습니다.
+- `homeassistant.offline_grace_seconds`: 기기 연결이 끊겼을 때 Home Assistant 엔티티를 계속 사용 가능 상태로 유지할 시간(초, 기본값 `1800`). LG 가전은 대기 중에 Wi-Fi 모듈 전원을 내려 MQTT 세션을 끊었다가 다시 붙기 때문에, 이 값이 짧으면 모든 엔티티가 가전의 대기 주기에 맞춰 주기적으로 "사용할 수 없음"으로 바뀝니다.
 - `https_port.bind`: rethink가 실제로 대기할 HTTPS 포트. 이 안내에서는 `4433`
 - `https_port.advertise`: LG 기기에 안내할 원래 HTTPS 포트. `443`
 - `management_port`: 웹 관리 화면 포트. 이 안내에서는 `44401`
