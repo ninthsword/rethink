@@ -1,0 +1,65 @@
+import { describe, test } from 'node:test'
+import assert from 'node:assert/strict'
+import { mkdtempSync, rmSync, existsSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
+import { JSONStorage } from '@/bridge/state'
+
+const ID = 'dryer-id'
+const REGISTRATION = { mqttServer: 'ssl://lg', certificate: 'first' } as never
+
+function makeStore() {
+    const dir = mkdtempSync(path.join(tmpdir(), 'rethink-bridge-'))
+    return { store: new JSONStorage(dir), dir, cleanup: () => rmSync(dir, { recursive: true, force: true }) }
+}
+
+describe('bridge registration archive', () => {
+    test('an archived registration comes back when the entry is re-added', () => {
+        const { store, cleanup } = makeStore()
+        store.setDeviceState(ID, REGISTRATION)
+
+        // Deleting the router entry takes the registration with it, so nothing keeps
+        // bridging with a certificate the setup no longer points at.
+        assert.equal(store.archiveDeviceState(ID), true)
+        assert.equal(store.getDeviceState(ID), undefined)
+
+        assert.equal(store.restoreDeviceState(ID), true)
+        assert.deepEqual(store.getDeviceState(ID), REGISTRATION)
+        cleanup()
+    })
+
+    test('a registration made since the archive wins over it', () => {
+        const { store, cleanup } = makeStore()
+        store.setDeviceState(ID, REGISTRATION)
+        store.archiveDeviceState(ID)
+
+        // The appliance was deliberately registered afresh rather than restored by
+        // accident, so the new certificate has to stand.
+        const renewed = { mqttServer: 'ssl://lg', certificate: 'second' } as never
+        store.setDeviceState(ID, renewed)
+        assert.equal(store.restoreDeviceState(ID), false)
+        assert.deepEqual(store.getDeviceState(ID), renewed)
+        cleanup()
+    })
+
+    test('archiving a device with no registration does nothing', () => {
+        const { store, dir, cleanup } = makeStore()
+        assert.equal(store.archiveDeviceState(ID), false)
+        assert.equal(store.restoreDeviceState(ID), false)
+        assert.equal(existsSync(path.join(dir, `device_${ID}.archived.json`)), false)
+        cleanup()
+    })
+
+    test('the newest archive replaces the previous one', () => {
+        const { store, cleanup } = makeStore()
+        store.setDeviceState(ID, REGISTRATION)
+        store.archiveDeviceState(ID)
+
+        const later = { mqttServer: 'ssl://lg', certificate: 'later' } as never
+        store.setDeviceState(ID, later)
+        store.archiveDeviceState(ID)
+        store.restoreDeviceState(ID)
+        assert.deepEqual(store.getDeviceState(ID), later)
+        cleanup()
+    })
+})

@@ -11,6 +11,16 @@ export type BridgeState = {
     setCredentials(credentials: Credentials | undefined): void
     getDeviceState(id: string): Thinq1DeviceState | Thinq2DeviceState | undefined
     setDeviceState(id: string, state: Thinq1DeviceState | Thinq2DeviceState | undefined): void
+    /**
+     * Puts a device's registration aside instead of destroying it, for when its entry is
+     * removed from the router list. Deleting an entry by mistake used to leave the
+     * registration behind and re-adding it produced two identities for one appliance;
+     * deleting it outright would instead cost a registration that cannot be rebuilt
+     * without the appliance. Keeping a copy is what makes the removal reversible.
+     */
+    archiveDeviceState(id: string): boolean
+    /** Brings an archived registration back, unless a live one has taken its place. */
+    restoreDeviceState(id: string): boolean
 }
 
 export class JSONStorage implements BridgeState {
@@ -22,6 +32,10 @@ export class JSONStorage implements BridgeState {
 
     devicePath(id: string) {
         return `${this.basePath}/device_${id}.json`
+    }
+
+    archivePath(id: string) {
+        return `${this.basePath}/device_${id}.archived.json`
     }
 
     getCredentials() {
@@ -50,5 +64,25 @@ export class JSONStorage implements BridgeState {
     setDeviceState(id: string, state: Thinq1DeviceState | Thinq2DeviceState | undefined) {
         if (state) writeFileSync(this.devicePath(id), JSON.stringify(state))
         else unlinkSync(this.devicePath(id))
+    }
+
+    archiveDeviceState(id: string) {
+        const state = this.getDeviceState(id)
+        if (!state) return false
+        writeFileSync(this.archivePath(id), JSON.stringify(state))
+        unlinkSync(this.devicePath(id))
+        return true
+    }
+
+    restoreDeviceState(id: string) {
+        // A registration made since the archive was taken is the current one and wins: the
+        // appliance was deliberately registered afresh rather than restored by accident.
+        if (this.getDeviceState(id)) return false
+        try {
+            writeFileSync(this.devicePath(id), readFileSync(this.archivePath(id)))
+            return true
+        } catch {
+            return false
+        }
     }
 }

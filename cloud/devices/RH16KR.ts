@@ -22,7 +22,8 @@ const ECO_HYBRID = ['NONE', 'ECO', 'NORMAL', 'TURBO']
  * reporting: fourteen positions that close back on 표준, matching the panel one for one.
  * The order is nothing like the model schema's, which is why a single reading could not
  * be extrapolated. The schema names four more courses — 선반건조, 시간건조, 콘덴서케어 and
- * 통살균 — that the dial does not reach, so those stay unmapped.
+ * 통살균 — which this appliance selects with its own buttons rather than the dial. They
+ * report their own raw values, so they stay unmapped until one is read off the appliance.
  */
 const COURSE: Record<number, string> = {
     0: 'NONE',

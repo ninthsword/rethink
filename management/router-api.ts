@@ -6,6 +6,7 @@ import type { Bridge } from '@/bridge'
 import { RouterConfigStore } from '@/router/config-store'
 import { DNATManager, type DNATState } from '@/router/dnat-manager'
 import { DNATReconciler } from '@/router/dnat-reconciler'
+import log from '@/util/logging'
 
 type Handler = (req: Request, res: Response) => Promise<any>
 
@@ -77,6 +78,18 @@ export class RouterAPI {
                 const entryId = this.param(req, 'entryId')
                 const state = await this.stateFor(entryId)
                 if (state !== 'off') throw new ConflictError('Turn DNAT off before deleting the device')
+
+                // The appliance's registration goes with the entry, or rethink keeps
+                // bridging with a certificate nothing points at any more — which is how one
+                // appliance ended up with two identities and stopped reporting. It is put
+                // aside rather than destroyed, so re-adding an entry deleted by mistake
+                // brings it back; a deliberate re-registration overwrites it instead.
+                const entry = this.store.requireDevice(entryId)
+                if (entry.deviceId) {
+                    this.bridge?.disable(entry.deviceId)
+                    if (this.bridge?.state.archiveDeviceState(entry.deviceId))
+                        log('status', 'archived the bridge registration of', entry.deviceId)
+                }
                 this.store.deleteDevice(entryId)
                 res.status(204).end()
             }),
@@ -88,14 +101,17 @@ export class RouterAPI {
                 const deviceId = `${req.body?.deviceId || ''}`
                 const device = this.manager.allDevices[deviceId]
                 if (!device) throw new Error('Rethink device is not connected')
-                res.json(
-                    this.store.linkDevice(
-                        this.param(req, 'entryId'),
-                        deviceId,
-                        this.deviceName(device),
-                        device.platform,
-                    ),
+                const linked = this.store.linkDevice(
+                    this.param(req, 'entryId'),
+                    deviceId,
+                    this.deviceName(device),
+                    device.platform,
                 )
+                // Undoes an entry deleted by mistake. It does nothing once the appliance
+                // has been registered again, since that registration is the current one.
+                if (this.bridge?.state.restoreDeviceState(deviceId))
+                    log('status', 'restored the archived bridge registration of', deviceId)
+                res.json(linked)
             }),
         )
 
