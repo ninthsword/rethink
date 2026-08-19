@@ -351,12 +351,12 @@ http://RETHINK_SERVER_IP:44401/router.html
 
 페이지 상단의 **Router SSH settings**에 다음 값을 입력합니다.
 
-| 항목 | 설명 |
-| --- | --- |
-| Router IP | ASUS 공유기의 LAN IP. 예: `192.168.0.1` |
-| SSH Port | 공유기 SSH 포트. 기본값은 `22` |
-| Username | ASUS 공유기 관리자 계정 |
-| Password | 공유기 SSH 암호. 눈 모양 버튼은 새로 입력한 값만 표시·숨김 |
+| 항목       | 설명                                                                         |
+| ---------- | ---------------------------------------------------------------------------- |
+| Router IP  | ASUS 공유기의 LAN IP. 예: `192.168.0.1`                                      |
+| SSH Port   | 공유기 SSH 포트. 기본값은 `22`                                               |
+| Username   | ASUS 공유기 관리자 계정                                                      |
+| Password   | 공유기 SSH 암호. 눈 모양 버튼은 새로 입력한 값만 표시·숨김                   |
 | Rethink IP | rethink 컨테이너가 host network로 사용하는 Ubuntu 서버 IP. 예: `192.168.0.4` |
 
 **Test connection**으로 `iptables`와 `conntrack` 실행 가능 여부를 확인한 다음 **Save**를 누릅니다. 암호 입력란이 비어 있으면 이전에 저장한 암호를 유지합니다. 저장된 암호를 웹 화면으로 다시 보내지는 않습니다.
@@ -545,10 +545,10 @@ docker run -d \
 
 공유기 재부팅 등으로 DNAT 규칙만 사라진 경우와 Rethink를 완전히 제거하는 경우는 절차가 다릅니다.
 
-| 상황 | 필요한 작업 | ThinQ Wi-Fi 재등록 |
-|---|---|---|
-| Rethink를 계속 사용하지만 DNAT만 사라짐 | bridge와 데이터 볼륨을 유지한 채 DNAT 재적용 후 conntrack 삭제 | 필요 없음 |
-| Rethink를 완전히 제거하고 LG 클라우드 직접 연결로 복귀 | bridge 종료 확인, DNAT 제거, conntrack 삭제, 기기 Wi-Fi 재등록 | 필요 |
+| 상황                                                   | 필요한 작업                                                    | ThinQ Wi-Fi 재등록 |
+| ------------------------------------------------------ | -------------------------------------------------------------- | ------------------ |
+| Rethink를 계속 사용하지만 DNAT만 사라짐                | bridge와 데이터 볼륨을 유지한 채 DNAT 재적용 후 conntrack 삭제 | 필요 없음          |
+| Rethink를 완전히 제거하고 LG 클라우드 직접 연결로 복귀 | bridge 종료 확인, DNAT 제거, conntrack 삭제, 기기 Wi-Fi 재등록 | 필요               |
 
 ### 8-1. Rethink를 계속 사용하는 경우
 
@@ -580,7 +580,6 @@ docker run -d \
 bridge를 켜 둔 채 DNAT만 제거하면 rethink와 실제 가전이 같은 MQTT client ID로 LG 클라우드에 접속하면서 서로 연결을 끊을 수 있습니다.
 
 다만 bridge를 먼저 끄더라도 원래 기기의 직접 클라우드 연결이 자동으로 복구된다는 의미는 아닙니다. `PAC_910604_WW`에서는 중복 MQTT client ID 연결, upstream MQTT 연결 및 추가 등록 작업 없이 Rethink용 bridge 인증서만 발급한 분리 실험에서도 직접 복귀가 실패했습니다. LG 서버가 원래 인증 자격을 어떻게 처리했는지는 직접 확인할 수 없으므로 정확한 서버 내부 원인은 단정하지 않지만, 영구 원복에는 ThinQ Wi-Fi 재등록이 필요했습니다.
-
 
 ## 운영 데이터와 보안
 
