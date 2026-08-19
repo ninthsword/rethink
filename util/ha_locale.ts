@@ -183,7 +183,11 @@ const KOREAN_NAMES: Record<string, string> = {
     'Control panel lock': '조작 패널 잠금',
     'Humidity sensor mode': '습도 센서 모드',
     'Water tank light': '물통 조명',
-    'Clean dry': '청정 건조',
+    // The owner's dehumidifiers label this feature 공기제균 on the appliance itself; LG's
+    // own language pack calls it 공기 제균 too, under @AP_CONTROL_AIRBACTERIOSTATICMODE_W.
+    'Clean dry': '공기제균',
+    UVnano: 'UVnano',
+    'Turn-off reservation': '꺼짐 예약',
     'Capacity nominal': '정격 용량',
     'EEV opening': '전자팽창밸브 개도',
     'Pipe liquid temperature': '액관 온도',

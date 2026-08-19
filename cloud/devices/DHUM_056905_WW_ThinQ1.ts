@@ -25,6 +25,9 @@ const SENSOR_MODES: Record<string, string> = {
     always: '1',
 }
 
+/** SupportReserve advertises @AP_SIMPLE_TIMER_DHUM_8, the eight hour simple timer. */
+const MAX_OFF_TIMER_HOURS = 8
+
 const MONITOR_ON_INTERVAL_MS = 60_000
 const MONITOR_OFF_INTERVAL_MS = 5 * 60_000
 const MONITOR_TIMEOUT_MS = 10_000
@@ -39,6 +42,7 @@ type MonitorStatus = {
     SensorHumidity?: unknown
     WatertankLight?: unknown
     CleanDry?: unknown
+    OffTime?: unknown
     SensorMon?: unknown
     DiagCode?: unknown
 }
@@ -126,6 +130,20 @@ export default class Device extends HADevice {
                         command_topic: '$this/sensor_mode/set',
                         options: Object.keys(SENSOR_MODES),
                         entity_category: 'config',
+                    },
+                    off_timer: {
+                        platform: 'number',
+                        unique_id: '$deviceid-off-timer',
+                        name: 'Turn-off reservation',
+                        icon: 'mdi:timer-stop',
+                        state_topic: '$this/off_timer',
+                        command_topic: '$this/off_timer/set',
+                        device_class: 'duration',
+                        unit_of_measurement: 'h',
+                        min: 0,
+                        max: 8,
+                        step: 1,
+                        mode: 'slider',
                     },
                     error: {
                         platform: 'sensor',
@@ -239,6 +257,11 @@ export default class Device extends HADevice {
             this.publishProperty('water_tank_light', status.WatertankLight === '1' ? 'ON' : 'OFF')
         if (status.CleanDry === '0' || status.CleanDry === '1')
             this.publishProperty('clean_dry', status.CleanDry === '1' ? 'ON' : 'OFF')
+        // The appliance reports the reservation as the minutes it has left and counts it
+        // down, so round up to the hour the slider can show. Its own schema documents the
+        // field this way: "1시간일 경우 60으로 데이터 받음".
+        const offTime = numberInRange(status.OffTime, 0, MAX_OFF_TIMER_HOURS * 60)
+        if (offTime !== undefined) this.publishProperty('off_timer', Math.ceil(offTime / 60))
         if (typeof status.DiagCode === 'string')
             this.publishProperty('error', status.DiagCode === '00' ? 'normal' : status.DiagCode)
 
@@ -278,6 +301,15 @@ export default class Device extends HADevice {
                 CmdOpt: 'Set',
                 Value: { CleanDry: mqttValue === 'ON' ? '1' : '0' },
             })
+            this.scheduleMonitorSnapshot()
+        } else if (prop === 'off_timer') {
+            const requested = Number(mqttValue)
+            if (mqttValue === '' || !Number.isFinite(requested)) return
+            // Observed on the appliance: a reservation set while it is powered off is
+            // acknowledged and then reported back as 0.
+            if (this.lastPowerState === 'OFF') return
+            const hours = Math.min(MAX_OFF_TIMER_HOURS, Math.max(0, Math.round(requested)))
+            this.thinq.send({ Cmd: 'Control', CmdOpt: 'Set', Value: { OffTime: String(hours * 60) } })
             this.scheduleMonitorSnapshot()
         } else if (prop === 'sensor_mode' && SENSOR_MODES[mqttValue] !== undefined) {
             this.thinq.send({ Cmd: 'Config', CmdOpt: 'Set', Value: { SensorMon: SENSOR_MODES[mqttValue] } })

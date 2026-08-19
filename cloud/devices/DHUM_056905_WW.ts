@@ -33,6 +33,11 @@ const FAN_SPEEDS: Record<number, string> = {
 const SUPPORTED_MODES = 0x2c1
 const SUPPORTED_FAN_SPEEDS = 0x2c2
 
+const UVNANO = 0x2a2
+const WATER_TANK_LIGHT = 0x21e
+/** Minutes until the appliance turns itself off, counted down by the appliance. */
+const OFF_TIMER = 0x21b
+
 function supported(mask: number | undefined, values: Record<number, string>) {
     const names = Object.keys(values)
         .map(Number)
@@ -96,6 +101,32 @@ export default class Device extends TLVDevice {
                     options: Object.values(FAN_SPEEDS),
                     icon: 'mdi:fan',
                 },
+                uvnano: {
+                    platform: 'switch',
+                    unique_id: '$deviceid-uvnano',
+                    name: 'UVnano',
+                    icon: 'mdi:auto-fix',
+                    entity_category: 'config',
+                },
+                water_tank_light: {
+                    platform: 'switch',
+                    unique_id: '$deviceid-water-tank-light',
+                    name: 'Water tank light',
+                    icon: 'mdi:lightbulb-outline',
+                    entity_category: 'config',
+                },
+                off_timer: {
+                    platform: 'number',
+                    unique_id: '$deviceid-off-timer',
+                    name: 'Turn-off reservation',
+                    icon: 'mdi:timer-stop',
+                    device_class: 'duration',
+                    unit_of_measurement: 'h',
+                    min: 0,
+                    max: 8,
+                    step: 1,
+                    mode: 'slider',
+                },
                 error: {
                     platform: 'sensor',
                     unique_id: '$deviceid-error',
@@ -158,6 +189,37 @@ export default class Device extends TLVDevice {
             read_xform: (raw) => FAN_SPEEDS[raw],
             write_xform: (value) => FAN_VALUES[value] ?? null,
             write_callback: (value) => this.allowFanWrite(value),
+        })
+
+        this.addField(config, {
+            id: UVNANO,
+            name: '',
+            comp: 'uvnano',
+            read_xform: (raw) => (raw ? 'ON' : 'OFF'),
+            write_xform: (value) => (value === 'ON' ? 1 : 0),
+        })
+
+        this.addField(config, {
+            id: WATER_TANK_LIGHT,
+            name: '',
+            comp: 'water_tank_light',
+            read_xform: (raw) => (raw ? 'ON' : 'OFF'),
+            write_xform: (value) => (value === 'ON' ? 1 : 0),
+        })
+
+        this.addField(config, {
+            id: OFF_TIMER,
+            name: '',
+            comp: 'off_timer',
+            // The appliance counts the reservation down every minute, so round the
+            // remaining time up to the hour the slider can actually show.
+            read_xform: (raw) => Math.ceil(raw / 60),
+            write_xform: (value) => {
+                const hours = Number(value)
+                if (!Number.isFinite(hours)) return null
+                return Math.min(8, Math.max(0, Math.round(hours))) * 60
+            },
+            write_callback: () => this.allowWriteWhilePowered('turn-off reservation'),
         })
 
         this.addField(config, {

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import DUT from '@/cloud/devices/DHUM_056905_WW'
 import type { Metadata } from '@/cloud/thinq'
 import { MockHAConnection, MockThinq2Device, buf, hex } from '@/tests/helpers/mocks'
+import * as TLV from '@/util/tlv'
 
 const DEVICE_ID = 'test-id'
 const MODEL_ID = 'DHUM_056905_WW'
@@ -28,6 +29,13 @@ const WRITE_HUMIDITY_55_HEX = '010104000000650201000394D0378127'
 // two commands, which is how the encoding was confirmed.
 const WRITE_MODE_FAST_HEX = '01010400000065020100037E50128988'
 const WRITE_FAN_LOW_HEX = '01010400000065020100027E824E17'
+const WRITE_UVNANO_OFF_HEX = '0101040000006502010002A880D1D4'
+const WRITE_UVNANO_ON_HEX = '0101040000006502010002A881C1F5'
+const WRITE_TANK_LIGHT_OFF_HEX = '01010400000065020100028780C70C'
+const WRITE_TANK_LIGHT_ON_HEX = '01010400000065020100028781D72D'
+// The LG cloud sends this exact packet for airState.reservation.targetTimeToStop = 60.
+const WRITE_OFF_TIMER_1H_HEX = '010104000000650201000386D03C1D4F'
+const WRITE_OFF_TIMER_CANCEL_HEX = '010104000000650201000286C0BCF9'
 
 function makeDevice() {
     const ha = new MockHAConnection()
@@ -162,6 +170,55 @@ describe(MODEL_ID, () => {
 
         ha.setProperty(DEVICE_ID, 'fan_speed', 'command', 'low')
         assert.equal(thinq.outbox.length, 1)
+        dev.drop()
+    })
+
+    test('writes the verified UVnano and water tank light packets', () => {
+        const { ha, thinq, dev } = buildReadyDevice()
+
+        // Both were injected on the appliance and reported back, which is how the ids and
+        // the encoding were confirmed.
+        ha.setProperty(DEVICE_ID, 'uvnano', 'command', 'OFF')
+        ha.setProperty(DEVICE_ID, 'uvnano', 'command', 'ON')
+        ha.setProperty(DEVICE_ID, 'water_tank_light', 'command', 'OFF')
+        ha.setProperty(DEVICE_ID, 'water_tank_light', 'command', 'ON')
+
+        assert.deepEqual(thinq.outbox.map(hex), [
+            WRITE_UVNANO_OFF_HEX,
+            WRITE_UVNANO_ON_HEX,
+            WRITE_TANK_LIGHT_OFF_HEX,
+            WRITE_TANK_LIGHT_ON_HEX,
+        ])
+        dev.drop()
+    })
+
+    test('writes the turn-off reservation in minutes while running', () => {
+        const { ha, thinq, dev } = buildReadyDevice()
+
+        // Powered off the appliance acks the reservation and drops it.
+        ha.setProperty(DEVICE_ID, 'off_timer', 'command', '1')
+        assert.deepEqual(thinq.outbox.map(hex), [])
+
+        dev.raw_clip_state[0x1f7] = 1
+        ha.setProperty(DEVICE_ID, 'off_timer', 'command', '1')
+        ha.setProperty(DEVICE_ID, 'off_timer', 'command', '0')
+        assert.deepEqual(thinq.outbox.map(hex), [WRITE_OFF_TIMER_1H_HEX, WRITE_OFF_TIMER_CANCEL_HEX])
+
+        // The appliance counts the reservation down every minute; 59 left is still the
+        // one hour the slider shows.
+        dev.processKeyValue(0x21b, 59)
+        assert.equal(ha.getProperty(DEVICE_ID, 'off_timer', 'state'), 1)
+        dev.drop()
+    })
+
+    test('clamps the turn-off reservation to the eight hours the appliance offers', () => {
+        const { ha, thinq, dev } = buildReadyDevice()
+        dev.raw_clip_state[0x1f7] = 1
+
+        ha.setProperty(DEVICE_ID, 'off_timer', 'command', '12')
+        assert.deepEqual(TLV.parse(thinq.outbox[0].subarray(11, thinq.outbox[0].length - 2)), [
+            { t: 0x21b, l: 2, v: 480 },
+        ])
         dev.drop()
     })
 

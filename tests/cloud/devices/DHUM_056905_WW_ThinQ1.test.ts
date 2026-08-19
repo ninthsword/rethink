@@ -24,8 +24,14 @@ describe('ThinQ1 DHUM_056905_WW', () => {
             'water_tank_light',
             'clean_dry',
             'sensor_mode',
+            'off_timer',
             'error',
         ])
+        // SupportReserve advertises @AP_SIMPLE_TIMER_DHUM_8, so the slider stops at eight
+        // hours and moves an hour at a time.
+        assert.equal(components.off_timer.min, 0)
+        assert.equal(components.off_timer.max, 8)
+        assert.equal(components.off_timer.step, 1)
         assert.deepEqual(components.dehumidifier.modes, [
             'smart',
             'fast',
@@ -78,6 +84,10 @@ describe('ThinQ1 DHUM_056905_WW', () => {
 
     test('control packets follow the ThinQ1 model ControlWifi schema', () => {
         const { thinq, dev } = makeDevice()
+        // The reservation is only accepted while the appliance runs, and setProperty here
+        // starts from an unknown power state, so announce it first.
+        thinq.emit('data', Buffer.from(JSON.stringify({ Operation: '1' })))
+        thinq.resetRecorder()
         dev.setProperty('power', 'ON')
         dev.setProperty('power', 'OFF')
         dev.setProperty('target_humidity', '53')
@@ -86,6 +96,7 @@ describe('ThinQ1 DHUM_056905_WW', () => {
         dev.setProperty('water_tank_light', 'OFF')
         dev.setProperty('clean_dry', 'ON')
         dev.setProperty('sensor_mode', 'operating_only')
+        dev.setProperty('off_timer', '2')
         assert.deepEqual(thinq.sent, [
             { Cmd: 'Control', CmdOpt: 'Operation', Value: 'Start' },
             { Cmd: 'Control', CmdOpt: 'Operation', Value: 'Stop' },
@@ -95,7 +106,28 @@ describe('ThinQ1 DHUM_056905_WW', () => {
             { Cmd: 'Control', CmdOpt: 'Set', Value: { WatertankLight: '0' } },
             { Cmd: 'Control', CmdOpt: 'Set', Value: { CleanDry: '1' } },
             { Cmd: 'Config', CmdOpt: 'Set', Value: { SensorMon: '0' } },
+            // The schema documents OffTime in minutes: "1시간일 경우 60으로 데이터 받음".
+            { Cmd: 'Control', CmdOpt: 'Set', Value: { OffTime: '120' } },
         ])
+    })
+
+    test('the turn-off reservation reads back as the hour it has left', () => {
+        const { ha, thinq, dev } = makeDevice()
+
+        // The appliance counts the reservation down every minute, so 119 minutes left is
+        // still the two hours the slider can show.
+        thinq.emit('data', Buffer.from(JSON.stringify({ Operation: '1', OffTime: '119' })))
+        assert.equal(ha.devices[DEVICE_ID].properties.off_timer, 2)
+        thinq.resetRecorder()
+
+        // The appliance offers eight hours, so a larger request is clamped rather than
+        // dropped, which would have left Home Assistant showing a value it never took.
+        dev.setProperty('off_timer', '12')
+        assert.deepEqual(thinq.sent[thinq.sent.length - 1], {
+            Cmd: 'Control',
+            CmdOpt: 'Set',
+            Value: { OffTime: '480' },
+        })
     })
 
     test('invalid values are ignored', () => {
@@ -104,6 +136,13 @@ describe('ThinQ1 DHUM_056905_WW', () => {
         dev.setProperty('operation_mode', 'invalid')
         dev.setProperty('fan_speed', 'auto')
         dev.setProperty('sensor_mode', 'invalid')
+        dev.setProperty('off_timer', 'nonsense')
+        assert.deepEqual(thinq.sent, [])
+
+        // A reservation while the appliance is off is dropped rather than sent.
+        thinq.emit('data', Buffer.from(JSON.stringify({ Operation: '0' })))
+        thinq.resetRecorder()
+        dev.setProperty('off_timer', '2')
         assert.deepEqual(thinq.sent, [])
     })
 })
