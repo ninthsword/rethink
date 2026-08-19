@@ -3,8 +3,12 @@ import WTDN3 from './devices/WTDN3'
 import RAC_056905_WW from './devices/RAC_056905_WW'
 import PAC_910604_WW from './devices/PAC_910604_WW'
 import WIN_056905_WW from './devices/WIN_056905_WW'
+import DHUM_056905_WW from './devices/DHUM_056905_WW'
+import DHUM_056905_WW_ThinQ1 from './devices/DHUM_056905_WW_ThinQ1'
+import AIR_910604_WW from './devices/AIR_910604_WW'
 import Dev_2REF11EIDA__4 from './devices/2REF11EIDA__4'
 import Dev_2REF11EBIVPC4 from './devices/2REF11EBIVPC4'
+import Dev_2REF12EJIS__2 from './devices/2REF12EJIS__2'
 import Dev_2RES1VE61NFA2 from './devices/2RES1VE61NFA2'
 import Dev_2REB1GLVB1__2 from './devices/2REB1GLVB1__2'
 import Dev_2RES1VE600FWC from './devices/2RES1VE600FWC'
@@ -20,6 +24,11 @@ import Hd0C_F from './devices/Hd0C_F'
 import RV13U6AM8W_D_US_WIFI from './devices/RV13U6AM8W_D_US_WIFI'
 import F3L2CYU__ from './devices/F3L2CYU__'
 import RV13B6BSD_D_US_WIFI from './devices/RV13B6BSD_D_US_WIFI'
+import F21VDT_AKOR from './devices/F21VDT_AKOR'
+import RH16KR from './devices/RH16KR'
+import Dev_2REK1G03VI1902 from './devices/2REK1G03VI1902'
+import Pd0F_F from './devices/Pd0F_F'
+import D121111 from './devices/D121111'
 import { Device as T1Device } from './thinq1/device'
 import { Device as T2Device } from './thinq2/device'
 import { type Connection } from './homeassistant'
@@ -32,6 +41,8 @@ type T2Factory = new (HA: Connection, thinq: T2Device, metadata: Metadata) => HA
 
 const t1deviceTypes: Record<string, T1Factory> = {
     WTDN3,
+    AIR_910604_WW,
+    DHUM_056905_WW: DHUM_056905_WW_ThinQ1,
 }
 
 const t2deviceTypes: Record<string, T2Factory> = {
@@ -39,9 +50,12 @@ const t2deviceTypes: Record<string, T2Factory> = {
     RAC_056905_WW,
     PAC_910604_WW,
     ['RAC_0B0001_WW']: RAC_056905_WW, // a different European variant (deviceType 401, RTK_RTL8720cm), same TLV handler
+    ['WINF_056905_WW']: RAC_056905_WW, // Korean wall-mounted cooling-only variant, same RAC TLV protocol
     WIN_056905_WW,
+    DHUM_056905_WW,
     ['2REF11EIDA__4']: Dev_2REF11EIDA__4,
     ['2REF11EBIVPC4']: Dev_2REF11EBIVPC4,
+    ['2REF12EJIS__2']: Dev_2REF12EJIS__2, // Korean four-door refrigerator
     ['2RES1VE61NFA2']: Dev_2RES1VE61NFA2,
     ['2REB1GLVB1__2']: Dev_2REB1GLVB1__2,
     ['2RES1VE600FWC']: Dev_2RES1VE600FWC,
@@ -59,6 +73,11 @@ const t2deviceTypes: Record<string, T2Factory> = {
     ['RV13U6AM8W_D_US_WIFI']: RV13U6AM8W_D_US_WIFI, // LG DLE7300WE dryer
     ['F3L2CYU__']: F3L2CYU__, // LG front-load washer
     ['RV13B6BSD_D_US_WIFI']: RV13B6BSD_D_US_WIFI, // LG electric dryer
+    ['F21VDT_AKOR']: F21VDT_AKOR, // Korean front-loading washer
+    ['RH16KR']: RH16KR, // Korean dryer
+    ['2REK1G03VI1902']: Dev_2REK1G03VI1902, // Korean kimchi refrigerator
+    ['Pd0F_F']: Pd0F_F, // Korean mini washer
+    ['D121111']: D121111, // Korean dishwasher
 }
 
 class Bridge {
