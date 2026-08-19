@@ -144,7 +144,8 @@ function t2setup(manager: DeviceManager) {
 }
 
 // HA connector
-const ha = new HA_bridge(new HA_connection(config.homeassistant))
+const haConnection = new HA_connection(config.homeassistant)
+const ha = new HA_bridge(haConnection)
 const manager = new DeviceManager()
 manager.on('newDevice', (dev) => ha.newDevice(dev))
 
@@ -158,6 +159,8 @@ if (config.bridge) {
     bridge = new Bridge(storage, manager, {
         preserveExistingDevices: config.bridge.preserve_existing_devices,
     })
+    haConnection.setDeviceNameResolver((id) => bridge?.name(id))
+    bridge.on('deviceNamesChanged', () => ha.refreshDiscovery())
 }
 
 if (config.management_port)

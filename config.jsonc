@@ -5,6 +5,7 @@
     "mqtt_url": "mqtt://localhost:1883",
     "discovery_prefix": "homeassistant", // corresponds to discovery_prefix in homeassistant config
     "rethink_prefix": "rethink", // rethink topics will be prefixed with this
+    "language": "korean", // "english" or "korean" for entity names and appliance states
     "mqtt_user": "",
     "mqtt_pass": ""
   },

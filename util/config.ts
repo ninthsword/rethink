@@ -44,6 +44,8 @@ export type HAConfig = {
     rethink_prefix: string
     mqtt_user: string
     mqtt_pass: string
+    /** Language used for MQTT discovery labels and appliance enum states. */
+    language?: 'english' | 'korean'
 }
 
 export type CA = {
@@ -68,6 +70,10 @@ export function normalize(config: RawConfig): Config {
         mqtt: true,
         sni_certificates: false,
         ...config,
+        homeassistant: {
+            language: 'english',
+            ...config.homeassistant,
+        },
         bridge: config.bridge
             ? {
                   preserve_existing_devices: false,

@@ -78,6 +78,10 @@ class Bridge {
         })
     }
 
+    refreshDiscovery() {
+        this.haDevices.forEach((device) => device.publishConfig())
+    }
+
     newDevice(thinqdev: AnyDevice) {
         const meta = thinqdev.meta
 
