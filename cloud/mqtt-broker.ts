@@ -36,6 +36,7 @@ export class Client extends TypedEmitter<ClientEvents> {
         mqtt: MqttConnection,
         retainMap: Map<string, PublishPacket>,
         readonly remoteAddress?: string,
+        readonly stream?: Socket,
     ) {
         super()
 
@@ -150,7 +151,7 @@ export class Broker extends TypedEmitter<BrokerEvents> {
 
     accept(stream: Socket) {
         const mqtt = newMqttConnection(stream)
-        const client = new Client(mqtt, this.retainMap, stream.remoteAddress?.replace(/^::ffff:/, ''))
+        const client = new Client(mqtt, this.retainMap, stream.remoteAddress?.replace(/^::ffff:/, ''), stream)
 
         mqtt.on('publish', (packet) => {
             this.publish(packet, client)
@@ -195,6 +196,27 @@ export class Broker extends TypedEmitter<BrokerEvents> {
             this.emit('disconnect', client)
             this.clients.delete(client)
         })
+    }
+
+    /**
+     * Cuts every appliance connection with a reset before the process goes away.
+     *
+     * An appliance that keeps a long keepalive — the washer here asks for twenty minutes —
+     * does not look at its socket in between, so after a restart it stays away until its
+     * own timer fires. A reset raises an error on the connection immediately, which is
+     * what makes the appliance reconnect straight away rather than a quarter of an hour
+     * later. A plain close is not enough: the appliance is not reading, so it never sees
+     * the end of the stream.
+     */
+    shutdown() {
+        for (const client of this.clients) {
+            const stream = client.stream
+            // resetAndDestroy sends RST; older runtimes only have destroy, which at least
+            // closes the connection.
+            if (stream?.resetAndDestroy) stream.resetAndDestroy()
+            else stream?.destroy()
+        }
+        log('status', 'reset', this.clients.size, 'appliance connections for shutdown')
     }
 
     publish(packet: PublishPacket, client: Client | null) {

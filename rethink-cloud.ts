@@ -141,6 +141,15 @@ function t2setup(manager: DeviceManager) {
 
     const acceptor = new T2Acceptor(broker)
     acceptor.on('newDevice', manager.accept.bind(manager))
+
+    // Appliances with a long keepalive do not notice the process going away until their
+    // own timer fires, which left the washer absent for up to twenty minutes after every
+    // restart. Cutting the connections on the way out brings them straight back.
+    for (const signal of ['SIGTERM', 'SIGINT'] as const)
+        process.once(signal, () => {
+            broker.shutdown()
+            process.exit(0)
+        })
 }
 
 // HA connector
