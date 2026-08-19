@@ -78,6 +78,24 @@ function mode(name: string, label: string, modes: Record<number, string>) {
     }
 }
 
+/**
+ * The raw byte, kept under the id it has always had. It is a mode code rather than a
+ * reading in degrees, but it is the number this appliance has always shown in Home
+ * Assistant, so it stays next to the decoded mode instead of being taken away.
+ */
+function temperature(name: string) {
+    return {
+        platform: 'sensor',
+        unique_id: `$deviceid-${name}`,
+        state_topic: `$this/${name}`,
+        name,
+        icon: 'mdi:thermometer',
+        device_class: 'temperature',
+        unit_of_measurement: '°C',
+        state_class: 'measurement',
+    }
+}
+
 function binary(name: string, icon: string) {
     return {
         platform: 'binary_sensor',
@@ -98,6 +116,9 @@ export default class Device extends AABBDevice {
                     top_room_mode: mode('top_room_mode', 'Top room', TOP_ROOM_MODES),
                     middle_room_mode: mode('middle_room_mode', 'Middle room', MIDDLE_ROOM_MODES),
                     bottom_room_mode: mode('bottom_room_mode', 'Bottom room', BOTTOM_ROOM_MODES),
+                    top_room_temperature: temperature('top_room_temperature'),
+                    middle_room_temperature: temperature('middle_room_temperature'),
+                    bottom_room_temperature: temperature('bottom_room_temperature'),
                     door: binary('door', 'mdi:fridge-outline'),
                     display_lock: binary('display_lock', 'mdi:lock'),
                     one_touch_filter: binary('one_touch_filter', 'mdi:air-filter'),
@@ -111,20 +132,13 @@ export default class Device extends AABBDevice {
                     },
                 },
             }),
-            // These three used to be temperature sensors publishing the raw mode byte as
-            // degrees Celsius. Home Assistant keeps an entity whose component disappears,
-            // so the old ids have to be retired by name.
-            {
-                top_room_temperature: { platform: 'sensor' },
-                middle_room_temperature: { platform: 'sensor' },
-                bottom_room_temperature: { platform: 'sensor' },
-            },
         )
     }
 
-    private publishMode(comp: string, raw: number, modes: Record<number, string>) {
+    private publishRoom(comp: string, raw: number, modes: Record<number, string>) {
         if (raw === IGNORE) return
-        this.publishProperty(comp, modes[raw] ?? `RAW_${raw}`)
+        this.publishProperty(`${comp}_mode`, modes[raw] ?? `RAW_${raw}`)
+        this.publishProperty(`${comp}_temperature`, raw)
     }
 
     private processStatus(status: Buffer) {
@@ -132,9 +146,9 @@ export default class Device extends AABBDevice {
 
         // status[2] is room2, the right-hand top compartment of the wider models. This one
         // does not have it and always reports the ignore value.
-        this.publishMode('top_room_mode', status[1], TOP_ROOM_MODES)
-        this.publishMode('middle_room_mode', status[3], MIDDLE_ROOM_MODES)
-        this.publishMode('bottom_room_mode', status[4], BOTTOM_ROOM_MODES)
+        this.publishRoom('top_room', status[1], TOP_ROOM_MODES)
+        this.publishRoom('middle_room', status[3], MIDDLE_ROOM_MODES)
+        this.publishRoom('bottom_room', status[4], BOTTOM_ROOM_MODES)
         if (status[6] !== IGNORE) this.publishProperty('door', status[6] === 1 ? 'ON' : 'OFF')
         if (status[7] !== IGNORE) this.publishProperty('display_lock', status[7] === 1 ? 'ON' : 'OFF')
         if (status[8] !== IGNORE) this.publishProperty('one_touch_filter', status[8] === 1 ? 'ON' : 'OFF')

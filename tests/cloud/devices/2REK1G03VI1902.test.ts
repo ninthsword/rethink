@@ -25,6 +25,11 @@ test('2REK1G03VI1902 decodes the live kimchi refrigerator snapshot', () => {
     assert.equal(p.top_room_mode, 'kimchi_medium')
     assert.equal(p.middle_room_mode, 'produce_medium')
     assert.equal(p.bottom_room_mode, 'kimchi_medium')
+
+    // The raw byte keeps its long-standing entity next to the decoded mode.
+    assert.equal(p.top_room_temperature, 0)
+    assert.equal(p.middle_room_temperature, 3)
+    assert.equal(p.bottom_room_temperature, 0)
     assert.equal(p.door, 'OFF')
     assert.equal(p.display_lock, 'ON')
     assert.equal(p.one_touch_filter, 'OFF')
@@ -57,21 +62,24 @@ test('2REK1G03VI1902 skips a compartment the appliance does not have', () => {
     // Byte 2 is the right-hand top compartment of the wider models and always reads 0xff
     // here, so nothing must be published for it.
     const published = Object.keys(ha.devices['kimchi-id'].properties)
-    assert.deepEqual(
-        published.filter((name) => name.includes('room')).sort(),
-        ['bottom_room_mode', 'middle_room_mode', 'top_room_mode'],
-    )
+    assert.deepEqual(published.filter((name) => name.includes('room')).sort(), [
+        'bottom_room_mode',
+        'bottom_room_temperature',
+        'middle_room_mode',
+        'middle_room_temperature',
+        'top_room_mode',
+        'top_room_temperature',
+    ])
 })
 
-test('2REK1G03VI1902 retires the temperature sensors it replaced', () => {
+test('2REK1G03VI1902 keeps the raw compartment sensors alongside the modes', () => {
     const { ha } = makeDevice()
+    const components = ha.devices['kimchi-id'].config!.components as Record<string, Record<string, unknown>>
 
-    // They published the raw mode byte as degrees Celsius, and Home Assistant keeps an
-    // entity whose component vanishes from the discovery payload.
-    const removal = ha.publishedConfigs.find(
-        (config) => (config.components.top_room_temperature as Record<string, unknown>)?.platform === 'sensor',
-    )
-    assert.ok(removal, 'no temperature sensor removal was published')
-    for (const name of ['top_room_temperature', 'middle_room_temperature', 'bottom_room_temperature'])
-        assert.equal((removal.components[name] as Record<string, unknown>).platform, 'sensor')
+    // The mode enums are the accurate reading, but the raw sensors carry the user's
+    // existing Home Assistant history, so both are published.
+    for (const room of ['top_room', 'middle_room', 'bottom_room']) {
+        assert.equal(components[`${room}_mode`].device_class, 'enum')
+        assert.equal(components[`${room}_temperature`].device_class, 'temperature')
+    }
 })
