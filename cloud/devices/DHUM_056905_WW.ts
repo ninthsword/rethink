@@ -5,6 +5,7 @@ import { type Metadata } from '../thinq'
 import { allowExtendedType } from '@/util/casting'
 import * as TLV from '@/util/tlv'
 import HADevice from './base'
+import log from '@/util/logging'
 
 const MODES: Record<number, string> = {
     17: 'smart',
@@ -26,14 +27,45 @@ const FAN_SPEEDS: Record<number, string> = {
     8: 'auto',
 }
 
+// Bitmaps in the capability response, one bit per supported raw value. This unit
+// reports modes 17 through 21 and fan values 2 and 6, matching support.airState.opMode
+// and support.airState.windStrength in its ThinQ model schema.
+const SUPPORTED_MODES = 0x2c1
+const SUPPORTED_FAN_SPEEDS = 0x2c2
+
+function supported(mask: number | undefined, values: Record<number, string>) {
+    const names = Object.keys(values)
+        .map(Number)
+        .sort((a, b) => a - b)
+        .filter((raw) => mask === undefined || ((mask >> raw) & 1) === 1)
+        .map((raw) => values[raw])
+    // An appliance that reports no bit at all is more likely to be using a capability
+    // layout we have not seen than to support nothing, so fall back to every value.
+    return names.length ? names : Object.values(values)
+}
+
+function reverse(values: Record<number, string>): Record<string, number> {
+    return Object.fromEntries(Object.entries(values).map(([raw, name]) => [name, Number(raw)]))
+}
+
+const MODE_VALUES = reverse(MODES)
+const FAN_VALUES = reverse(FAN_SPEEDS)
+
 /**
  * LG dehumidifier DQ203PECA (ThinQ model DHUM_056905_WW).
  *
- * Only power and target humidity are writable. Both were captured end-to-end
- * through ThinQ cloud and restored to their original values. Mode and fan
- * controls remain read-only until their mode-dependent behavior is captured.
+ * Power, target humidity, operation mode and fan speed are writable. The model
+ * schema lists exactly these four under its basicCtrl control command
+ * (airState.operation, airState.humidity.desired, airState.opMode and
+ * airState.windStrength), and each write was captured on the appliance.
+ *
+ * The mode and fan options come from the capability bitmaps the appliance reports,
+ * because it silently ignores any other value: a fan write of 0, 4, 7 or 8 is
+ * acknowledged and then dropped without a state report, while 2 and 6 take effect.
  */
 export default class Device extends TLVDevice {
+    private deviceConfig: DeviceDiscovery | undefined
+
     constructor(HA: Connection, thinq: Thinq2Device, meta: Metadata) {
         super(HA, thinq)
 
@@ -47,6 +79,7 @@ export default class Device extends TLVDevice {
                     device_class: 'dehumidifier',
                     min_humidity: 30,
                     max_humidity: 70,
+                    modes: Object.values(MODES),
                 },
                 temperature: {
                     platform: 'sensor',
@@ -56,19 +89,10 @@ export default class Device extends TLVDevice {
                     unit_of_measurement: '°C',
                     suggested_display_precision: 1,
                 },
-                operation_mode: {
-                    platform: 'sensor',
-                    unique_id: '$deviceid-operation-mode',
-                    name: 'Operation mode',
-                    device_class: 'enum',
-                    options: Object.values(MODES),
-                    icon: 'mdi:air-humidifier-off',
-                },
                 fan_speed: {
-                    platform: 'sensor',
+                    platform: 'select',
                     unique_id: '$deviceid-fan-speed',
                     name: 'Fan speed',
-                    device_class: 'enum',
                     options: Object.values(FAN_SPEEDS),
                     icon: 'mdi:fan',
                 },
@@ -120,18 +144,20 @@ export default class Device extends TLVDevice {
 
         this.addField(config, {
             id: 0x1f9,
-            name: '',
-            comp: 'operation_mode',
-            writable: false,
+            name: 'mode',
+            comp: 'dehumidifier',
             read_xform: (raw) => MODES[raw],
+            write_xform: (value) => MODE_VALUES[value] ?? null,
+            write_callback: () => this.allowWriteWhilePowered('operation mode'),
         })
 
         this.addField(config, {
             id: 0x1fa,
             name: '',
             comp: 'fan_speed',
-            writable: false,
             read_xform: (raw) => FAN_SPEEDS[raw],
+            write_xform: (value) => FAN_VALUES[value] ?? null,
+            write_callback: (value) => this.allowFanWrite(value),
         })
 
         this.addField(config, {
@@ -142,7 +168,50 @@ export default class Device extends TLVDevice {
             read_xform: (raw) => (raw === 0 ? 'normal' : `E${raw.toString().padStart(2, '0')}`),
         })
 
-        this.setConfig(config)
+        // Both entities used to be read-only sensors on these very component ids. Home
+        // Assistant keeps the old entity when a component changes platform, and the mode
+        // sensor is gone entirely now that the humidifier carries the mode itself.
+        this.deviceConfig = config
+        this.setConfig(config, {
+            operation_mode: { platform: 'sensor' },
+            fan_speed: { platform: 'sensor' },
+        })
+    }
+
+    /**
+     * The appliance answers a mode or fan write while powered off with an ack and then
+     * ignores it, which would leave Home Assistant showing a value the appliance never
+     * took. Power is the only write that is meaningful in that state.
+     */
+    allowWriteWhilePowered(what: string) {
+        if (this.raw_clip_state[0x1f7]) return true
+        log('status', this.id, `ignoring ${what} command while powered off`)
+        return false
+    }
+
+    allowFanWrite(value: number) {
+        if (!this.allowWriteWhilePowered('fan speed')) return false
+
+        if (!this.supportedFanSpeeds().includes(FAN_SPEEDS[value])) {
+            log('status', this.id, 'ignoring unsupported fan speed', value)
+            return false
+        }
+        return true
+    }
+
+    supportedFanSpeeds() {
+        return supported(this.raw_clip_state[SUPPORTED_FAN_SPEEDS], FAN_SPEEDS)
+    }
+
+    /** The capability response carries the bitmaps, so the option lists are known only here. */
+    override capabilityReceived() {
+        if (!this.deviceConfig) return
+
+        const dehumidifier = this.deviceConfig.components.dehumidifier as { modes?: string[] }
+        const fanSpeed = this.deviceConfig.components.fan_speed as { options?: string[] }
+        dehumidifier.modes = supported(this.raw_clip_state[SUPPORTED_MODES], MODES)
+        fanSpeed.options = this.supportedFanSpeeds()
+        this.publishConfig()
     }
 
     protected override writeHeader() {

@@ -24,6 +24,10 @@ const WRITE_POWER_ON_HEX = '01010400000065020100027DC163E3'
 const WRITE_POWER_OFF_HEX = '01010400000065020100027DC073C2'
 const WRITE_HUMIDITY_50_HEX = '010104000000650201000394D032D182'
 const WRITE_HUMIDITY_55_HEX = '010104000000650201000394D0378127'
+// Captured from the appliance; the LG cloud sends byte-identical packets for the same
+// two commands, which is how the encoding was confirmed.
+const WRITE_MODE_FAST_HEX = '01010400000065020100037E50128988'
+const WRITE_FAN_LOW_HEX = '01010400000065020100027E824E17'
 
 function makeDevice() {
     const ha = new MockHAConnection()
@@ -56,10 +60,57 @@ describe(MODEL_ID, () => {
         assert.equal(ha.getProperty(DEVICE_ID, 'dehumidifier', 'target_humidity_state'), 55)
         assert.equal(ha.getProperty(DEVICE_ID, 'dehumidifier', 'current_humidity'), 68)
         assert.equal(ha.getProperty(DEVICE_ID, 'temperature', 'state'), 28)
-        assert.equal(ha.getProperty(DEVICE_ID, 'operation_mode', 'state'), 'smart')
+        assert.equal(ha.getProperty(DEVICE_ID, 'dehumidifier', 'mode_state'), 'smart')
         assert.equal(ha.getProperty(DEVICE_ID, 'fan_speed', 'state'), 'high')
         assert.equal(ha.getProperty(DEVICE_ID, 'error', 'state'), 'normal')
 
+        assert.deepEqual(components.dehumidifier.modes, [
+            'smart',
+            'fast',
+            'silent',
+            'concentrated_drying',
+            'clothing_drying',
+        ])
+        assert.equal(components.fan_speed.platform, 'select')
+
+        dev.drop()
+    })
+
+    test('retires the read-only sensors that the writable entities replaced', () => {
+        const { ha, dev } = buildReadyDevice()
+
+        // Mode and fan used to be sensors on these same component ids. Home Assistant does
+        // not retire an entity when a component changes platform, and the mode sensor is
+        // gone entirely now that the humidifier carries the mode itself.
+        const removal = ha.publishedConfigs.find(
+            (config) =>
+                (config.components.operation_mode as Record<string, unknown>)?.platform === 'sensor' &&
+                (config.components.fan_speed as Record<string, unknown>)?.platform === 'sensor',
+        )
+        assert.ok(removal, 'no sensor removal was published')
+        assert.equal(
+            (ha.devices[DEVICE_ID].config!.components.operation_mode as Record<string, unknown>) ?? undefined,
+            undefined,
+            'the mode sensor must not survive in the published config',
+        )
+        dev.drop()
+    })
+
+    test('offers only the modes and fan speeds the capability bitmaps report', () => {
+        const { ha, dev } = buildReadyDevice()
+        const components = ha.devices[DEVICE_ID].config!.components as Record<string, Record<string, unknown>>
+
+        // The captured capability response reports 0x2c1 = 0x3e0000 (modes 17..21) and
+        // 0x2c2 = 0x11044 (fan values 2 and 6). Every other fan value is acknowledged by
+        // the appliance and then dropped without a state report.
+        assert.deepEqual(components.dehumidifier.modes, [
+            'smart',
+            'fast',
+            'silent',
+            'concentrated_drying',
+            'clothing_drying',
+        ])
+        assert.deepEqual(components.fan_speed.options, ['low', 'high'])
         dev.drop()
     })
 
@@ -80,6 +131,37 @@ describe(MODEL_ID, () => {
         ha.setProperty(DEVICE_ID, 'dehumidifier', 'target_humidity_command', '54')
 
         assert.deepEqual(thinq.outbox.map(hex), [WRITE_HUMIDITY_50_HEX, WRITE_HUMIDITY_55_HEX])
+        dev.drop()
+    })
+
+    test('writes mode and fan only while the appliance is running', () => {
+        const { ha, thinq, dev } = buildReadyDevice()
+
+        // The captured state has the appliance powered off, where it acks a mode or fan
+        // write and then ignores it.
+        ha.setProperty(DEVICE_ID, 'dehumidifier', 'mode_command', 'fast')
+        ha.setProperty(DEVICE_ID, 'fan_speed', 'command', 'low')
+        assert.deepEqual(thinq.outbox.map(hex), [])
+
+        dev.raw_clip_state[0x1f7] = 1
+        ha.setProperty(DEVICE_ID, 'dehumidifier', 'mode_command', 'fast')
+        ha.setProperty(DEVICE_ID, 'fan_speed', 'command', 'low')
+        assert.deepEqual(thinq.outbox.map(hex), [WRITE_MODE_FAST_HEX, WRITE_FAN_LOW_HEX])
+
+        dev.drop()
+    })
+
+    test('rejects a fan speed the appliance does not support', () => {
+        const { ha, thinq, dev } = buildReadyDevice()
+        dev.raw_clip_state[0x1f7] = 1
+
+        // "power" (7) is acknowledged by the appliance and then ignored, so it must never
+        // be offered nor sent.
+        ha.setProperty(DEVICE_ID, 'fan_speed', 'command', 'power')
+        assert.deepEqual(thinq.outbox.map(hex), [])
+
+        ha.setProperty(DEVICE_ID, 'fan_speed', 'command', 'low')
+        assert.equal(thinq.outbox.length, 1)
         dev.drop()
     })
 
