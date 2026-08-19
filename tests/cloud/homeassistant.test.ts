@@ -86,12 +86,20 @@ test('korean language localizes discovery and state while preserving HA protocol
                 platform: 'climate',
                 unique_id: '$deviceid-climate',
                 name: null,
-                modes: ['smart', 'fan_only'],
-                mode_state_topic: '$this/operation_mode',
-                mode_command_topic: '$this/operation_mode/set',
+                modes: ['off', 'cool', 'fan_only'],
+                mode_state_topic: '$this/climate-mode',
+                mode_command_topic: '$this/climate-mode/set',
                 fan_modes: ['auto', 'low'],
                 fan_mode_state_topic: '$this/climate-fan_mode',
                 fan_mode_command_topic: '$this/climate-fan_mode/set',
+            },
+            dehumidifier: {
+                platform: 'humidifier',
+                unique_id: '$deviceid-dehumidifier',
+                name: null,
+                modes: ['smart', 'fast'],
+                mode_state_topic: '$this/operation_mode',
+                mode_command_topic: '$this/operation_mode/set',
             },
         },
     } as unknown as DeviceDiscovery
@@ -101,19 +109,27 @@ test('korean language localizes discovery and state while preserving HA protocol
     connection.publishProperty('dryer-id', 'power', 'ON')
     connection.publishProperty('dryer-id', 'climate-fan_mode', 'auto')
     connection.publishProperty('dryer-id', 'operation_mode', 'smart')
+    connection.publishProperty('dryer-id', 'climate-mode', 'off')
 
     const discovery = JSON.parse(published[0].payload)
     assert.equal(discovery.components.status.name, '상태')
     assert.deepEqual(discovery.components.status.options, ['운전 중', '완료'])
     assert.equal(discovery.components.power.name, '전원')
     assert.equal(discovery.device.name, '의류건조기')
-    assert.deepEqual(discovery.components.climate.modes, ['스마트', 'fan_only'])
+    // A climate entity's modes are Home Assistant's own HVAC modes; translating them
+    // makes Home Assistant drop the ones it does not recognise, which is how the air
+    // conditioners lost their "off". A humidifier names its own modes, so those are
+    // translated as before.
+    assert.deepEqual(discovery.components.climate.modes, ['off', 'cool', 'fan_only'])
+    assert.deepEqual(discovery.components.dehumidifier.modes, ['스마트', '쾌속'])
     assert.deepEqual(discovery.components.climate.fan_modes, ['자동', '약'])
     assert.equal(published[1].payload, '운전 중')
     assert.equal(published[2].payload, 'ON')
     assert.equal(published[3].payload, '자동')
     assert.equal(published[4].payload, '스마트')
+    assert.equal(published[5].payload, 'off', 'the HVAC mode must reach Home Assistant untranslated')
     assert.equal(connection.localizedCommandValues.get('dryer-id/operation_mode')?.get('스마트'), 'smart')
+    assert.equal(connection.localizedCommandValues.get('dryer-id/climate-mode')?.get('off'), 'off')
 })
 
 test('korean language localizes Korean appliance course values', () => {

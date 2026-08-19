@@ -1,6 +1,7 @@
 import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
-import { delocalizeValue, localizeValue } from '@/util/ha_locale'
+import { delocalizeValue, localizeDiscovery, localizeValue } from '@/util/ha_locale'
+import type { DeviceDiscovery } from '@/cloud/homeassistant'
 
 describe('korean appliance value localization', () => {
     test('translates the washer course, water temperature and dry level tokens', () => {
@@ -28,6 +29,41 @@ describe('korean appliance value localization', () => {
     test('leaves the same values untouched in english', () => {
         assert.equal(localizeValue('SMALL_LOAD', 'english'), 'SMALL_LOAD')
         assert.equal(localizeValue('30_MIN', undefined), '30_MIN')
+    })
+
+    test('leaves a climate entity its Home Assistant HVAC modes', () => {
+        // Home Assistant accepts only its own HVAC modes here and drops the rest, so a
+        // translated "off" left the air conditioners with no way to be turned off.
+        const config = {
+            device: { name: 'x' },
+            components: {
+                climate: {
+                    platform: 'climate',
+                    modes: ['off', 'cool', 'dry', 'fan_only', 'heat', 'auto'],
+                    swing_modes: ['off', 'swing', 'position_1'],
+                    fan_modes: ['level_1', 'natural'],
+                },
+            },
+        } as unknown as DeviceDiscovery
+        const localized = localizeDiscovery(config, 'korean').components.climate as Record<string, unknown>
+
+        assert.deepEqual(localized.modes, ['off', 'cool', 'dry', 'fan_only', 'heat', 'auto'])
+        // The other lists are free text the appliance and Rethink agree on, so they do
+        // get translated — including the same "off" token.
+        assert.deepEqual(localized.swing_modes, ['꺼짐', '회전', '위치1'])
+        assert.deepEqual(localized.fan_modes, ['1단', '자연풍'])
+    })
+
+    test('still translates the modes of entities that name their own', () => {
+        // A humidifier's modes are names we chose, not a Home Assistant enumeration.
+        const config = {
+            device: { name: 'x' },
+            components: {
+                dehumidifier: { platform: 'humidifier', modes: ['smart', 'fast', 'silent'] },
+            },
+        } as unknown as DeviceDiscovery
+        const localized = localizeDiscovery(config, 'korean').components.dehumidifier as Record<string, unknown>
+        assert.deepEqual(localized.modes, ['스마트', '쾌속', '저소음'])
     })
 
     test('keeps the air purifier sleep timer distinct from the washer dry level', () => {

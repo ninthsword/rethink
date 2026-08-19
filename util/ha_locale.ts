@@ -409,6 +409,13 @@ export function localizeDiscovery(config: DeviceDiscovery, language: HALanguage 
             else component.name = KOREAN_NAMES[component.name] ?? component.name
         }
         for (const key of ['options', 'fan_modes', 'swing_modes', 'swing_horizontal_modes', 'preset_modes', 'modes']) {
+            // A climate entity's modes are Home Assistant's own HVAC modes, not labels:
+            // it accepts only off/auto/cool/heat/dry/fan_only/heat_cool there and drops
+            // anything else, which is how translating them took the "off" option away and
+            // left the appliance impossible to turn off from the thermostat card. Every
+            // other list here is free text that the appliance and Rethink agree on, and a
+            // humidifier's modes are our own names, so those still get translated.
+            if (key === 'modes' && component.platform === 'climate') continue
             if (Array.isArray(component[key]))
                 component[key] = (component[key] as unknown[]).map((value) =>
                     typeof value === 'string'
