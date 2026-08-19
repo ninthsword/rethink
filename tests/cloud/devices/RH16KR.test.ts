@@ -40,3 +40,22 @@ test('RH16KR exposes the complete model process table', () => {
 
     assert.equal(ha.devices['dryer-id'].properties.process_status, 'COOL')
 })
+
+test('RH16KR handles the model id the dryer reports after a fresh registration', () => {
+    // Re-registering the appliance in the ThinQ app changed its model id from RH16KR to
+    // RH16_N_KR, and rethink then had no handler for it. This packet is the one the
+    // appliance sent afterwards: same 0x30/0xEC framing, same 27 byte record.
+    const meta: Metadata = { modelId: 'RH16_N_KR', modelName: 'RH16_N_KR', swVersion: '2.9.66' }
+    const ha = new MockHAConnection()
+    const thinq = new MockThinq2Device('dryer-id', meta)
+    new DUT(ha.asConnection(), thinq, meta)
+    thinq.emit(
+        'data',
+        buf(
+            'AA3C30EC001901012800000200000200000000000088000000000000008300' +
+                '001901012800000200000200000000000080000000000000008300CBBB',
+        ),
+    )
+
+    assert.equal(ha.devices['dryer-id'].properties.power, 'ON')
+})

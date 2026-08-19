@@ -75,6 +75,9 @@ const t2deviceTypes: Record<string, T2Factory> = {
     ['RV13B6BSD_D_US_WIFI']: RV13B6BSD_D_US_WIFI, // LG electric dryer
     ['F21VDT_AKOR']: F21VDT_AKOR, // Korean front-loading washer
     ['RH16KR']: RH16KR, // Korean dryer
+    // The same dryer reports this model id after being registered afresh in the ThinQ
+    // app; its packets are byte-for-byte what the handler already reads.
+    ['RH16_N_KR']: RH16KR,
     ['2REK1G03VI1902']: Dev_2REK1G03VI1902, // Korean kimchi refrigerator
     ['Pd0F_F']: Pd0F_F, // Korean mini washer
     ['D121111']: D121111, // Korean dishwasher
