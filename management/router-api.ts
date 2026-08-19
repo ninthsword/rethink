@@ -24,7 +24,10 @@ export class RouterAPI {
     }
 
     register(app: WebSocketExpress) {
-        app.get('/api/router/config', this.wrap(async (_req, res) => res.json(this.store.publicRouter())))
+        app.get(
+            '/api/router/config',
+            this.wrap(async (_req, res) => res.json(this.store.publicRouter())),
+        )
 
         app.put(
             '/api/router/config',
@@ -81,7 +84,14 @@ export class RouterAPI {
                 const deviceId = `${req.body?.deviceId || ''}`
                 const device = this.manager.allDevices[deviceId]
                 if (!device) throw new Error('Rethink device is not connected')
-                res.json(this.store.linkDevice(this.param(req, 'entryId'), deviceId, this.deviceName(device)))
+                res.json(
+                    this.store.linkDevice(
+                        this.param(req, 'entryId'),
+                        deviceId,
+                        this.deviceName(device),
+                        device.platform,
+                    ),
+                )
             }),
         )
 
@@ -223,12 +233,16 @@ export class RouterAPI {
     private syncDevice(device: AnyDevice) {
         const name = this.deviceName(device)
         const sourceIp = 'sourceIp' in device ? device.sourceIp : undefined
-        this.store.linkByIp(sourceIp, device.id, name)
+        this.store.linkByIp(sourceIp, device.id, name, device.platform)
         this.store.refreshDetectedName(device.id, name)
     }
 
     private deviceName(device: AnyDevice) {
-        return this.bridge?.name(device.id) || this.ha.haDevices.get(device.id)?.config?.device?.name || device.meta.modelName
+        return (
+            this.bridge?.name(device.id) ||
+            this.ha.haDevices.get(device.id)?.config?.device?.name ||
+            device.meta.modelName
+        )
     }
 }
 

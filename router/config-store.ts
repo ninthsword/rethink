@@ -17,6 +17,7 @@ export type RouterDeviceEntry = {
     deviceId?: string
     detectedName?: string
     customName?: string
+    platform?: 'thinq1' | 'thinq2'
 }
 
 export type RouterConfig = {
@@ -122,6 +123,7 @@ export class RouterConfigStore {
             entry.ip = ip
             entry.deviceId = undefined
             entry.detectedName = undefined
+            entry.platform = undefined
         }
         if (input.customName !== undefined) entry.customName = `${input.customName}`.trim() || undefined
         this.save()
@@ -135,12 +137,13 @@ export class RouterConfigStore {
         this.save()
     }
 
-    linkDevice(entryId: string, deviceId: string, detectedName?: string) {
+    linkDevice(entryId: string, deviceId: string, detectedName?: string, platform?: 'thinq1' | 'thinq2') {
         const entry = this.requireDevice(entryId)
         const duplicate = this.config.devices.find((item) => item !== entry && item.deviceId === deviceId)
         if (duplicate) throw new Error('Rethink device is already linked to another IP')
         entry.deviceId = `${deviceId}`
         if (detectedName) entry.detectedName = detectedName
+        if (platform) entry.platform = platform
         this.save()
         return { ...entry }
     }
@@ -149,6 +152,7 @@ export class RouterConfigStore {
         const entry = this.requireDevice(entryId)
         entry.deviceId = undefined
         entry.detectedName = undefined
+        entry.platform = undefined
         this.save()
         return { ...entry }
     }
@@ -159,13 +163,23 @@ export class RouterConfigStore {
         return entry
     }
 
-    linkByIp(ip: string | undefined, deviceId: string, detectedName: string | undefined) {
+    linkByIp(
+        ip: string | undefined,
+        deviceId: string,
+        detectedName: string | undefined,
+        platform?: 'thinq1' | 'thinq2',
+    ) {
         if (!ip) return false
         const entry = this.config.devices.find((item) => item.ip === ip)
         if (!entry) return false
         const changed = entry.deviceId !== deviceId || (!!detectedName && entry.detectedName !== detectedName)
         entry.deviceId = deviceId
         if (detectedName) entry.detectedName = detectedName
+        if (platform && entry.platform !== platform) {
+            entry.platform = platform
+            this.save()
+            return true
+        }
         if (changed) this.save()
         return changed
     }
