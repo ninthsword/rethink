@@ -6,6 +6,7 @@ import { spawnSync } from 'node:child_process'
 import { dirname, resolve } from 'node:path'
 import { Broker } from './cloud/mqtt-broker'
 import * as tls from 'node:tls'
+import type { TLSSocket } from 'node:tls'
 import * as net from 'node:net'
 import { X509Certificate } from 'node:crypto'
 import { routes as thinq1Routes } from './cloud/thinq1/http'
@@ -104,10 +105,28 @@ function t1setup(manager: DeviceManager) {
         res.json({})
     })
 
-    https.createServer(tlsServerOptions, app).listen(config.thinq1_https_port.bind)
+    reportTlsErrors(https.createServer(tlsServerOptions, app), 'thinq1 https').listen(config.thinq1_https_port.bind)
     const acceptor = new T1Acceptor()
-    tls.createServer(tlsServerOptions, acceptor.accept.bind(acceptor)).listen(config.thinq1_port.bind)
+    reportTlsErrors(tls.createServer(tlsServerOptions, acceptor.accept.bind(acceptor)), 'thinq1').listen(
+        config.thinq1_port.bind,
+    )
     acceptor.on('newDevice', manager.accept.bind(manager))
+}
+
+/**
+ * A refused TLS handshake was completely silent until now: neither server had a
+ * tlsClientError listener, so an appliance that could not agree a connection simply never
+ * appeared and left nothing to look at. Every listener gets one.
+ */
+function reportTlsErrors<T extends { on(event: 'tlsClientError', handler: (err: Error, socket: TLSSocket) => void): T }>(
+    server: T,
+    name: string,
+) {
+    server.on('tlsClientError', (err, socket) => {
+        const from = (socket as unknown as { remoteAddress?: string }).remoteAddress ?? 'unknown'
+        log('status', `TLS handshake refused on ${name} from ${from}: ${err.message}`)
+    })
+    return server
 }
 
 // Thinq2
@@ -129,13 +148,15 @@ function t2setup(manager: DeviceManager) {
         res.end('')
     })
 
-    https.createServer(tlsServerOptions, app).listen(config.https_port.bind)
+    reportTlsErrors(https.createServer(tlsServerOptions, app), 'thinq2 https').listen(config.https_port.bind)
 
     // internal MQTT broker
     const broker = new Broker()
 
     if (config.mqtt) {
-        tls.createServer(tlsServerOptions, broker.accept.bind(broker)).listen(config.mqtts_port.bind)
+        reportTlsErrors(tls.createServer(tlsServerOptions, broker.accept.bind(broker)), 'mqtts').listen(
+            config.mqtts_port.bind,
+        )
         net.createServer({}, broker.accept.bind(broker)).listen(config.mqtt_port.bind)
     }
 
