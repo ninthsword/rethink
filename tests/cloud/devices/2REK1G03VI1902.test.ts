@@ -33,6 +33,7 @@ test('2REK1G03VI1902 decodes the live kimchi refrigerator snapshot', () => {
     assert.equal(p.door, 'OFF')
     assert.equal(p.display_lock, 'ON')
     assert.equal(p.one_touch_filter, 'OFF')
+    // The captured snapshot has the panel locked, no door open and no cycle running.
     assert.equal(p.monitor_status, 'MONITOR_NORMAL')
 })
 
@@ -84,12 +85,30 @@ test('2REK1G03VI1902 reports compartment power off through the mode lists', () =
     assert.equal(p.bottom_room_mode, 'bottom_off')
 })
 
-test('2REK1G03VI1902 reports the one touch deodorizing cycle', () => {
+test('2REK1G03VI1902 tells the door apart from the deodorizing cycle', () => {
     const { ha, thinq } = makeDevice()
 
-    // Byte 8 is oneTouchFilter, which LG calls 원터치 탈취.
-    thinq.emit('data', buf('AA0F11EB0200FF0300FF000101EFBB'))
-    assert.equal(ha.devices['kimchi-id'].properties.one_touch_filter, 'ON')
+    // Captured with the appliance in hand: pressing 원터치 탈취 moved byte 6, and opening
+    // either compartment door moved byte 8. The handler had the two the other way round.
+    thinq.emit('data', buf('AA0F11EB0200FF0300FF010000ECBB'))
+    let p = ha.devices['kimchi-id'].properties
+    assert.equal(p.one_touch_filter, 'ON')
+    assert.equal(p.door, 'OFF')
+
+    thinq.emit('data', buf('AA0F11EB0200FF0300FF000001ECBB'))
+    p = ha.devices['kimchi-id'].properties
+    assert.equal(p.one_touch_filter, 'OFF')
+    assert.equal(p.door, 'ON')
+})
+
+test('2REK1G03VI1902 reads the control panel lock', () => {
+    const { ha, thinq } = makeDevice()
+
+    // Byte 7, confirmed by releasing and re-engaging the lock on the panel.
+    thinq.emit('data', buf('AA0F11EB0200FF0300FF000000EDBB'))
+    assert.equal(ha.devices['kimchi-id'].properties.display_lock, 'OFF')
+    thinq.emit('data', buf('AA0F11EB0200FF0300FF000100ECBB'))
+    assert.equal(ha.devices['kimchi-id'].properties.display_lock, 'ON')
 })
 
 test('2REK1G03VI1902 keeps the raw compartment sensors alongside the modes', () => {

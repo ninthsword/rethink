@@ -150,9 +150,13 @@ export default class Device extends AABBDevice {
         this.publishRoom('top_room', status[1], TOP_ROOM_MODES)
         this.publishRoom('middle_room', status[3], MIDDLE_ROOM_MODES)
         this.publishRoom('bottom_room', status[4], BOTTOM_ROOM_MODES)
-        if (status[6] !== IGNORE) this.publishProperty('door', status[6] === 1 ? 'ON' : 'OFF')
+        // Byte 6 and byte 8 were the other way round until the appliance was operated with
+        // a capture running: pressing 원터치 탈취 moved byte 6, and opening a door moved
+        // byte 8. Both compartment doors move the same byte, so it is the appliance's
+        // "at least one door open" flag rather than a per-compartment one.
+        if (status[6] !== IGNORE) this.publishProperty('one_touch_filter', status[6] === 1 ? 'ON' : 'OFF')
         if (status[7] !== IGNORE) this.publishProperty('display_lock', status[7] === 1 ? 'ON' : 'OFF')
-        if (status[8] !== IGNORE) this.publishProperty('one_touch_filter', status[8] === 1 ? 'ON' : 'OFF')
+        if (status[8] !== IGNORE) this.publishProperty('door', status[8] === 1 ? 'ON' : 'OFF')
         if (status[0] !== IGNORE) this.publishProperty('monitor_status', MONITOR_STATUS[status[0]] ?? `RAW_${status[0]}`)
     }
 
