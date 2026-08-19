@@ -209,14 +209,28 @@ export class Broker extends TypedEmitter<BrokerEvents> {
      * the end of the stream.
      */
     shutdown() {
+        let reset = 0
         for (const client of this.clients) {
-            const stream = client.stream
-            // resetAndDestroy sends RST; older runtimes only have destroy, which at least
-            // closes the connection.
-            if (stream?.resetAndDestroy) stream.resetAndDestroy()
-            else stream?.destroy()
+            // resetAndDestroy only works on a raw TCP socket. Appliances arrive over TLS,
+            // where it throws ERR_INVALID_HANDLE_TYPE, so try the socket underneath the
+            // TLS one as well and fall back to a plain close. A throw here would abort the
+            // shutdown before any connection was dealt with.
+            const parent = (client.stream as unknown as { _parent?: Socket } | undefined)?._parent
+            let done = false
+            for (const socket of [client.stream, parent]) {
+                if (!socket?.resetAndDestroy) continue
+                try {
+                    socket.resetAndDestroy()
+                    reset++
+                    done = true
+                    break
+                } catch {
+                    // Not a socket that can be reset; try the next one.
+                }
+            }
+            if (!done) client.stream?.destroy()
         }
-        log('status', 'reset', this.clients.size, 'appliance connections for shutdown')
+        log('status', 'closed', this.clients.size, 'appliance connections for shutdown,', reset, 'with a reset')
     }
 
     publish(packet: PublishPacket, client: Client | null) {

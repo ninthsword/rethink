@@ -47,3 +47,36 @@ test('shutdown falls back to a plain close where reset is unavailable', () => {
     broker.shutdown()
     assert.deepEqual(record, ['destroy'])
 })
+
+test('shutdown resets the socket underneath a TLS connection', () => {
+    const record: string[] = []
+    const broker = new Broker()
+    const tls = fakeSocket(record) as unknown as Record<string, unknown>
+    const raw = fakeSocket(record)
+    // Appliances arrive over TLS, where resetAndDestroy throws ERR_INVALID_HANDLE_TYPE.
+    tls.resetAndDestroy = () => {
+        throw new Error('ERR_INVALID_HANDLE_TYPE')
+    }
+    tls._parent = raw
+    broker.accept(tls as unknown as Socket)
+
+    broker.shutdown()
+    assert.deepEqual(record, ['reset'], 'the reset must land on the socket that accepts one')
+})
+
+test('shutdown survives a connection that can be neither reset nor found underneath', () => {
+    const record: string[] = []
+    const broker = new Broker()
+    const stubborn = fakeSocket(record) as unknown as Record<string, unknown>
+    stubborn.resetAndDestroy = () => {
+        throw new Error('ERR_INVALID_HANDLE_TYPE')
+    }
+    const ordinary = fakeSocket(record)
+    broker.accept(stubborn as unknown as Socket)
+    broker.accept(ordinary)
+
+    // A throw used to abort the shutdown before any connection was dealt with, and took
+    // the process down with it on every restart.
+    broker.shutdown()
+    assert.deepEqual(record, ['destroy', 'reset'])
+})
