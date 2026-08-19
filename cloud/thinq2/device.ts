@@ -157,6 +157,19 @@ export class DeviceAcceptor extends TypedEmitter<DeviceAcceptorEvents> {
         }
 
         if (topic === 'clip/provisioning/devices/' + payload.did) {
+            if (payload.cmd === 'undeploy') {
+                // The appliance is dropping its provisioning with us. Everything tied to it
+                // has to go: completeProvisioning refuses a second registration while the
+                // device object is still around, so leaving it would make the appliance's
+                // next deploy a no-op and it would never come back. It also stops sending
+                // state records in the meantime, so keeping the device would leave Home
+                // Assistant showing an appliance that has quietly gone silent.
+                log('status', payload.did, 'undeployed itself; dropping its registration')
+                this.disconnected(client)
+                client.deployMsg = undefined
+                return
+            }
+
             if (payload.cmd === 'preDeploy' || payload.cmd === 'deploy') {
                 client.deployMsg = payload as ClipDeployMessage
                 const packet = {
