@@ -20,6 +20,7 @@ describe('ThinQ1 DHUM_056905_WW', () => {
         const components = ha.devices[DEVICE_ID].config!.components as Record<string, Record<string, unknown>>
         assert.deepEqual(Object.keys(components), [
             'dehumidifier',
+            'target_humidity',
             'fan_speed',
             'water_tank_light',
             'clean_dry',
@@ -27,6 +28,12 @@ describe('ThinQ1 DHUM_056905_WW', () => {
             'off_timer',
             'error',
         ])
+        // The appliance only takes multiples of five and Home Assistant's humidifier
+        // slider always moves one per cent at a time, so the value gets its own control
+        // sharing the same topics.
+        assert.equal(components.target_humidity.step, 5)
+        assert.equal(components.target_humidity.min, 30)
+        assert.equal(components.target_humidity.max, 70)
         // SupportReserve advertises @AP_SIMPLE_TIMER_DHUM_8, so the slider stops at eight
         // hours and moves an hour at a time.
         assert.equal(components.off_timer.min, 0)

@@ -96,6 +96,26 @@ export default class Device extends HADevice {
                         min_humidity: 30,
                         max_humidity: 70,
                     },
+                    /*
+                     * The appliance only accepts multiples of five. Home Assistant's
+                     * humidifier entity has no step setting — its slider always moves one
+                     * per cent at a time — so the value gets its own control that moves the
+                     * way the appliance does.
+                     */
+                    target_humidity: {
+                        platform: 'number',
+                        unique_id: '$deviceid-target-humidity',
+                        name: 'Target humidity',
+                        icon: 'mdi:water-percent',
+                        device_class: 'humidity',
+                        unit_of_measurement: '%',
+                        state_topic: '$this/target_humidity',
+                        command_topic: '$this/target_humidity/set',
+                        min: 30,
+                        max: 70,
+                        step: 5,
+                        mode: 'slider',
+                    },
                     fan_speed: {
                         platform: 'select',
                         unique_id: '$deviceid-fan-speed',

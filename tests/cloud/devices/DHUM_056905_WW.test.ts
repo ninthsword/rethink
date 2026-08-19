@@ -266,6 +266,28 @@ describe(MODEL_ID, () => {
         dev.drop()
     })
 
+    test('offers target humidity in the steps the appliance accepts', () => {
+        const { ha, thinq, dev } = buildReadyDevice()
+        const number = ha.devices[DEVICE_ID].config!.components.target_humidity as Record<string, unknown>
+
+        // The appliance only takes multiples of five and Home Assistant's humidifier
+        // slider always moves one per cent at a time, so the value gets its own control.
+        assert.equal(number.platform, 'number')
+        assert.equal(number.step, 5)
+        assert.equal(number.min, 30)
+        assert.equal(number.max, 70)
+
+        ha.setProperty(DEVICE_ID, 'target_humidity', 'command', '52')
+        assert.deepEqual(thinq.outbox.map(hex), [WRITE_HUMIDITY_50_HEX])
+
+        // One definition per tag survives the read path, so the value has to reach the
+        // humidifier as well or its own slider goes stale.
+        dev.processKeyValue(0x253, 65)
+        assert.equal(ha.getProperty(DEVICE_ID, 'target_humidity', 'state'), 65)
+        assert.equal(ha.getProperty(DEVICE_ID, 'dehumidifier', 'target_humidity_state'), 65)
+        dev.drop()
+    })
+
     test('constructor sends the standard capability query', () => {
         const { thinq, dev } = makeDevice()
         assert.equal(hex(thinq.outbox[0]), CAPS_REQUEST_HEX)

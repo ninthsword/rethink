@@ -47,6 +47,15 @@ const HUMIDITY_SENSOR = 0x337
  * this is the water tank. The model schema names the tag 0x186 for a full tank; this
  * appliance never sends that one.
  */
+/** Target humidity, in whole per cent but only ever a multiple of five. */
+const TARGET_HUMIDITY = 0x253
+
+function clampHumidity(value: string) {
+    const humidity = Number(value)
+    if (!Number.isFinite(humidity)) return null
+    return Math.min(70, Math.max(30, Math.round(humidity / 5) * 5))
+}
+
 const NOTIFICATION_ID = 0x2b1
 const NOTIFICATION_STATE = 0x2b2
 const WATER_TANK_FULL = 256
@@ -148,6 +157,25 @@ export default class Device extends TLVDevice {
                     step: 1,
                     mode: 'slider',
                 },
+                /*
+                 * The appliance only accepts multiples of five, and its capability response
+                 * says so. Home Assistant's humidifier entity has no step setting — its
+                 * slider always moves one per cent at a time — so the value gets its own
+                 * control that moves the way the appliance does. The humidifier's own
+                 * slider still works; it simply rounds on the way through.
+                 */
+                target_humidity: {
+                    platform: 'number',
+                    unique_id: '$deviceid-target-humidity',
+                    name: 'Target humidity',
+                    icon: 'mdi:water-percent',
+                    device_class: 'humidity',
+                    unit_of_measurement: '%',
+                    min: 30,
+                    max: 70,
+                    step: 5,
+                    mode: 'slider',
+                },
                 humidity_sensor: {
                     platform: 'select',
                     unique_id: '$deviceid-humidity-sensor',
@@ -200,11 +228,22 @@ export default class Device extends TLVDevice {
             name: 'target_humidity',
             comp: 'dehumidifier',
             read_xform: (raw) => raw,
-            write_xform: (value) => {
-                const humidity = Number(value)
-                if (!Number.isFinite(humidity)) return null
-                return Math.min(70, Math.max(30, Math.round(humidity / 5) * 5))
+            write_xform: (value) => clampHumidity(value),
+        })
+
+        this.addField(config, {
+            id: TARGET_HUMIDITY,
+            name: '',
+            comp: 'target_humidity',
+            read_xform: (raw) => raw,
+            // Only one definition per tag survives in the read path, and this one replaced
+            // the humidifier's, so it carries the value across to it as well. Writes are
+            // unaffected: those are looked up by entity, and the two are separate.
+            read_callback: (value) => {
+                this.HA.publishProperty(this.id, 'dehumidifier-target_humidity', value)
+                return true
             },
+            write_xform: (value) => clampHumidity(value),
         })
 
         this.addField(config, {
