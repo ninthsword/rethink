@@ -341,9 +341,7 @@ export default class Device extends TLVDevice {
                     max_temp: 30,
                     // The Korean RAC here is cooling only: its panel has no heating mode and
                     // selecting one in Home Assistant did nothing. WINF has no auto either.
-                    modes: isWinf
-                        ? ['off', 'cool', 'dry', 'fan_only']
-                        : ['off', 'cool', 'dry', 'fan_only', 'auto'],
+                    modes: isWinf ? ['off', 'cool', 'dry', 'fan_only'] : ['off', 'cool', 'dry', 'fan_only', 'auto'],
                     // The Korean RAC/WINF model data advertises raw 3..7 as five fan levels.
                     // RAC additionally advertises raw 9 (natural wind); WINF does not.
                     fan_modes: isWinf ? FAN_LEVELS : [...FAN_LEVELS, 'natural'],
@@ -592,45 +590,48 @@ export default class Device extends TLVDevice {
             )
         }
 
-        // Confirmed on the appliance panel: the sound button reports 0x3a0, inverted the
-        // same way as the display, and the dehumidifiers store their button sound on the
-        // same tag with the same meaning.
-        config['components']['sound'] = allowExtendedType({
-            platform: 'switch',
-            unique_id: '$deviceid-sound',
-            name: 'Sound',
-            icon: 'mdi:volume-high',
-            entity_category: 'config',
-        })
-        this.addField(config, {
-            id: 0x3a0,
-            name: '',
-            comp: 'sound',
-            read_xform: (raw) => (raw ? 'OFF' : 'ON'),
-            write_xform: (value) => (value === 'ON' ? 0 : 1),
-        })
+        // Confirmed on the WINF panel: the sound button reports 0x3a0, inverted the same
+        // way as the display, and the dehumidifiers store their button sound on the same
+        // tag with the same meaning. The RAC in this home has neither this nor the
+        // temperature step button, so both stay with the model that has them.
+        if (isWinf) {
+            config['components']['sound'] = allowExtendedType({
+                platform: 'switch',
+                unique_id: '$deviceid-sound',
+                name: 'Sound',
+                icon: 'mdi:volume-high',
+                entity_category: 'config',
+            })
+            this.addField(config, {
+                id: 0x3a0,
+                name: '',
+                comp: 'sound',
+                read_xform: (raw) => (raw ? 'OFF' : 'ON'),
+                write_xform: (value) => (value === 'ON' ? 0 : 1),
+            })
 
-        // The temperature step the appliance's own panel switches between. Confirmed by
-        // pressing the button: 0x1fb reads 1 for whole degrees and 0 for half degrees.
-        config['components']['temperature_step'] = allowExtendedType({
-            platform: 'select',
-            unique_id: '$deviceid-temperature_step',
-            name: 'Temperature step',
-            icon: 'mdi:thermometer-lines',
-            entity_category: 'config',
-            options: Object.values(TEMPERATURE_STEPS),
-        })
-        this.addField(config, {
-            id: 0x1fb,
-            name: '',
-            comp: 'temperature_step',
-            read_xform: (raw) => TEMPERATURE_STEPS[raw],
-            write_xform: (value) => (value === TEMPERATURE_STEPS[1] ? 1 : 0),
-            read_callback: (value) => {
-                this.applyTemperatureStep(value === TEMPERATURE_STEPS[1] ? 1 : 0.5)
-                return true
-            },
-        })
+            // The temperature step the appliance's own panel switches between. Confirmed by
+            // pressing the button: 0x1fb reads 1 for whole degrees and 0 for half degrees.
+            config['components']['temperature_step'] = allowExtendedType({
+                platform: 'select',
+                unique_id: '$deviceid-temperature_step',
+                name: 'Temperature step',
+                icon: 'mdi:thermometer-lines',
+                entity_category: 'config',
+                options: Object.values(TEMPERATURE_STEPS),
+            })
+            this.addField(config, {
+                id: 0x1fb,
+                name: '',
+                comp: 'temperature_step',
+                read_xform: (raw) => TEMPERATURE_STEPS[raw],
+                write_xform: (value) => (value === TEMPERATURE_STEPS[1] ? 1 : 0),
+                read_callback: (value) => {
+                    this.applyTemperatureStep(value === TEMPERATURE_STEPS[1] ? 1 : 0.5)
+                    return true
+                },
+            })
+        }
 
         // Confirmed on the appliance panel: pressing the display button reports 0x21f,
         // and the value is inverted — 1 is the display switched off.

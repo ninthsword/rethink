@@ -257,6 +257,24 @@ describe(MODEL_ID, () => {
         dev.drop()
     })
 
+    test('the RAC has neither a sound button nor a temperature step button', (t) => {
+        enableMockTimers(t)
+        const ha = new MockHAConnection()
+        const thinq = new MockThinq2Device(DEVICE_ID, META)
+        const dev = new DUT(ha.asConnection(), thinq, META)
+        thinq.emit('data', buf(CAPS_RESPONSE_HEX))
+        thinq.emit('data', buf(QUERY_RESPONSE_HEX))
+        tickMockTimers(t, 6000)
+
+        // Only the WINF panel has them; offering them on this model gave Home Assistant
+        // controls with nothing behind them.
+        const components = ha.devices[DEVICE_ID].config!.components as Record<string, unknown>
+        assert.equal(components.sound, undefined)
+        assert.equal(components.temperature_step, undefined)
+        assert.notEqual(components.display, undefined)
+        dev.drop()
+    })
+
     test('auto dry and the display are writable switches', (t) => {
         enableMockTimers(t)
         const ha = new MockHAConnection()
@@ -303,8 +321,9 @@ describe(MODEL_ID, () => {
     test('the sound switch and the temperature step follow the appliance panel', (t) => {
         enableMockTimers(t)
         const ha = new MockHAConnection()
-        const thinq = new MockThinq2Device(DEVICE_ID, META)
-        const dev = new DUT(ha.asConnection(), thinq, META)
+        const meta: Metadata = { ...META, modelId: 'WINF_056905_WW' }
+        const thinq = new MockThinq2Device(DEVICE_ID, meta)
+        const dev = new DUT(ha.asConnection(), thinq, meta)
         ha.on('setProperty', (id: string, prop: string, value: string) => dev.setProperty(prop, value))
         thinq.emit('data', buf(CAPS_RESPONSE_HEX))
         thinq.emit('data', buf(QUERY_RESPONSE_HEX))
