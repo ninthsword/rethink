@@ -158,6 +158,11 @@ export class Bridge extends TypedEmitter<BridgeEvents> {
         return false
     }
 
+    /** Whether a registration is waiting to be restored after its entry was removed. */
+    hasArchivedState(id: string) {
+        return this.state.hasArchivedDeviceState(id)
+    }
+
     hasSavedState(id: string) {
         return !!this.state.getDeviceState(id)
     }

@@ -38,3 +38,38 @@ describe('F21VDT_AKOR', () => {
         assert.equal(components.power_off, undefined)
     })
 })
+
+test('F21VDT_AKOR names every course its dial reaches', () => {
+    // Read off the appliance one dial position at a time, in the order the panel lists
+    // them. The values run 7 down to 1 and wrap to 14, closing back on 표준세탁.
+    const dial: Array<[number, string]> = [
+        [7, 'NORMAL_WASH'],
+        [6, 'STAIN_CARE'],
+        [5, 'BABY_WEAR'],
+        [4, 'ECO_BOIL'],
+        [3, 'SPORTWEAR'],
+        [2, 'ALLERGY_CARE'],
+        [1, 'STEAM_STYLING'],
+        [14, 'DOWNLOADED'],
+        [13, 'RINSE_SPIN'],
+        [12, 'LINGERIE_WOOL'],
+        [11, 'BULKYITEM'],
+        [10, 'COLOR_CARE'],
+        [9, 'QUIET_WASH'],
+        [8, 'SPEEDWASH'],
+    ]
+
+    const ha = new MockHAConnection()
+    const thinq = new MockThinq2Device('washer-id', META)
+    const dev = new DUT(ha.asConnection(), thinq, META)
+    for (const [raw, name] of dial) {
+        const rec = Buffer.alloc(28)
+        rec[1] = 0x1a
+        rec[7] = raw
+        const inner = Buffer.concat([Buffer.from([0x20, 0xeb]), rec])
+        const frame = Buffer.concat([Buffer.from([0xaa, inner.length + 4]), inner, Buffer.from([0x00, 0xbb])])
+        thinq.emit('data', frame)
+        assert.equal(ha.devices['washer-id'].properties.course, name, `raw ${raw}`)
+    }
+    dev.drop()
+})

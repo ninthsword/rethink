@@ -319,6 +319,18 @@ const KOREAN_VALUES: Record<string, string> = {
     WATERREPELLENT: '아웃도어리프레쉬',
     // The dial position that runs whatever course the app has sent down.
     DOWNLOADED: '다운로드코스',
+    // Washer course dial, read off the appliance one position at a time. The names the
+    // dryer already uses for the same wording are reused rather than duplicated.
+    NORMAL_WASH: '표준세탁',
+    STAIN_CARE: '찌든때',
+    BABY_WEAR: '아기옷',
+    ECO_BOIL: '알뜰삶음',
+    ALLERGY_CARE: '알러지케어',
+    STEAM_STYLING: '스팀스타일링',
+    RINSE_SPIN: '헹굼+탈수',
+    LINGERIE_WOOL: '란제리/울',
+    COLOR_CARE: '컬러케어',
+    QUIET_WASH: '조용조용',
     smart: '스마트',
     fast: '쾌속',
     silent: '저소음',

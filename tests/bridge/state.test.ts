@@ -50,6 +50,17 @@ describe('bridge registration archive', () => {
         cleanup()
     })
 
+    test('an archive is visible before it is restored', () => {
+        const { store, cleanup } = makeStore()
+        assert.equal(store.hasArchivedDeviceState(ID), false)
+        store.setDeviceState(ID, REGISTRATION)
+        store.archiveDeviceState(ID)
+
+        // The management page shows the choice from this, rather than restoring on its own.
+        assert.equal(store.hasArchivedDeviceState(ID), true)
+        cleanup()
+    })
+
     test('the newest archive replaces the previous one', () => {
         const { store, cleanup } = makeStore()
         store.setDeviceState(ID, REGISTRATION)

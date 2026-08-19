@@ -154,6 +154,16 @@ function renderDevice(device) {
             saved.textContent = 'Certificate saved'
             bridge.append(saved)
         }
+        // An archived registration is only offered, never applied on its own: whether the
+        // entry was removed by mistake or on purpose is something only the owner knows,
+        // and the two answers lead to different appliances being registered.
+        if (device.bridgeArchived && !device.bridgeActive) {
+            bridge.append(document.createElement('br'))
+            const choose = button('Registration…', 'key')
+            choose.title = 'This IP has a bridge registration kept from when it was removed from the list.'
+            choose.onclick = () => registrationChoice(device)
+            bridge.append(choose)
+        }
     }
 
     const actions = document.createElement('td')
@@ -166,10 +176,17 @@ function renderDevice(device) {
         await run(device.entryId, () => api(`api/router/devices/${device.entryId}`, { method: 'PUT', body: { customName } }))
     }
     const remove = button('Remove', 'delete')
-    remove.title = 'Remove this IP from the DNAT management list. LG devices and Bridge credentials are not deleted.'
+    remove.title = 'Remove this IP from the DNAT management list. Its Bridge registration is kept aside so the removal can be undone.'
     remove.classList.add('red')
     remove.onclick = async () => {
-        if (!confirm(`Remove ${device.ip} from the DNAT management list? The LG device and Bridge credentials will not be deleted.`)) return
+        if (
+            !confirm(
+                `Remove ${device.ip} from the DNAT management list?\n\n` +
+                    'Its Bridge registration is put aside rather than deleted, so adding the IP back and ' +
+                    'linking the device again lets you restore it. The LG device itself is not deleted.',
+            )
+        )
+            return
         await run(device.entryId, () => api(`api/router/devices/${device.entryId}`, { method: 'DELETE' }))
     }
     actions.append(edit, document.createTextNode(' '), remove)
@@ -189,6 +206,47 @@ function toggle(checked, action, entryId) {
         catch (err) { input.checked = checked; if (!(err instanceof Cancelled)) toast(err) }
     }
     return div
+}
+
+/**
+ * Offers the two things that can be done with a registration kept from a removed entry.
+ * The choice is the owner's because the consequences differ and neither is recoverable
+ * from the other once the appliance has been registered again.
+ */
+async function registrationChoice(device) {
+    const restore =
+        `Bridge registration for ${device.ip}\n\n` +
+        'A registration was kept when this IP was removed from the list.\n\n' +
+        'RESTORE (OK)\n' +
+        '  Puts the kept registration back. Choose this if the IP was removed by mistake:\n' +
+        '  the appliance carries on with the certificate it already trusts and nothing has\n' +
+        '  to be re-registered.\n' +
+        '  Do NOT choose this if the appliance has since been deleted and added again in\n' +
+        '  the ThinQ app — the kept certificate no longer matches it, and rethink and the\n' +
+        '  appliance end up as two identities for one device: it shows offline in the app\n' +
+        '  and stops reporting.\n\n' +
+        'RENEW (Cancel, then confirm)\n' +
+        '  Discards what rethink holds now and pairs a fresh certificate the next time the\n' +
+        '  Bridge is switched on. Choose this after re-registering the appliance in the\n' +
+        '  ThinQ app. The appliance keeps its name and its place in your LG home.'
+    if (confirm(restore)) {
+        await run(device.entryId, () =>
+            api(`api/router/devices/${device.entryId}/bridge/registration/restore`, { method: 'POST' }),
+        )
+        return
+    }
+    if (
+        !confirm(
+            'Renew instead?\n\n' +
+                'The registration rethink holds now is dropped and a new one is paired when you ' +
+                'switch the Bridge on. The kept copy stays where it is, so this can still be ' +
+                'reversed until a new registration replaces it.',
+        )
+    )
+        return
+    await run(device.entryId, () =>
+        api(`api/router/devices/${device.entryId}/bridge/registration/renew`, { method: 'POST' }),
+    )
 }
 
 async function run(entryId, action) {

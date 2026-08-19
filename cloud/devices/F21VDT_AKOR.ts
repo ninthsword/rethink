@@ -44,7 +44,29 @@ const DRY_LEVEL: Record<number, string> = {
     10: '120_MIN',
     11: '150_MIN',
 }
-const COURSE: Record<number, string> = { 0: 'NONE' }
+/*
+ * Read off the appliance by turning the course dial one position at a time: fourteen
+ * consecutive values that close back on 표준세탁, matching the panel one for one. The
+ * dial counts down, so turning it the way the panel reads walks 7 down to 1 and then
+ * wraps to 14.
+ */
+const COURSE: Record<number, string> = {
+    0: 'NONE',
+    1: 'STEAM_STYLING',
+    2: 'ALLERGY_CARE',
+    3: 'SPORTWEAR',
+    4: 'ECO_BOIL',
+    5: 'BABY_WEAR',
+    6: 'STAIN_CARE',
+    7: 'NORMAL_WASH',
+    8: 'SPEEDWASH',
+    9: 'QUIET_WASH',
+    10: 'COLOR_CARE',
+    11: 'BULKYITEM',
+    12: 'LINGERIE_WOOL',
+    13: 'RINSE_SPIN',
+    14: 'DOWNLOADED',
+}
 const DOWNLOADED_COURSE: Record<number, string> = { 0: 'NONE', 0x34: 'SMALL_LOAD' }
 const OPERATION_COURSE: Record<number, string> = { 0: 'NONE', 0x04: 'SPEEDWASH' }
 

@@ -101,17 +101,14 @@ export class RouterAPI {
                 const deviceId = `${req.body?.deviceId || ''}`
                 const device = this.manager.allDevices[deviceId]
                 if (!device) throw new Error('Rethink device is not connected')
-                const linked = this.store.linkDevice(
-                    this.param(req, 'entryId'),
-                    deviceId,
-                    this.deviceName(device),
-                    device.platform,
+                res.json(
+                    this.store.linkDevice(
+                        this.param(req, 'entryId'),
+                        deviceId,
+                        this.deviceName(device),
+                        device.platform,
+                    ),
                 )
-                // Undoes an entry deleted by mistake. It does nothing once the appliance
-                // has been registered again, since that registration is the current one.
-                if (this.bridge?.state.restoreDeviceState(deviceId))
-                    log('status', 'restored the archived bridge registration of', deviceId)
-                res.json(linked)
             }),
         )
 
@@ -143,6 +140,38 @@ export class RouterAPI {
                 await new DNATManager(this.store.router()).disable(entry)
                 this.store.setDnatDesired(entry.entryId, false)
                 res.json(await this.snapshot())
+            }),
+        )
+
+        app.post(
+            '/api/router/devices/:entryId/bridge/registration/restore',
+            this.wrap(async (req, res) => {
+                const entry = this.store.requireDevice(this.param(req, 'entryId'))
+                if (!entry.deviceId) throw new Error('No Rethink device is linked to this IP')
+                if (!this.bridge) throw new Error('Bridge is not configured')
+                if (this.bridge.status(entry.deviceId))
+                    throw new ConflictError('Suspend Bridge before changing its registration')
+                if (!this.bridge.state.restoreDeviceState(entry.deviceId))
+                    throw new ConflictError('There is no archived registration to restore')
+                log('status', 'restored the archived bridge registration of', entry.deviceId)
+                res.status(204).end()
+            }),
+        )
+
+        app.post(
+            '/api/router/devices/:entryId/bridge/registration/renew',
+            this.wrap(async (req, res) => {
+                const entry = this.store.requireDevice(this.param(req, 'entryId'))
+                if (!entry.deviceId) throw new Error('No Rethink device is linked to this IP')
+                if (!this.bridge) throw new Error('Bridge is not configured')
+                if (this.bridge.status(entry.deviceId))
+                    throw new ConflictError('Suspend Bridge before changing its registration')
+                // Nothing is deleted here: turning the bridge on pairs a fresh certificate
+                // and that becomes the current one. Discarding the archive as well would
+                // throw away the only copy of the previous registration for no gain.
+                this.bridge.disable(entry.deviceId)
+                log('status', 'discarded the current bridge registration of', entry.deviceId, 'for a fresh one')
+                res.status(204).end()
             }),
         )
 
@@ -237,6 +266,9 @@ export class RouterAPI {
                     dnat: states[entry.entryId],
                     bridgeActive: !!(entry.deviceId && this.bridge?.status(entry.deviceId)),
                     bridgeSaved: !!(entry.deviceId && this.bridge?.hasSavedState(entry.deviceId)),
+                    // Offered as a choice rather than applied automatically: only the owner
+                    // knows whether the entry was removed by mistake or on purpose.
+                    bridgeArchived: !!(entry.deviceId && this.bridge?.hasArchivedState(entry.deviceId)),
                 }
             }),
             unassigned: Object.values(this.manager.allDevices)

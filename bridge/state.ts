@@ -21,6 +21,8 @@ export type BridgeState = {
     archiveDeviceState(id: string): boolean
     /** Brings an archived registration back, unless a live one has taken its place. */
     restoreDeviceState(id: string): boolean
+    /** Whether an archived registration is waiting to be restored. */
+    hasArchivedDeviceState(id: string): boolean
 }
 
 export class JSONStorage implements BridgeState {
@@ -72,6 +74,15 @@ export class JSONStorage implements BridgeState {
         writeFileSync(this.archivePath(id), JSON.stringify(state))
         unlinkSync(this.devicePath(id))
         return true
+    }
+
+    hasArchivedDeviceState(id: string) {
+        try {
+            readFileSync(this.archivePath(id))
+            return true
+        } catch {
+            return false
+        }
     }
 
     restoreDeviceState(id: string) {
