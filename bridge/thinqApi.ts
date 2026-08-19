@@ -97,6 +97,15 @@ type HomeResponse = {
 
 export type HomeDevice = HomeResponse['devices'][number]
 
+export type DeviceControlRequest = {
+    ctrlKey: string
+    command: string
+    dataKey?: string | null
+    dataValue?: string | number | null
+    dataSetList?: Record<string, string | number> | null
+    dataGetList?: string[] | null
+}
+
 type OtpResponse = { otp: string; publicKey: string }
 
 export type Environment = {
@@ -279,6 +288,32 @@ export class Client {
     async getDeviceStatus(deviceId: string) {
         const { thinq2Uri } = await this.gateway
         return await apiFetch(`${thinq2Uri}/service/devices/${deviceId}`, { headers: this.headers })
+    }
+
+    async controlDevice(deviceId: string, request: DeviceControlRequest) {
+        const { thinq2Uri } = await this.gateway
+        return await apiFetch(`${thinq2Uri}/service/devices/${deviceId}/control`, {
+            headers: this.headers,
+            method: 'POST',
+            body: JSON.stringify(request),
+        })
+    }
+
+    async setDeviceProperty(
+        deviceId: string,
+        dataKey: string,
+        dataValue: string | number,
+        command: 'Operation' | 'Set' = 'Set',
+        ctrlKey = 'basicCtrl',
+    ) {
+        return await this.controlDevice(deviceId, {
+            ctrlKey,
+            command,
+            dataKey,
+            dataValue,
+            dataSetList: null,
+            dataGetList: null,
+        })
     }
 }
 

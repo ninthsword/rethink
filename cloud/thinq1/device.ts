@@ -11,6 +11,7 @@ type ConWithExtra = Connection & {
 
 type DeviceEvents = {
     data: (packet: Buffer) => void
+    response: (body: Record<string, unknown>) => void
     sendData: (body: object) => void
     close: () => void
 }
@@ -31,6 +32,7 @@ export class Device extends TypedEmitter<DeviceEvents> {
             this.lastReport = packet
             this.emit('data', packet)
         })
+        con.on('response', (body) => this.emit('response', body))
         con.on('error', console.log)
         con.on('close', () => {
             if (con.deviceObj === this) {

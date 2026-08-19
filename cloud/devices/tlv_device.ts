@@ -319,7 +319,11 @@ export default class TLVDevice extends HADevice {
             const write_fields = [def.id].concat(attach)
             const tlvArray = write_fields.map((id) => ({ t: id, v: this.raw_clip_state[id] }))
             //console.log("Sending ", tlvArray)
-            this.send([1, 1, 2, 1, 1], tlvArray)
+            this.send(this.writeHeader(), tlvArray)
         }
+    }
+
+    protected writeHeader() {
+        return [1, 1, 2, 1, 1]
     }
 }

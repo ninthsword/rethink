@@ -2,10 +2,38 @@ import { Request, Response, Router } from 'express'
 import { Config } from '@/util/config'
 import { XMLParser, XMLBuilder, XMLValidator } from 'fast-xml-parser'
 import { Metadata } from '../thinq'
+import { dirname, resolve } from 'node:path'
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 
 const XML_HEADER = '<?xml version="1.0" encoding="utf-8" standalone="yes"?>'
 
 const deviceMeta: Record<string, Metadata> = {}
+let metadataFile: string | undefined
+
+function configureMetadataStorage(config: Config) {
+    const filename = config.bridge?.storage_path
+        ? resolve(config.bridge.storage_path, 'thinq1-metadata.json')
+        : undefined
+    if (!filename || metadataFile === filename) return
+    metadataFile = filename
+    try {
+        const saved = JSON.parse(readFileSync(filename, 'utf-8')) as Record<string, Metadata>
+        for (const [id, meta] of Object.entries(saved)) {
+            if (meta && typeof meta.modelId === 'string' && typeof meta.modelName === 'string') deviceMeta[id] = meta
+        }
+    } catch {
+        // The file is optional and is created after the first metadata request.
+    }
+}
+
+function persistMetadata() {
+    if (!metadataFile) return
+    mkdirSync(dirname(metadataFile), { recursive: true })
+    const temporary = `${metadataFile}.tmp`
+    writeFileSync(temporary, JSON.stringify(deviceMeta, null, 2), { mode: 0o600 })
+    renameSync(temporary, metadataFile)
+}
+
 export function getDeviceMetadata(id: string) {
     return deviceMeta[id]
 }
@@ -35,6 +63,7 @@ function xmlParser(req: Request, res: Response, next: () => void) {
 }
 
 export function routes(config: Config) {
+    configureMetadataStorage(config)
     const router = Router()
     router.use(xmlParser)
 
@@ -49,12 +78,14 @@ export function routes(config: Config) {
         const modelName = req.body?.lgedmRoot?.modelName
         if (!deviceId) return res.status(400).end()
 
-        if (modelName && deviceType)
+        if (modelName && deviceType) {
             deviceMeta[deviceId] = {
                 deviceType,
                 modelId: modelName,
                 modelName,
             }
+            persistMetadata()
+        }
 
         if (req.body?.lgedmRoot?.itemList?.item === 'DM_SETTING_INFO_GET_URI') {
             response.itemList = {

@@ -6,6 +6,7 @@ import log from '@/util/logging'
 type ConnectionEvents = {
     init: (id: string) => void
     status: (buffer: Buffer) => void
+    response: (body: Record<string, unknown>) => void
     close: () => void
     error: (error: Error) => void
 }
@@ -44,7 +45,9 @@ export class Connection extends TypedEmitter<ConnectionEvents> {
                         this.emit('status', Buffer.from(request.Body.Data, 'base64'))
                     }
 
-                    if (request?.Body?.ReturnCode === undefined) {
+                    if (request?.Body?.ReturnCode !== undefined) {
+                        this.emit('response', request.Body)
+                    } else {
                         // send ack
                         this.json({
                             Header: { 'x-lgedm-deviceId': id },

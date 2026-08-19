@@ -11,6 +11,9 @@ import { Metadata } from '../thinq'
 
 type DeviceEvents = {
     data: (packet: Buffer) => void
+    // Kept in the common downstream-device event surface. ThinQ2 responses are carried through
+    // bridge messages rather than this event, while ThinQ1 command responses use it directly.
+    response: (body: Record<string, unknown>) => void
     sendData: (buf: Buffer) => void
     close: () => void
 }
