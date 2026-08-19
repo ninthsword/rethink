@@ -334,9 +334,11 @@ export default class Device extends TLVDevice {
                     /* TODO: some devices report these temp ranges via tags 0x2e1 - 0x2ec */
                     min_temp: 18,
                     max_temp: 30,
+                    // The Korean RAC here is cooling only: its panel has no heating mode and
+                    // selecting one in Home Assistant did nothing. WINF has no auto either.
                     modes: isWinf
                         ? ['off', 'cool', 'dry', 'fan_only']
-                        : ['off', 'cool', 'dry', 'fan_only', 'heat', 'auto'],
+                        : ['off', 'cool', 'dry', 'fan_only', 'auto'],
                     // The Korean RAC/WINF model data advertises raw 3..7 as five fan levels.
                     // RAC additionally advertises raw 9 (natural wind); WINF does not.
                     fan_modes: isWinf ? FAN_LEVELS : [...FAN_LEVELS, 'natural'],

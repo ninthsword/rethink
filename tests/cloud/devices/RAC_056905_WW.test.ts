@@ -241,6 +241,22 @@ describe(MODEL_ID, () => {
         dev.drop()
     })
 
+    test('RAC advertises no heating mode', (t) => {
+        enableMockTimers(t)
+        const ha = new MockHAConnection()
+        const thinq = new MockThinq2Device(DEVICE_ID, META)
+        const dev = new DUT(ha.asConnection(), thinq, META)
+        thinq.emit('data', buf(CAPS_RESPONSE_HEX))
+        thinq.emit('data', buf(QUERY_RESPONSE_HEX))
+        tickMockTimers(t, 6000)
+
+        // This model is cooling only; its panel has no heating mode, so offering one in
+        // Home Assistant only produced a selection the appliance ignored.
+        const climate = ha.devices[DEVICE_ID].config!.components.climate as Record<string, unknown>
+        assert.deepEqual(climate.modes, ['off', 'cool', 'dry', 'fan_only', 'auto'])
+        dev.drop()
+    })
+
     test('WINF variant advertises only its diagnostic-confirmed cooling modes', (t) => {
         enableMockTimers(t)
         const ha = new MockHAConnection()

@@ -128,7 +128,7 @@ const KOREAN_NAMES: Record<string, string> = {
     'Turbo Steam': '터보 스팀',
     TurboWash: '터보워시',
     'Wrinkle Care': '구김 방지',
-    tub_clean_count: '통세척 후 운전 횟수',
+    tub_clean_count: '통살균 후 운전 횟수',
     'Washes since drum clean': '통세척 후 세탁 횟수',
     Error: '오류',
     error: '오류',
@@ -181,7 +181,10 @@ const KOREAN_NAMES: Record<string, string> = {
     'Express Cool': '특급 냉장',
     Lock: '잠금',
     'Control panel lock': '조작 패널 잠금',
-    'Humidity sensor mode': '습도 센서 모드',
+    // The living room air conditioner's own panel calls this 공기질 센서, and the same
+    // English label is reused by the dehumidifier, where the appliance says 습도 센서.
+    'Humidity sensor mode': '공기질 센서',
+    'Humidity sensor': '습도 센서',
     'Water tank light': '물통 조명',
     // The owner's dehumidifiers label this feature 공기제균 on the appliance itself; LG's
     // own language pack calls it 공기 제균 too, under @AP_CONTROL_AIRBACTERIOSTATICMODE_W.
