@@ -4,6 +4,7 @@ import DUT from '@/cloud/devices/RAC_056905_WW'
 import type { Metadata } from '@/cloud/thinq'
 import { MockHAConnection, MockThinq2Device, buf, hex } from '@/tests/helpers/mocks'
 import { enableMockTimers, tickMockTimers } from '@/tests/helpers/timers'
+import * as TLV from '@/util/tlv'
 
 const DEVICE_ID = 'test-id'
 const MODEL_ID = 'RAC_056905_WW'
@@ -26,7 +27,7 @@ const CAPS_RESPONSE_HEX =
 // Contains TLV t=0x1f7 (power), which triggers `isValuesResponse`
 //      t=0x1f9 l=0 v=0x4 (4)   mode=heat
 //      t=0x1f7 l=0 v=0x1 (1)   power=ON
-//      t=0x1fa l=0 v=0x3 (3)   fan=low
+//      t=0x1fa l=0 v=0x3 (3)   fan=level_1
 //      t=0x1fd l=1 v=0x29 (41) current_temp=20.5
 //      t=0x1fe l=1 v=0x26 (38) set_temp=19
 //      ...
@@ -92,6 +93,8 @@ describe(MODEL_ID, () => {
         // Capability bits from the captured caps response unlocked these optional components.
         assert.ok(components.jet, 'jet (because 0x2CD bits 0x1|0x2)')
         assert.ok(components.energysave, 'energysave (because 0x2CC bit 0x2)')
+        assert.equal(components.jet.optimistic, undefined, 'state-backed jet switch is not optimistic')
+        assert.equal(components.energysave.optimistic, undefined, 'state-backed energy switch is not optimistic')
         assert.ok(components.autodry, 'autodry (because 0x2CC bit 0x4)')
         assert.ok(components.sleeptimer, 'sleeptimer (because 0x2D3 bit 0x1)')
         assert.ok(components.starttimer, 'starttimer (because 0x2D3 bit 0x4)')
@@ -100,17 +103,34 @@ describe(MODEL_ID, () => {
         assert.ok(!components.airclean, 'airclean off (0x2CC bit 0x1 unset)')
 
         // Swing modes registered because 0x2CD has both 0x4 and 0x8.
-        assert.deepEqual(components.climate.swing_modes, ['1', '2', '3', '4', '5', '6', 'on', 'off'])
-        assert.deepEqual(components.climate.swing_horizontal_modes, [
-            '1',
-            '2',
-            '3',
-            '4',
-            '5',
-            '1-3',
-            '3-5',
-            'on',
+        assert.deepEqual(components.climate.fan_modes, [
+            'level_1',
+            'level_2',
+            'level_3',
+            'level_4',
+            'level_5',
+            'natural',
+        ])
+        assert.deepEqual(components.climate.swing_modes, [
             'off',
+            'swing',
+            'position_1',
+            'position_2',
+            'position_3',
+            'position_4',
+            'position_5',
+            'position_6',
+        ])
+        assert.deepEqual(components.climate.swing_horizontal_modes, [
+            'off',
+            'swing',
+            'focus_left',
+            'focus_right',
+            'position_1',
+            'position_2',
+            'position_3',
+            'position_4',
+            'position_5',
         ])
 
         dev.drop()
@@ -126,7 +146,7 @@ describe(MODEL_ID, () => {
 
         assert.equal(ha.getProperty(DEVICE_ID, 'climate', 'current_temperature'), 20.5) // 0x29 / 2
         assert.equal(ha.getProperty(DEVICE_ID, 'climate', 'temperature_state'), 19) // 0x26 / 2
-        assert.equal(ha.getProperty(DEVICE_ID, 'climate', 'fan_mode_state'), 'low') // 0x1FA=3
+        assert.equal(ha.getProperty(DEVICE_ID, 'climate', 'fan_mode_state'), 'level_1') // 0x1FA=3
         assert.equal(ha.getProperty(DEVICE_ID, 'climate', 'mode_state'), 'heat') // 0x1F9=4 with power=ON
         assert.equal(ha.getProperty(DEVICE_ID, 'climate', 'swing_mode_state'), 'off') // 0x321=0
         assert.equal(ha.getProperty(DEVICE_ID, 'climate', 'swing_horizontal_mode_state'), 'off') // 0x322=0
@@ -186,6 +206,18 @@ describe(MODEL_ID, () => {
         dev.drop()
     })
 
+    test('fan and vane commands are ignored while powered off', (t) => {
+        const { thinq, dev, ha } = buildReadyDevice(t)
+        dev.raw_clip_state[0x1f7] = 0
+
+        ha.setProperty(DEVICE_ID, 'climate', 'fan_mode_command', 'level_4')
+        ha.setProperty(DEVICE_ID, 'climate', 'swing_mode_command', 'swing')
+        ha.setProperty(DEVICE_ID, 'climate', 'swing_horizontal_mode_command', 'off')
+
+        assert.equal(thinq.outbox.length, 0)
+        dev.drop()
+    })
+
     test('constructor sends a queryCaps packet on the wire', () => {
         const { thinq, dev } = makeDevice()
         if (dev.query_caps_timeout) {
@@ -194,6 +226,74 @@ describe(MODEL_ID, () => {
         }
         assert.equal(thinq.outbox.length, 1)
         assert.equal(hex(thinq.outbox[0]), CAPS_REQUEST_HEX.toUpperCase())
+        dev.drop()
+    })
+
+    test('publishes filter remaining percentage from used and lifetime hours', () => {
+        const { ha, dev } = makeDevice()
+        dev.filterUsedTime = 250
+        dev.filterLifeTime = 1000
+        dev.filterChangedDate = 20260818
+
+        dev.publishFilterData()
+
+        assert.equal(ha.devices[DEVICE_ID].properties.filterremaining, 75)
+        dev.drop()
+    })
+
+    test('WINF variant advertises only its diagnostic-confirmed cooling modes', (t) => {
+        enableMockTimers(t)
+        const ha = new MockHAConnection()
+        const meta: Metadata = { ...META, modelId: 'WINF_056905_WW' }
+        const thinq = new MockThinq2Device(DEVICE_ID, meta)
+        const dev = new DUT(ha.asConnection(), thinq, meta)
+        ha.on('setProperty', (id: string, prop: string, value: string) => {
+            dev.setProperty(prop, value)
+        })
+        thinq.emit('data', buf(CAPS_RESPONSE_HEX))
+        thinq.emit('data', buf(QUERY_RESPONSE_HEX))
+        tickMockTimers(t, 6000)
+
+        const climate = ha.devices[DEVICE_ID].config!.components.climate as Record<string, unknown>
+        assert.deepEqual(climate.modes, ['off', 'cool', 'dry', 'fan_only'])
+        assert.deepEqual(climate.fan_modes, ['level_1', 'level_2', 'level_3', 'level_4', 'level_5'])
+        assert.deepEqual(climate.swing_horizontal_modes, [
+            'off',
+            'swing',
+            'focus_left',
+            'focus_center',
+            'focus_right',
+            'position_1',
+            'position_2',
+            'position_3',
+            'position_4',
+            'position_5',
+        ])
+        const sleepTimer = ha.devices[DEVICE_ID].config!.components.sleeptimer as Record<string, unknown>
+        assert.equal(sleepTimer.platform, 'number')
+        assert.equal(sleepTimer.min, 0)
+        assert.equal(sleepTimer.max, 12)
+        assert.equal(sleepTimer.step, 0.25)
+
+        // Confirm the number entity uses the same hours-to-minutes wire conversion as
+        // the RAC/PAC handlers. These match real WINF captures from the appliance.
+        for (const [hours, minutes, length] of [
+            ['0.25', 15, 0],
+            ['0.5', 30, 1],
+            ['1.5', 90, 1],
+        ] as const) {
+            thinq.resetRecorder()
+            ha.setProperty(DEVICE_ID, 'sleeptimer', 'command', hours)
+            assert.equal(thinq.outbox.length, 1)
+            assert.deepEqual(TLV.parse(thinq.outbox[0].subarray(11, thinq.outbox[0].length - 2)), [
+                { t: 0x21a, l: length, v: minutes },
+            ])
+        }
+
+        dev.raw_clip_state[0x1f7] = 0
+        thinq.resetRecorder()
+        ha.setProperty(DEVICE_ID, 'sleeptimer', 'command', '1.5')
+        assert.equal(thinq.outbox.length, 0, 'sleep timer command is ignored while powered off')
         dev.drop()
     })
 })

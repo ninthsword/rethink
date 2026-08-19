@@ -10,6 +10,58 @@ import HADevice from './base'
 
 type PowerModeChangeHook = () => void
 type CheckMode = (arg: number) => boolean
+
+const FAN_LEVELS = ['level_1', 'level_2', 'level_3', 'level_4', 'level_5']
+const FAN_LEVEL_TO_RAW: Record<string, number> = {
+    level_1: 3,
+    level_2: 4,
+    level_3: 5,
+    level_4: 6,
+    level_5: 7,
+    natural: 9,
+}
+const FAN_RAW_TO_LEVEL: Record<number, string> = Object.fromEntries(
+    Object.entries(FAN_LEVEL_TO_RAW).map(([name, raw]) => [raw, name]),
+)
+
+const VERTICAL_SWING_MODES = [
+    'off',
+    'swing',
+    'position_1',
+    'position_2',
+    'position_3',
+    'position_4',
+    'position_5',
+    'position_6',
+]
+const HORIZONTAL_SWING_MODES = [
+    'off',
+    'swing',
+    'focus_left',
+    'focus_center',
+    'focus_right',
+    'position_1',
+    'position_2',
+    'position_3',
+    'position_4',
+    'position_5',
+]
+const HORIZONTAL_SWING_TO_RAW: Record<string, number> = {
+    off: 0,
+    swing: 100,
+    focus_left: 13,
+    focus_center: 24,
+    focus_right: 35,
+    position_1: 1,
+    position_2: 2,
+    position_3: 3,
+    position_4: 4,
+    position_5: 5,
+}
+const HORIZONTAL_RAW_TO_SWING: Record<number, string> = Object.fromEntries(
+    Object.entries(HORIZONTAL_SWING_TO_RAW).map(([name, raw]) => [raw, name]),
+)
+
 export default class Device extends TLVDevice {
     meta: Metadata
     initialValuesReceived: boolean = false
@@ -163,6 +215,13 @@ export default class Device extends TLVDevice {
 
         this.HA.publishProperty(this.id, 'filterused', this.filterUsedTime)
         this.HA.publishProperty(this.id, 'filterlife', this.filterLifeTime)
+        if (this.filterLifeTime > 0) {
+            const remaining = Math.max(
+                0,
+                Math.min(100, Math.floor((1 - this.filterUsedTime / this.filterLifeTime) * 100)),
+            )
+            this.HA.publishProperty(this.id, 'filterremaining', remaining)
+        }
         this.HA.publishProperty(this.id, 'filterchangeddate', changedDate)
     }
 
@@ -259,6 +318,7 @@ export default class Device extends TLVDevice {
     }
 
     initMakeSetConfig() {
+        const isWinf = this.meta.modelId === 'WINF_056905_WW'
         const config: DeviceDiscovery & { components: { climate: ClimateComponent } } = allowExtendedType({
             ...HADevice.config(this.meta, { name: 'LG Air Conditioner' }),
             components: {
@@ -274,8 +334,12 @@ export default class Device extends TLVDevice {
                     /* TODO: some devices report these temp ranges via tags 0x2e1 - 0x2ec */
                     min_temp: 18,
                     max_temp: 30,
-                    /* TODO: get from 0x2c2 */
-                    fan_modes: ['auto', 'very low', 'low', 'medium', 'high', 'very high'],
+                    modes: isWinf
+                        ? ['off', 'cool', 'dry', 'fan_only']
+                        : ['off', 'cool', 'dry', 'fan_only', 'heat', 'auto'],
+                    // The Korean RAC/WINF model data advertises raw 3..7 as five fan levels.
+                    // RAC additionally advertises raw 9 (natural wind); WINF does not.
+                    fan_modes: isWinf ? FAN_LEVELS : [...FAN_LEVELS, 'natural'],
                     /* TODO: get allowed op modes from 0x2c1 */
                 } satisfies ClimateComponent,
             },
@@ -341,32 +405,10 @@ export default class Device extends TLVDevice {
             id: 0x1fa,
             name: 'fan_mode',
             comp: 'climate',
-            read_xform: (raw) => {
-                const modes2ha = [
-                    undefined,
-                    undefined,
-                    'very low',
-                    'low',
-                    'medium',
-                    'high',
-                    'very high',
-                    undefined,
-                    'auto',
-                ]
-                return modes2ha[raw]
-            },
-            write_xform: (val) => {
-                const modes2clip: Record<string, number> = {
-                    'very low': 2,
-                    low: 3,
-                    medium: 4,
-                    high: 5,
-                    'very high': 6,
-                    auto: 8,
-                }
-                return modes2clip[val]
-            },
+            read_xform: (raw) => FAN_RAW_TO_LEVEL[raw],
+            write_xform: (val) => FAN_LEVEL_TO_RAW[val],
             write_attach: [0x1f9, 0x1fe],
+            write_callback: () => this.allowAirflowWriteWhilePowered(),
         })
 
         this.addField(config, {
@@ -379,73 +421,62 @@ export default class Device extends TLVDevice {
         })
 
         if (this.raw_clip_state[0x2cd] & 4) {
-            config['components']['climate']['swing_modes'] = ['1', '2', '3', '4', '5', '6', 'on', 'off']
+            config['components']['climate']['swing_modes'] = VERTICAL_SWING_MODES
             this.addField(config, {
                 id: 0x321,
                 name: 'swing_mode',
                 comp: 'climate',
-                read_xform: (raw) => {
-                    const modes2ha = ['off', '1', '2', '3', '4', '5', '6']
-                    modes2ha[100] = 'on'
-                    return modes2ha[raw]
-                },
+                read_xform: (raw) =>
+                    raw === 0 ? 'off' : raw === 100 ? 'swing' : raw >= 1 && raw <= 6 ? `position_${raw}` : undefined,
                 write_xform: (val) => {
                     const modes2clip: Record<string, number> = {
                         off: 0,
-                        '1': 1,
-                        '2': 2,
-                        '3': 3,
-                        '4': 4,
-                        '5': 5,
-                        '6': 6,
-                        on: 100,
+                        swing: 100,
+                        position_1: 1,
+                        position_2: 2,
+                        position_3: 3,
+                        position_4: 4,
+                        position_5: 5,
+                        position_6: 6,
                     }
                     return modes2clip[val]
                 },
+                write_callback: () => this.allowAirflowWriteWhilePowered(),
             })
         }
 
         if (this.raw_clip_state[0x2cd] & 8) {
-            config['components']['climate']['swing_horizontal_modes'] = [
-                '1',
-                '2',
-                '3',
-                '4',
-                '5',
-                '1-3',
-                '3-5',
-                'on',
-                'off',
-            ]
+            // The master-bedroom RAC model data has no raw 24 (centre focus), while the
+            // small-room WINF model does. Do not advertise a command unsupported by RAC.
+            config['components']['climate']['swing_horizontal_modes'] = isWinf
+                ? HORIZONTAL_SWING_MODES
+                : HORIZONTAL_SWING_MODES.filter((mode) => mode !== 'focus_center')
             this.addField(config, {
                 id: 0x322,
                 name: 'swing_horizontal_mode',
                 comp: 'climate',
-                read_xform: (raw) => {
-                    const modes2ha = ['off', '1', '2', '3', '4', '5']
-                    modes2ha[13] = '1-3'
-                    modes2ha[35] = '3-5'
-                    modes2ha[100] = 'on'
-                    return modes2ha[raw]
-                },
-                write_xform: (val) => {
-                    const modes2clip: Record<string, number> = {
-                        off: 0,
-                        '1': 1,
-                        '2': 2,
-                        '3': 3,
-                        '4': 4,
-                        '5': 5,
-                        '1-3': 13,
-                        '3-5': 35,
-                        on: 100,
-                    }
-                    return modes2clip[val]
-                },
+                read_xform: (raw) => HORIZONTAL_RAW_TO_SWING[raw],
+                write_xform: (val) => HORIZONTAL_SWING_TO_RAW[val],
+                write_callback: () => this.allowAirflowWriteWhilePowered(),
             })
         }
 
         this.addOptionalSensorField(config, 0x221, 'error', 'Error code', 'mdi:alert')
+        this.addOptionalSensorField(config, 0x333, 'pm1', 'PM1.0', undefined, {
+            device_class: 'pm1',
+            unit_of_measurement: 'µg/m³',
+            state_class: 'measurement',
+        })
+        this.addOptionalSensorField(config, 0x334, 'pm25', 'PM2.5', undefined, {
+            device_class: 'pm25',
+            unit_of_measurement: 'µg/m³',
+            state_class: 'measurement',
+        })
+        this.addOptionalSensorField(config, 0x335, 'pm10', 'PM10', undefined, {
+            device_class: 'pm10',
+            unit_of_measurement: 'µg/m³',
+            state_class: 'measurement',
+        })
         this.addOptionalSensorField(
             config,
             0x32e,
@@ -560,7 +591,11 @@ export default class Device extends TLVDevice {
             this.addJetField(config, 0x323, 'jet', 'Jet', 'mdi:wind-power', jetCool, jetHeat)
         }
 
-        if (this.raw_clip_state[0x2d3] & 1) {
+        if (isWinf) {
+            // WINF reports and accepts the sleep countdown on 0x21a even though its extended
+            // capability bitmap does not use the legacy bit. Match the other ACs' number entity.
+            this.addTimerField(config, 0x21a, 'sleeptimer', 'Sleep timer', 'mdi:bed-clock', 12, true)
+        } else if (this.raw_clip_state[0x2d3] & 1) {
             // 15h - displayed in hex as "FH"
             this.addTimerField(config, 0x21a, 'sleeptimer', 'Sleep timer', 'mdi:bed-clock', 15)
         }
@@ -646,6 +681,16 @@ export default class Device extends TLVDevice {
         // but in some devices it is not - not shown in ThinQ app either
 
         if (this.filterLifeTime) {
+            const filterRemaining = {
+                platform: 'sensor',
+                unique_id: '$deviceid-filterremaining',
+                state_topic: '$this/filterremaining',
+                name: 'Filter Remaining Life',
+                icon: 'mdi:air-filter',
+                unit_of_measurement: '%',
+                state_class: 'measurement',
+            }
+            config['components']['filterremaining'] = filterRemaining
             const filterUsed = {
                 platform: 'sensor',
                 unique_id: '$deviceid-filterused',
@@ -752,7 +797,15 @@ export default class Device extends TLVDevice {
         this.query()
     }
 
-    addTimerField(config: DeviceDiscovery, id: number, name: string, desc: string, icon: string, max: number) {
+    addTimerField(
+        config: DeviceDiscovery,
+        id: number,
+        name: string,
+        desc: string,
+        icon: string,
+        max: number,
+        requiresPower = false,
+    ) {
         const comp = {
             platform: 'number',
             unique_id: '$deviceid-' + name,
@@ -777,7 +830,20 @@ export default class Device extends TLVDevice {
             comp: name,
             read_xform: (raw) => Math.ceil(raw / 60 / 0.25) * 0.25,
             write_xform: (val) => Math.round(Number(val) * 60),
+            write_callback: requiresPower ? () => this.allowSleepTimerWriteWhilePowered() : undefined,
         })
+    }
+
+    allowSleepTimerWriteWhilePowered() {
+        if (this.getPowerTLV() !== 0) return true
+        log('status', this.id, 'ignoring sleep timer command while powered off')
+        return false
+    }
+
+    allowAirflowWriteWhilePowered() {
+        if (this.getPowerTLV() !== 0) return true
+        log('status', this.id, 'ignoring fan/vane command while powered off; this model would turn on')
+        return false
     }
 
     addJetField(
@@ -798,7 +864,6 @@ export default class Device extends TLVDevice {
             name: descFull,
             icon: icon,
             entity_category: 'config',
-            optimistic: true,
         }
         config['components'][name] = comp
 
@@ -957,7 +1022,6 @@ export default class Device extends TLVDevice {
             name: desc,
             icon: icon,
             entity_category: 'config',
-            optimistic: true,
         }
         config['components'][name] = comp
 
