@@ -266,11 +266,14 @@ export class Bridge extends TypedEmitter<BridgeEvents> {
 
         let existingDevice
         if (this.options.preserveExistingDevices) {
-            if (device.platform !== 'thinq2') {
-                throw new Error('Preserving an existing LG registration is supported only for ThinQ2 devices')
-            }
             statusCallback('Checking existing device registration')
             existingDevice = (await client.listDevices()).find((item) => item.deviceId === device.id)
+            if (device.platform === 'thinq1' && !existingDevice) {
+                // Adding it here would register it as a new "Rethink ..." device, which is
+                // the very thing preserve mode exists to avoid. A ThinQ1 appliance carries
+                // no pairing material, so there is nothing to rebuild from either.
+                throw new Error('Register the appliance in LG ThinQ before bridging it, or turn off preserve mode')
+            }
         } else {
             statusCallback('Removing device from home')
             await client.removeDevice(device.id)
@@ -286,9 +289,17 @@ export class Bridge extends TypedEmitter<BridgeEvents> {
             }
 
             clientDevice = new Thinq1Device(device.id, device.meta, state)
-            statusCallback('Adding device to home')
 
-            await client.addDevice(clientDevice, `Rethink ${device.id.substring(0, 8)}`, deviceType)
+            // A ThinQ1 device holds no certificate or pairing secret: the upstream
+            // connection identifies it by its id alone, and everything it needs comes from
+            // the gateway. So an appliance that is already in the home needs no
+            // registration call at all — which is what makes preserve mode possible here.
+            if (existingDevice) {
+                statusCallback(`Preserving existing device registration (${existingDevice.alias})`)
+            } else {
+                statusCallback('Adding device to home')
+                await client.addDevice(clientDevice, `Rethink ${device.id.substring(0, 8)}`, deviceType)
+            }
         } else if (device.platform === 'thinq2') {
             statusCallback('Fetching otp key')
             const otp = await client.prepareNewT2Device()

@@ -148,7 +148,10 @@ function t2setup(manager: DeviceManager) {
     for (const signal of ['SIGTERM', 'SIGINT'] as const)
         process.once(signal, () => {
             broker.shutdown()
-            process.exit(0)
+            // process.exit() drops whatever is still queued on stdout, which in a container
+            // is a pipe and therefore written asynchronously. A tick is enough for the
+            // shutdown line to survive; the resets themselves already left the kernel.
+            setTimeout(() => process.exit(0), 100)
         })
 }
 

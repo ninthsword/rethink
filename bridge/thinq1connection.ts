@@ -18,6 +18,7 @@ export class Connection extends TypedEmitter<ConnectionEvents> {
     socket?: tls.TLSSocket
     lastState?: Buffer
     isLive: boolean = false
+    aliveTimer?: NodeJS.Timeout
 
     constructor(device: Thinq1Device, options: { reconnectPeriod?: number } = {}) {
         super()
@@ -65,7 +66,10 @@ export class Connection extends TypedEmitter<ConnectionEvents> {
             },
             () => {
                 log('bridge', `${this.device.deviceId} connected`)
-                setInterval(sendAlive, 60000)
+                // Cleared in destroy(); without that the heartbeat outlived the socket and
+                // every reconnect left another one running.
+                this.aliveTimer = setInterval(sendAlive, 60000)
+                this.aliveTimer.unref?.()
                 sendAlive()
 
                 if (this.lastState) {
@@ -158,6 +162,8 @@ export class Connection extends TypedEmitter<ConnectionEvents> {
     }
 
     destroy() {
+        if (this.aliveTimer) clearInterval(this.aliveTimer)
+        this.aliveTimer = undefined
         this.socket?.destroy()
         this.socket = undefined
     }
