@@ -188,6 +188,7 @@ const KOREAN_NAMES: Record<string, string> = {
     // selects with it.
     'Air quality sensor': '공기질 센서',
     'Button sound': '제품 버튼음',
+    'Water tank full': '물통 가득 참',
     Display: '제품 화면',
     Sound: '제품 소리',
     'Temperature step': '온도 단위',

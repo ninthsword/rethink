@@ -39,6 +39,17 @@ const WATER_TANK_LIGHT = 0x21e
 const OFF_TIMER = 0x21b
 /** Whether the humidity sensor keeps reading while the appliance is idle. */
 const HUMIDITY_SENSOR = 0x337
+
+/*
+ * Notifications arrive as a pair: which one, then whether it is raised. Filling the tank
+ * until the appliance complained produced 0x2b1 = 256 with 0x2b2 = 1, and emptying it
+ * produced the same pair with 0x2b2 = 0, so the state is only meaningful once the id says
+ * this is the water tank. The model schema names the tag 0x186 for a full tank; this
+ * appliance never sends that one.
+ */
+const NOTIFICATION_ID = 0x2b1
+const NOTIFICATION_STATE = 0x2b2
+const WATER_TANK_FULL = 256
 /** Both of these read 0 for on and 1 for off, the opposite way round to the others. */
 const BUTTON_SOUND = 0x3a0
 const STATUS_DISPLAY = 0x21f
@@ -159,6 +170,13 @@ export default class Device extends TLVDevice {
                     icon: 'mdi:television-ambient-light',
                     entity_category: 'config',
                 },
+                water_tank_full: {
+                    platform: 'binary_sensor',
+                    unique_id: '$deviceid-water-tank-full',
+                    name: 'Water tank full',
+                    device_class: 'problem',
+                    icon: 'mdi:cup-water',
+                },
                 error: {
                     platform: 'sensor',
                     unique_id: '$deviceid-error',
@@ -274,6 +292,18 @@ export default class Device extends TLVDevice {
                 read_xform: (raw) => (raw ? 'OFF' : 'ON'),
                 write_xform: (value) => (value === 'ON' ? 0 : 1),
             })
+
+        this.addField(config, {
+            id: NOTIFICATION_STATE,
+            name: '',
+            comp: 'water_tank_full',
+            writable: false,
+            // The id is sent first in the same packet, so it is already in raw state here.
+            // Anything other than the water tank is a notification we have not seen and
+            // must not publish as one.
+            read_xform: (raw) =>
+                this.raw_clip_state[NOTIFICATION_ID] === WATER_TANK_FULL ? (raw ? 'ON' : 'OFF') : undefined,
+        })
 
         this.addField(config, {
             id: 0x221,

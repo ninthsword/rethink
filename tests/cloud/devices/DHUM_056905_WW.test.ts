@@ -247,6 +247,25 @@ describe(MODEL_ID, () => {
         dev.drop()
     })
 
+    test('raises the water tank warning only for the notification that means it', () => {
+        const { ha, dev } = buildReadyDevice()
+
+        // Captured by filling the tank until the appliance complained and then emptying
+        // it: the id says which notification, the state says whether it is raised.
+        dev.processKeyValue(0x2b1, 256)
+        dev.processKeyValue(0x2b2, 1)
+        assert.equal(ha.getProperty(DEVICE_ID, 'water_tank_full', 'state'), 'ON')
+
+        dev.processKeyValue(0x2b2, 0)
+        assert.equal(ha.getProperty(DEVICE_ID, 'water_tank_full', 'state'), 'OFF')
+
+        // Some other notification must not be reported as a full tank.
+        dev.processKeyValue(0x2b1, 4096)
+        dev.processKeyValue(0x2b2, 1)
+        assert.equal(ha.getProperty(DEVICE_ID, 'water_tank_full', 'state'), 'OFF')
+        dev.drop()
+    })
+
     test('constructor sends the standard capability query', () => {
         const { thinq, dev } = makeDevice()
         assert.equal(hex(thinq.outbox[0]), CAPS_REQUEST_HEX)
