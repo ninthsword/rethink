@@ -181,10 +181,12 @@ const KOREAN_NAMES: Record<string, string> = {
     'Express Cool': '특급 냉장',
     Lock: '잠금',
     'Control panel lock': '조작 패널 잠금',
-    // The living room air conditioner's own panel calls this 공기질 센서, and the same
-    // English label is reused by the dehumidifier, where the appliance says 습도 센서.
-    'Humidity sensor mode': '공기질 센서',
+    'Humidity sensor mode': '습도 센서 모드',
     'Humidity sensor': '습도 센서',
+    // The living room air conditioner's panel calls the same setting 공기질 센서. It needs
+    // its own English label, because renaming the shared one moved the dehumidifiers'
+    // selects with it.
+    'Air quality sensor': '공기질 센서',
     'Button sound': '제품 버튼음',
     Display: '제품 화면',
     Sound: '제품 소리',
@@ -363,8 +365,6 @@ const KOREAN_VALUES: Record<string, string> = {
     '12_hours': '12시간',
     on: '켜짐',
     'long power': '롱파워',
-    '운전 중에만': '운전 중에만',
-    항상: '항상',
 
     // Kimchi refrigerator compartment modes. The wording is LG's own, taken from the
     // Korean product-type language pack that the ThinQ app uses for this model.
@@ -395,9 +395,24 @@ const KOREAN_VALUES: Record<string, string> = {
     bottom_off: '하칸 꺼짐',
 }
 
-const KOREAN_VALUES_REVERSE = Object.fromEntries(
-    Object.entries(KOREAN_VALUES).map(([english, korean]) => [korean, english]),
-)
+/**
+ * Korean labels back to the values the appliances use.
+ *
+ * Several English values share a label — LOW, low and LIGHT are all 약 — so a label that
+ * more than one value produces is left out entirely. Guessing one of them would send an
+ * appliance a value from a different entity. This map is only a fallback anyway: a
+ * writable enum is translated through the per-topic map that publishConfig builds, which
+ * knows exactly which values that one entity offers.
+ */
+const KOREAN_VALUES_REVERSE = (() => {
+    const sources: Record<string, string[]> = {}
+    for (const [english, korean] of Object.entries(KOREAN_VALUES)) (sources[korean] ??= []).push(english)
+    return Object.fromEntries(
+        Object.entries(sources)
+            .filter(([, english]) => english.length === 1)
+            .map(([korean, english]) => [korean, english[0]]),
+    )
+})()
 
 export function localizeValue(value: string, language: HALanguage | undefined): string {
     if (language !== 'korean' || HA_PROTOCOL_VALUES.has(value)) return value

@@ -492,18 +492,22 @@ export default class Device extends TLVDevice {
             const humiditySensorMode = {
                 platform: 'select',
                 unique_id: '$deviceid-humidity_sensor_mode',
-                name: 'Humidity sensor mode',
+                name: 'Air quality sensor',
                 icon: 'mdi:water-percent',
                 entity_category: 'config',
-                options: ['운전 중에만', '항상'],
+                // English on the wire like every other enumerated value; the localizer
+                // turns them into Korean and back. Publishing Korean here forced identity
+                // entries into the translation table, and those broke the reverse lookup
+                // for the dehumidifiers, which use the same two values.
+                options: ['operating_only', 'always'],
             }
             config['components']['humidity_sensor_mode'] = humiditySensorMode
             this.addField(config, {
                 id: 0x337,
                 name: '',
                 comp: 'humidity_sensor_mode',
-                read_xform: (raw) => ({ 0: '운전 중에만', 1: '항상' })[raw],
-                write_xform: (value) => ({ '운전 중에만': 0, 항상: 1 })[value],
+                read_xform: (raw) => ({ 0: 'operating_only', 1: 'always' })[raw],
+                write_xform: (value) => ({ operating_only: 0, always: 1 })[value],
                 write_callback: (value) => {
                     if (value !== 0 && value !== 1) return false
                     this.thinq.send_packet(HUMIDITY_SENSOR_MODE_COMMANDS[value])
