@@ -18,13 +18,29 @@ const STATUS: Record<number, string> = {
 const DRY_LEVEL = ['NO', 'DAMP', 'LESS', 'IRON', 'CUPBOARD', 'VERY_DRY']
 const ECO_HYBRID = ['NONE', 'ECO', 'NORMAL', 'TURBO']
 /*
- * Only the entry confirmed against the appliance is here. The model schema lists
- * seventeen courses but gives them no numbers, and their order in the file does not line
- * up with the wire: the appliance reported 5 while its panel showed 표준, which is fourth
- * in that list. Guessing an offset from one point would mislabel every other course, so
- * the rest wait for the dial to be stepped through with a capture running.
+ * Captured by turning the course dial one position at a time with the appliance
+ * reporting: fourteen positions that close back on 표준, matching the panel one for one.
+ * The order is nothing like the model schema's, which is why a single reading could not
+ * be extrapolated. The schema names four more courses — 선반건조, 시간건조, 콘덴서케어 and
+ * 통살균 — that the dial does not reach, so those stay unmapped.
  */
-const COURSE: Record<number, string> = { 0: 'NONE', 5: 'COTTON_NORMAL' }
+const COURSE: Record<number, string> = {
+    0: 'NONE',
+    2: 'BULKYITEM',
+    4: 'COOLAIR',
+    5: 'COTTONNORMAL',
+    7: 'PADDINGREFRESH',
+    8: 'QUICKDRY',
+    9: 'BEDDING_BRUSH',
+    11: 'ALLERGYCARE',
+    13: 'WOOL',
+    14: 'EASYCARE',
+    15: 'WARMAIR',
+    16: 'WATERREPELLENT',
+    17: 'TOWELS',
+    20: 'SPORTWEAR',
+    22: 'DOWNLOADED',
+}
 const DOWNLOADED_COURSE: Record<number, string> = { 0: 'NONE', 0x83: 'SELFCLEANING' }
 // Exact RH16KR processState table from the installed model diagnostic.
 const PROCESS: Record<number, string> = {

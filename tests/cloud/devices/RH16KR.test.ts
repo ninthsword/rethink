@@ -59,3 +59,39 @@ test('RH16KR handles the model id the dryer reports after a fresh registration',
 
     assert.equal(ha.devices['dryer-id'].properties.power, 'ON')
 })
+
+test('RH16KR names every course its dial reaches', () => {
+    // Read off the appliance by turning the dial one position at a time: fourteen
+    // positions that close back on 표준. The order bears no relation to the model
+    // schema's, which is why the table could not be derived from a single reading.
+    const dial: Array<[number, string]> = [
+        [5, 'COTTONNORMAL'],
+        [11, 'ALLERGYCARE'],
+        [8, 'QUICKDRY'],
+        [17, 'TOWELS'],
+        [14, 'EASYCARE'],
+        [13, 'WOOL'],
+        [20, 'SPORTWEAR'],
+        [22, 'DOWNLOADED'],
+        [15, 'WARMAIR'],
+        [4, 'COOLAIR'],
+        [7, 'PADDINGREFRESH'],
+        [16, 'WATERREPELLENT'],
+        [9, 'BEDDING_BRUSH'],
+        [2, 'BULKYITEM'],
+    ]
+
+    const ha = new MockHAConnection()
+    const thinq = new MockThinq2Device('dryer-id', META)
+    const dev = new DUT(ha.asConnection(), thinq, META)
+    for (const [raw, name] of dial) {
+        const rec = Buffer.alloc(27)
+        rec[1] = 0x19
+        rec[7] = raw
+        const inner = Buffer.concat([Buffer.from([0x30, 0xeb]), rec])
+        const frame = Buffer.concat([Buffer.from([0xaa, inner.length + 4]), inner, Buffer.from([0x00, 0xbb])])
+        thinq.emit('data', frame)
+        assert.equal(ha.devices['dryer-id'].properties.course, name, `raw ${raw}`)
+    }
+    dev.drop()
+})
