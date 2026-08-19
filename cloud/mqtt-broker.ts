@@ -2,6 +2,7 @@ import { IPublishPacket, IConnectPacket, ISubscribePacket, IUnsubscribePacket } 
 import newMqttConnection, { MqttConnection } from 'mqtt-connection'
 import { TypedEmitter } from 'tiny-typed-emitter'
 import { Socket } from 'node:net'
+import log from '@/util/logging'
 
 export type PublishPacket = Omit<IPublishPacket, 'cmd'>
 
@@ -17,6 +18,9 @@ class Subscription {
         return !!topic.match(this.re)
     }
 }
+
+/** Also the floor for a client that asks for a shorter keepalive than this. */
+const MIN_IDLE_TIMEOUT_MS = 5 * 60 * 1000
 
 type LWT = IConnectPacket['will']
 type ClientEvents = {
@@ -154,12 +158,24 @@ export class Broker extends TypedEmitter<BrokerEvents> {
             if (packet.qos > 0) mqtt.puback({ messageId: packet.messageId })
         })
 
-        mqtt.on('connect', (packet) => this.emit('connect', packet, client))
+        mqtt.on('connect', (packet) => {
+            // MQTT lets the client choose how long it may stay silent, and an idle LG
+            // appliance uses a much longer keepalive than the five minutes assumed here.
+            // Cutting it off early makes the appliance reconnect, which is what showed up
+            // in Home Assistant as an appliance going offline and back on by itself.
+            const keepalive = packet.keepalive ?? 0
+            log('status', 'mqtt client', packet.clientId, 'connected, keepalive', keepalive, 's')
+            if (keepalive > 0) stream.setTimeout(Math.max(MIN_IDLE_TIMEOUT_MS, keepalive * 1500))
+            this.emit('connect', packet, client)
+        })
 
         this.clients.add(client)
 
-        stream.setTimeout(1000 * 60 * 5)
+        // Until the CONNECT packet says otherwise. The grace of half again the keepalive is
+        // what the MQTT specification asks a server to allow.
+        stream.setTimeout(MIN_IDLE_TIMEOUT_MS)
         stream.on('timeout', function () {
+            log('status', 'dropping idle mqtt client', client.remoteAddress ?? '', 'after', stream.timeout, 'ms')
             client.destroy()
         })
 
