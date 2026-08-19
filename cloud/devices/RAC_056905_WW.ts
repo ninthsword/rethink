@@ -776,7 +776,11 @@ export default class Device extends TLVDevice {
             })
         }
 
-        this.setConfig(config)
+        // A short-lived build published the WINF sleep countdown as a select on this very
+        // component id, so Home Assistant registered select.<device>_sleep_timer alongside
+        // the number entity that replaced it. Home Assistant does not retire an entity when
+        // a component changes platform, so the select has to be removed explicitly.
+        this.setConfig(config, isWinf ? { sleeptimer: { platform: 'select' } } : undefined)
 
         if (this.filterLifeTime) {
             this.publishFilterData()

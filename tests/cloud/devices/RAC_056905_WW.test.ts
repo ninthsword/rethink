@@ -296,4 +296,49 @@ describe(MODEL_ID, () => {
         assert.equal(thinq.outbox.length, 0, 'sleep timer command is ignored while powered off')
         dev.drop()
     })
+
+    test('WINF variant retires the sleep timer select that preceded the number entity', (t) => {
+        enableMockTimers(t)
+        const ha = new MockHAConnection()
+        const meta: Metadata = { ...META, modelId: 'WINF_056905_WW' }
+        const thinq = new MockThinq2Device(DEVICE_ID, meta)
+        const dev = new DUT(ha.asConnection(), thinq, meta)
+        thinq.emit('data', buf(CAPS_RESPONSE_HEX))
+        thinq.emit('data', buf(QUERY_RESPONSE_HEX))
+        tickMockTimers(t, 6000)
+
+        // An earlier build published this component as a select, and Home Assistant keeps
+        // the old entity when a component changes platform. The removal payload has to be
+        // published before the real config so the number entity survives it.
+        const removal = ha.publishedConfigs.findIndex(
+            (config) => (config.components.sleeptimer as Record<string, unknown>)?.platform === 'select',
+        )
+        assert.notEqual(removal, -1, 'no select removal was published')
+        const republish = ha.publishedConfigs.findIndex(
+            (config, index) =>
+                index > removal &&
+                (config.components.sleeptimer as Record<string, unknown>)?.platform === 'number',
+        )
+        assert.notEqual(republish, -1, 'the number entity was not republished after the removal')
+        dev.drop()
+    })
+
+    test('RAC variant leaves the sleep timer select alone', (t) => {
+        enableMockTimers(t)
+        const ha = new MockHAConnection()
+        const thinq = new MockThinq2Device(DEVICE_ID, META)
+        const dev = new DUT(ha.asConnection(), thinq, META)
+        thinq.emit('data', buf(CAPS_RESPONSE_HEX))
+        thinq.emit('data', buf(QUERY_RESPONSE_HEX))
+        tickMockTimers(t, 6000)
+
+        // Only the WINF build ever published the select, so no other model should emit a
+        // removal that Home Assistant would have to reconcile.
+        assert.ok(
+            ha.publishedConfigs.every(
+                (config) => (config.components.sleeptimer as Record<string, unknown>)?.platform !== 'select',
+            ),
+        )
+        dev.drop()
+    })
 })
