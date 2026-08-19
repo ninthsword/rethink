@@ -36,6 +36,9 @@ const WRITE_TANK_LIGHT_ON_HEX = '01010400000065020100028781D72D'
 // The LG cloud sends this exact packet for airState.reservation.targetTimeToStop = 60.
 const WRITE_OFF_TIMER_1H_HEX = '010104000000650201000386D03C1D4F'
 const WRITE_OFF_TIMER_CANCEL_HEX = '010104000000650201000286C0BCF9'
+const WRITE_SENSOR_OPERATING_HEX = '0101040000006502010002CDC06DCF'
+const WRITE_BUTTON_SOUND_ON_HEX = '0101040000006502010002E8004D90'
+const WRITE_STATUS_DISPLAY_ON_HEX = '010104000000650201000287C08FC8'
 
 function makeDevice() {
     const ha = new MockHAConnection()
@@ -219,6 +222,28 @@ describe(MODEL_ID, () => {
         assert.deepEqual(TLV.parse(thinq.outbox[0].subarray(11, thinq.outbox[0].length - 2)), [
             { t: 0x21b, l: 2, v: 480 },
         ])
+        dev.drop()
+    })
+
+    test('writes the verified sensor, sound and display packets', () => {
+        const { ha, thinq, dev } = buildReadyDevice()
+
+        // All three were injected on the appliance and reported back. The sound and the
+        // display are inverted on the wire: the appliance stores "silenced" / "off".
+        ha.setProperty(DEVICE_ID, 'humidity_sensor', 'command', 'operating_only')
+        ha.setProperty(DEVICE_ID, 'button_sound', 'command', 'ON')
+        ha.setProperty(DEVICE_ID, 'status_display', 'command', 'ON')
+
+        assert.deepEqual(thinq.outbox.map(hex), [
+            WRITE_SENSOR_OPERATING_HEX,
+            WRITE_BUTTON_SOUND_ON_HEX,
+            WRITE_STATUS_DISPLAY_ON_HEX,
+        ])
+
+        dev.processKeyValue(0x3a0, 1)
+        dev.processKeyValue(0x21f, 0)
+        assert.equal(ha.getProperty(DEVICE_ID, 'button_sound', 'state'), 'OFF')
+        assert.equal(ha.getProperty(DEVICE_ID, 'status_display', 'state'), 'ON')
         dev.drop()
     })
 

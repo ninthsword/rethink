@@ -37,6 +37,16 @@ const UVNANO = 0x2a2
 const WATER_TANK_LIGHT = 0x21e
 /** Minutes until the appliance turns itself off, counted down by the appliance. */
 const OFF_TIMER = 0x21b
+/** Whether the humidity sensor keeps reading while the appliance is idle. */
+const HUMIDITY_SENSOR = 0x337
+/** Both of these read 0 for on and 1 for off, the opposite way round to the others. */
+const BUTTON_SOUND = 0x3a0
+const STATUS_DISPLAY = 0x21f
+
+const SENSOR_MODES: Record<number, string> = {
+    0: 'operating_only',
+    1: 'always',
+}
 
 function supported(mask: number | undefined, values: Record<number, string>) {
     const names = Object.keys(values)
@@ -126,6 +136,28 @@ export default class Device extends TLVDevice {
                     max: 8,
                     step: 1,
                     mode: 'slider',
+                },
+                humidity_sensor: {
+                    platform: 'select',
+                    unique_id: '$deviceid-humidity-sensor',
+                    name: 'Humidity sensor',
+                    icon: 'mdi:water-percent',
+                    entity_category: 'config',
+                    options: Object.values(SENSOR_MODES),
+                },
+                button_sound: {
+                    platform: 'switch',
+                    unique_id: '$deviceid-button-sound',
+                    name: 'Button sound',
+                    icon: 'mdi:volume-high',
+                    entity_category: 'config',
+                },
+                status_display: {
+                    platform: 'switch',
+                    unique_id: '$deviceid-status-display',
+                    name: 'Status display',
+                    icon: 'mdi:television-ambient-light',
+                    entity_category: 'config',
                 },
                 error: {
                     platform: 'sensor',
@@ -221,6 +253,27 @@ export default class Device extends TLVDevice {
             },
             write_callback: () => this.allowWriteWhilePowered('turn-off reservation'),
         })
+
+        this.addField(config, {
+            id: HUMIDITY_SENSOR,
+            name: '',
+            comp: 'humidity_sensor',
+            read_xform: (raw) => SENSOR_MODES[raw],
+            write_xform: (value) => (value === 'always' ? 1 : value === 'operating_only' ? 0 : null),
+        })
+
+        for (const [id, comp] of [
+            [BUTTON_SOUND, 'button_sound'],
+            [STATUS_DISPLAY, 'status_display'],
+        ] as const)
+            this.addField(config, {
+                id,
+                name: '',
+                comp,
+                // Inverted on the wire: the appliance stores "silenced" and "display off".
+                read_xform: (raw) => (raw ? 'OFF' : 'ON'),
+                write_xform: (value) => (value === 'ON' ? 0 : 1),
+            })
 
         this.addField(config, {
             id: 0x221,

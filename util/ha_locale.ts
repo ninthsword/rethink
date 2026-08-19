@@ -185,6 +185,8 @@ const KOREAN_NAMES: Record<string, string> = {
     // English label is reused by the dehumidifier, where the appliance says 습도 센서.
     'Humidity sensor mode': '공기질 센서',
     'Humidity sensor': '습도 센서',
+    'Button sound': '제품 버튼음',
+    'Status display': '제품 상태 표시부',
     'Water tank light': '물통 조명',
     // The owner's dehumidifiers label this feature 공기제균 on the appliance itself; LG's
     // own language pack calls it 공기 제균 too, under @AP_CONTROL_AIRBACTERIOSTATICMODE_W.
