@@ -102,6 +102,10 @@ export default class Device extends AABBDevice {
                     }),
                     course: sensor('course', 'mdi:dishwasher'),
                     current_download_course: sensor('current_download_course', 'mdi:download-circle-outline'),
+                    tub_clean_count: sensor('tub_clean_count', 'mdi:dishwasher', {
+                        state_class: 'total',
+                        suggested_display_precision: 0,
+                    }),
                 },
             }),
         )
@@ -122,9 +126,23 @@ export default class Device extends AABBDevice {
         this.publishProperty('current_download_course', mapped(DOWNLOAD_COURSE, rec[25]))
     }
 
+    /*
+     * The runs-since-sterilisation counter is not in the status record at all — unlike the
+     * washer, which carries its own in one. It arrives in the appliance's long records,
+     * which differ only in that 0xBF has one extra byte near the front, putting the same
+     * field one place further along. Confirmed by running a cycle and watching it go from
+     * 20 to 21, matching what the ThinQ app showed.
+     */
+    private processLongRecord(buf: Buffer, offset: number) {
+        if (buf.length <= offset) return
+        this.publishProperty('tub_clean_count', buf[offset])
+    }
+
     processAABB(buf: Buffer) {
         if (buf[0] !== 0x32) return
         if (buf[1] === 0xeb && buf.length === 28) this.processRecord(buf.subarray(2, 28))
         else if (buf[1] === 0xec && buf.length === 54) this.processRecord(buf.subarray(28, 54))
+        else if (buf[1] === 0xbf) this.processLongRecord(buf, 43)
+        else if (buf[1] === 0xcf) this.processLongRecord(buf, 42)
     }
 }

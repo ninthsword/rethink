@@ -29,3 +29,28 @@ test('D121111 decodes the newest live dishwasher record', () => {
     assert.equal(device.config!.components.remote_start, undefined)
     assert.ok(device.config!.components.run_completed)
 })
+
+test('D121111 reports the runs since the last tub sterilisation', () => {
+    const ha = new MockHAConnection()
+    const thinq = new MockThinq2Device('dishwasher-id', META)
+    const dev = new DUT(ha.asConnection(), thinq, META)
+
+    // The counter is not in the status record at all, unlike the washer's. These are the
+    // appliance's own long records, taken before and after a cycle: the ThinQ app showed
+    // 20 and then 21, and this is the only byte that moved.
+    const long = (kind: number, offset: number, value: number) => {
+        const inner = Buffer.alloc(kind === 0xbf ? 102 : 101)
+        inner[0] = 0x32
+        inner[1] = kind
+        inner[offset] = value
+        return Buffer.concat([Buffer.from([0xaa, 0x00]), inner, Buffer.from([0x00, 0xbb])])
+    }
+
+    thinq.emit('data', long(0xcf, 42, 20))
+    assert.equal(ha.devices['dishwasher-id'].properties.tub_clean_count, 20)
+
+    // 0xBF carries one extra byte near the front, so the same field sits one place along.
+    thinq.emit('data', long(0xbf, 43, 21))
+    assert.equal(ha.devices['dishwasher-id'].properties.tub_clean_count, 21)
+    dev.drop()
+})
