@@ -51,6 +51,35 @@ test('publishConfig retains the current model-specific MQTT discovery config', (
     })
 })
 
+test('publishConfig does not replace a valid retained config with an invalid one', () => {
+    const published: Array<{ topic: string; payload: string }> = []
+    const connection = Object.create(Connection.prototype) as Connection
+    Object.assign(connection, {
+        config: { discovery_prefix: 'homeassistant', rethink_prefix: 'rethink' },
+        client: {
+            publish(topic: string, payload: string) {
+                published.push({ topic, payload })
+            },
+        } as unknown as MqttClient,
+        localizedCommandValues: new Map(),
+        localizedStateValues: new Map(),
+    })
+
+    connection.publishConfig('bad-id', {
+        device: { identifiers: '$deviceid', name: 'Bad appliance' },
+        origin: { name: 'rethink' },
+        components: {
+            mode: {
+                platform: 'select',
+                unique_id: '$deviceid-mode',
+                options: ['normal'],
+            },
+        },
+    } as unknown as DeviceDiscovery)
+
+    assert.equal(published.length, 0)
+})
+
 test('korean language localizes discovery and state while preserving HA protocol values', () => {
     const published: Array<{ topic: string; payload: string; options: unknown }> = []
     const connection = Object.create(Connection.prototype) as Connection
@@ -79,9 +108,16 @@ test('korean language localizes discovery and state while preserving HA protocol
                 platform: 'sensor',
                 unique_id: '$deviceid-status',
                 name: 'Status',
+                state_topic: '$this/status',
+                device_class: 'enum',
                 options: ['RUNNING', 'END'],
             },
-            power: { platform: 'binary_sensor', unique_id: '$deviceid-power', name: 'Power' },
+            power: {
+                platform: 'binary_sensor',
+                unique_id: '$deviceid-power',
+                name: 'Power',
+                state_topic: '$this/power',
+            },
             climate: {
                 platform: 'climate',
                 unique_id: '$deviceid-climate',
@@ -98,6 +134,7 @@ test('korean language localizes discovery and state while preserving HA protocol
                 unique_id: '$deviceid-dehumidifier',
                 name: null,
                 modes: ['smart', 'fast'],
+                target_humidity_command_topic: '$this/target_humidity/set',
                 mode_state_topic: '$this/operation_mode',
                 mode_command_topic: '$this/operation_mode/set',
             },

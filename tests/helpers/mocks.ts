@@ -7,6 +7,7 @@ import { Device as Thinq1Device } from '@/cloud/thinq1/device'
 import type { Connection as Thinq1Connection } from '@/cloud/thinq1/connection'
 import type { Broker } from '@/cloud/mqtt-broker'
 import assert from 'node:assert/strict'
+import { validateDeviceDiscovery } from '@/util/ha_mqtt_validation'
 
 // Suppress device logging noise during tests. Imported for side effect.
 setFilter(() => false)
@@ -23,6 +24,7 @@ export class MockHAConnection extends EventEmitter {
     isConnected = true
 
     publishConfig(id: string, config: DeviceDiscovery) {
+        assert.deepEqual(validateDeviceDiscovery(config), [], `invalid Home Assistant MQTT discovery for ${id}`)
         this.publishedConfigs.push(config)
         if (!this.devices[id]) this.devices[id] = { properties: {} }
         this.devices[id].config = config

@@ -85,7 +85,7 @@ export default class Device extends HADevice {
                         unique_id: '$deviceid-fan',
                         state_topic: '$this/power',
                         command_topic: '$this/power/set',
-                        name: '',
+                        name: null,
                         icon: 'mdi:air-purifier',
                         preset_mode_state_topic: '$this/wind_strength',
                         preset_mode_command_topic: '$this/wind_strength/set',

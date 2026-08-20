@@ -18,7 +18,7 @@ export default class Device extends AABBDevice {
                         unique_id: '$deviceid-power',
                         state_topic: '$this/power',
                         command_topic: '$this/power/set',
-                        name: '',
+                        name: null,
                         icon: 'mdi:washing-machine',
                     },
                     start: {

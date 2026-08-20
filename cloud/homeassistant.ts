@@ -3,6 +3,7 @@ import { TypedEmitter } from 'tiny-typed-emitter'
 import { HAConfig } from '@/util/config'
 import log from '@/util/logging'
 import { delocalizeValue, localizeDiscovery, localizeValue } from '@/util/ha_locale'
+import { validateDeviceDiscovery } from '@/util/ha_mqtt_validation'
 
 // Notes on availability topic handling:
 // 1. We want HA to be able to tell if a device is available.
@@ -151,6 +152,11 @@ export class Connection extends TypedEmitter<ConnectionEvents> {
         // that must not be passed through the generic device-type translator.
         const registeredName = this.deviceNameResolver?.(id)
         if (registeredName) localizedConfig.device.name = registeredName
+        const validationIssues = validateDeviceDiscovery(localizedConfig)
+        if (validationIssues.length > 0) {
+            console.warn(`Invalid Home Assistant MQTT discovery for ${id}: ${validationIssues.join('; ')}`)
+            return
+        }
         this.registerLocalizedCommands(id, config, localizedConfig)
         const configPayload = JSON.stringify(recursiveReplace(localizedConfig, replacements))
         log('publish', configPayload)
