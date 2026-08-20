@@ -432,14 +432,13 @@ describe(MODEL_ID, () => {
         assert.notEqual(removal, -1, 'no select removal was published')
         const republish = ha.publishedConfigs.findIndex(
             (config, index) =>
-                index > removal &&
-                (config.components.sleeptimer as Record<string, unknown>)?.platform === 'number',
+                index > removal && (config.components.sleeptimer as Record<string, unknown>)?.platform === 'number',
         )
         assert.notEqual(republish, -1, 'the number entity was not republished after the removal')
         dev.drop()
     })
 
-    test('RAC variant leaves the sleep timer select alone', (t) => {
+    test('RAC variant also retires the duplicate sleep timer select', (t) => {
         enableMockTimers(t)
         const ha = new MockHAConnection()
         const thinq = new MockThinq2Device(DEVICE_ID, META)
@@ -448,13 +447,15 @@ describe(MODEL_ID, () => {
         thinq.emit('data', buf(QUERY_RESPONSE_HEX))
         tickMockTimers(t, 6000)
 
-        // Only the WINF build ever published the select, so no other model should emit a
-        // removal that Home Assistant would have to reconcile.
-        assert.ok(
-            ha.publishedConfigs.every(
-                (config) => (config.components.sleeptimer as Record<string, unknown>)?.platform !== 'select',
-            ),
+        const removal = ha.publishedConfigs.findIndex(
+            (config) => (config.components.sleeptimer as Record<string, unknown>)?.platform === 'select',
         )
+        assert.notEqual(removal, -1, 'no RAC select removal was published')
+        const republish = ha.publishedConfigs.findIndex(
+            (config, index) =>
+                index > removal && (config.components.sleeptimer as Record<string, unknown>)?.platform === 'number',
+        )
+        assert.notEqual(republish, -1, 'the RAC number entity was not republished after removal')
         dev.drop()
     })
 })

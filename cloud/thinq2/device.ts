@@ -232,7 +232,9 @@ export class DeviceAcceptor extends TypedEmitter<DeviceAcceptorEvents> {
     disconnected(_client: Client) {
         let client = _client as ClientWithExtra
         if (client.deviceObj) {
-            delete this.clientsById[client.deviceObj.id]
+            // A replacement connection may already have claimed this id before the old
+            // socket's close event arrives. Do not let the old close delete the new index.
+            if (this.clientsById[client.deviceObj.id] === client) delete this.clientsById[client.deviceObj.id]
             this.emit('dropDevice', client.deviceObj.id)
             client.deviceObj.emit('close')
             client.deviceObj = undefined

@@ -15,6 +15,7 @@ import { Device as T1Downstream } from '@/cloud/thinq1/device'
 import { Device as T2Downstream } from '@/cloud/thinq2/device'
 import type { ClipMessage } from '@/cloud/thinq2/clip'
 import { TypedEmitter } from 'tiny-typed-emitter'
+import log from '@/util/logging'
 
 type StatusCallback = (status: string) => void
 type BridgeOptions = {
@@ -66,7 +67,7 @@ class BridgedDevice {
 
             connection.on('data', (payload) => D.send(payload))
             connection.on('close', () => this.disconnect())
-            connection.on('error', console.log)
+            connection.on('error', (err) => log('status', `ThinQ1 bridge ${U.deviceId} error: ${err.message}`))
         } else if (U instanceof Thinq2Device && D instanceof T2Downstream) {
             const connection = new Thinq2Connection(U)
             this.connection = connection

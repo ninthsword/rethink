@@ -841,15 +841,15 @@ export default class Device extends TLVDevice {
             })
         }
 
-        // A short-lived build published the WINF sleep countdown as a select on this very
-        // component id, so Home Assistant registered select.<device>_sleep_timer alongside
-        // the number entity that replaced it. Home Assistant does not retire an entity when
-        // a component changes platform, so the select has to be removed explicitly.
+        // Earlier builds published the sleep countdown as a select on this component id.
+        // The duplicate was observed on both the WINF and the installed RAC, so retire the
+        // old select for every variant before publishing the number entity. Home Assistant
+        // does not remove an entity merely because the component platform changed.
         this.setConfig(config, {
             // Auto dry used to be a read-only sensor on this id, and Home Assistant keeps
             // the old entity when a component changes platform.
             autodry: { platform: 'binary_sensor' },
-            ...(isWinf ? { sleeptimer: { platform: 'select' as const } } : {}),
+            sleeptimer: { platform: 'select' },
         })
 
         if (this.filterLifeTime) {

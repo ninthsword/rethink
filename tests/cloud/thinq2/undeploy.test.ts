@@ -49,3 +49,19 @@ test('an appliance that undeploys can register again on the same connection', ()
     register(acceptor, client)
     assert.deepEqual(added, [DEVICE_ID, DEVICE_ID], 'the appliance must be able to come back')
 })
+
+test('closing a replaced client does not erase the current client index', () => {
+    const acceptor = new DeviceAcceptor(new Broker())
+    const oldClient = { destroy() {} } as Record<string, unknown>
+    const newClient = { destroy() {} } as Record<string, unknown>
+
+    register(acceptor, oldClient)
+    register(acceptor, newClient)
+    assert.equal(acceptor.clientsById[DEVICE_ID], newClient)
+
+    // The real socket close is asynchronous and can arrive after completeProvisioning
+    // has installed the replacement. The old event must not make a third connection look
+    // as if no client were present.
+    acceptor.disconnected(oldClient as never)
+    assert.equal(acceptor.clientsById[DEVICE_ID], newClient)
+})
