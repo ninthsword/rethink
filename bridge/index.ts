@@ -69,7 +69,7 @@ class BridgedDevice {
             connection.on('close', () => this.disconnect())
             connection.on('error', (err) => log('status', `ThinQ1 bridge ${U.deviceId} error: ${err.message}`))
         } else if (U instanceof Thinq2Device && D instanceof T2Downstream) {
-            const connection = new Thinq2Connection(U)
+            const connection = new Thinq2Connection(U, D.deployProfile)
             this.connection = connection
             connection.on('message', (payload) => D.forward_message(payload))
             connection.on('close', () => this.disconnect())

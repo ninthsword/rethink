@@ -47,6 +47,13 @@ export class Device extends TypedEmitter<DeviceEvents> {
         super()
     }
 
+    /**
+     * What the appliance said about itself when it announced. The bridge sends this on to
+     * the LG cloud instead of describing the appliance from a template, so the cloud is
+     * told the model, firmware, modem and timezone the appliance actually reports.
+     */
+    deployProfile: ClipDeployMessage | undefined
+
     private bridgeMessageListeners = new Set<(payload: ClipMessage) => void>()
 
     onBridgeMessage(listener: (payload: ClipMessage) => void) {
@@ -172,6 +179,9 @@ export class DeviceAcceptor extends TypedEmitter<DeviceAcceptorEvents> {
 
             if (payload.cmd === 'preDeploy' || payload.cmd === 'deploy') {
                 client.deployMsg = payload as ClipDeployMessage
+                // The appliance re-announces itself periodically; keep the latest, so a
+                // bridge that connects later describes the appliance as it is now.
+                if (client.deviceObj) client.deviceObj.deployProfile = payload as ClipDeployMessage
                 const packet = {
                     topic: 'lime/devices/' + payload.did,
                     retain: false,
@@ -211,6 +221,7 @@ export class DeviceAcceptor extends TypedEmitter<DeviceAcceptorEvents> {
         }
 
         const dev = new Device(this.broker, 'lime/devices/' + deviceId, deviceId, meta, client.remoteAddress)
+        dev.deployProfile = client.deployMsg
         client.deviceObj = dev
         this.emit('newDevice', dev)
     }

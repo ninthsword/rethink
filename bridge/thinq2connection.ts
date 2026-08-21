@@ -2,7 +2,7 @@ import * as mqtt from 'mqtt'
 import { Thinq2Device } from './thinqApi'
 import { TypedEmitter } from 'tiny-typed-emitter'
 import log from '@/util/logging'
-import type { ClipMessage } from '@/cloud/thinq2/clip'
+import type { ClipDeployMessage, ClipMessage } from '@/cloud/thinq2/clip'
 
 type ConnectionEvents = {
     data: (buffer: Buffer) => void
@@ -15,7 +15,16 @@ export class Connection extends TypedEmitter<ConnectionEvents> {
     mqtt: mqtt.MqttClient
     mid = 10000
 
-    constructor(readonly device: Thinq2Device) {
+    constructor(
+        readonly device: Thinq2Device,
+        /**
+         * What the appliance announced itself with. Sent on to the cloud in place of the
+         * template below, so the cloud is told the model, firmware, modem and timezone the
+         * appliance actually reports rather than a Korean air conditioner being described as
+         * a European one with no device type.
+         */
+        readonly deployProfile?: ClipDeployMessage,
+    ) {
         super()
         const state = this.device.state!
         log('bridge', `${this.device.deviceId} connecting to ${state.mqttServer}`)
@@ -63,54 +72,73 @@ export class Connection extends TypedEmitter<ConnectionEvents> {
             }
         })
 
-        this.mqtt.on('connect', async () => {
+        this.mqtt.on('connect', () => {
             log('bridge', `${this.device.deviceId} connected`)
-            await this.mqtt.subscribe(this.device.state!.subTopic)
-            const message = JSON.stringify({
-                mid: ++this.mid,
-                did: this.device.deviceId,
-                kind: this.device.meta.modelName,
-                cmd: 'preDeploy',
-                rssi: -48,
-                fs: 'idle',
-                data: {
-                    appInfo: {
-                        modelName: this.device.meta.modelName,
-                        modelLanguage: this.device.state!.countryCode,
-                        softVer: '690409',
-                        ruleVer: '2.0.11',
-                        countryCode: this.device.state!.countryCode,
-                        subCountryCode: this.device.state!.countryCode,
-                        appVersion: 'clip_hna_v1.9.183',
-                        modemType: 'RTK_RTL8711am',
-                        regionalCode: 'eic',
-                        timezone: '+0100',
-                        svcCode: 'SVC202',
-                        HomeApSsid: 'whatever',
-                        DeviceType: '',
-                        ruleEngine: 'y',
-                        protocolVer: '1',
-                        oneshot: 'y',
-                        size: 1572864,
-                        fwUpgradeInfo: {
-                            upgSched: {
-                                cmd: 'none',
-                                upgUtc: '0',
-                            },
-                        },
-                    },
-                    platformInfo: {
-                        provisioningKey: this.device.meta.modelName,
-                        version: 'clip_v2.00.15.05-RTK_RTL8711am-SDK-8-RELEASE',
-                    },
-                },
-                type: 0,
-            })
-            await this.publishToCloud(this.device.state!.provTopic, message, 1)
+            void this.announceToCloud()
         })
 
         this.mqtt.on('close', () => this.emit('close'))
         this.mqtt.on('error', (err) => this.emit('error', err))
+    }
+
+    /**
+     * Tell the LG cloud which appliance this connection speaks for. Split out from the
+     * connect handler so it can be exercised without a broker.
+     */
+    async announceToCloud() {
+        await this.mqtt.subscribe(this.device.state!.subTopic)
+        if (this.deployProfile) {
+            // The appliance has described itself; nothing here can describe it better.
+            await this.publishToCloud(
+                this.device.state!.provTopic,
+                JSON.stringify({ ...this.deployProfile, mid: ++this.mid }),
+                1,
+            )
+            return
+        }
+        // Nothing has been heard from the appliance yet — it can reach the cloud before
+        // it reaches us — so announce it from what the registration knows.
+        const message = JSON.stringify({
+            mid: ++this.mid,
+            did: this.device.deviceId,
+            kind: this.device.meta.modelName,
+            cmd: 'preDeploy',
+            rssi: -48,
+            fs: 'idle',
+            data: {
+                appInfo: {
+                    modelName: this.device.meta.modelName,
+                    modelLanguage: this.device.state!.countryCode,
+                    softVer: '690409',
+                    ruleVer: '2.0.11',
+                    countryCode: this.device.state!.countryCode,
+                    subCountryCode: this.device.state!.countryCode,
+                    appVersion: 'clip_hna_v1.9.183',
+                    modemType: 'RTK_RTL8711am',
+                    regionalCode: 'eic',
+                    timezone: '+0100',
+                    svcCode: 'SVC202',
+                    HomeApSsid: 'whatever',
+                    DeviceType: '',
+                    ruleEngine: 'y',
+                    protocolVer: '1',
+                    oneshot: 'y',
+                    size: 1572864,
+                    fwUpgradeInfo: {
+                        upgSched: {
+                            cmd: 'none',
+                            upgUtc: '0',
+                        },
+                    },
+                },
+                platformInfo: {
+                    provisioningKey: this.device.meta.modelName,
+                    version: 'clip_v2.00.15.05-RTK_RTL8711am-SDK-8-RELEASE',
+                },
+            },
+            type: 0,
+        })
+        await this.publishToCloud(this.device.state!.provTopic, message, 1)
     }
 
     send(data: string | Buffer) {
