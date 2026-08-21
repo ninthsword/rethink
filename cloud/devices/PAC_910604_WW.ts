@@ -493,7 +493,17 @@ export default class Device extends TLVDevice {
                 // PAC_910604_WW does not report 0x2B3 when it turns off, so
                 // replace the retained last-running value with measured standby power.
                 if (isPac910604 && !powerState) this.HA.publishProperty(this.id, 'energy_current-', 3)
-                if (this.powerStatePrev !== powerState) for (const hook of this.powerChangeHooks) hook()
+                /*
+                 * Only a change the appliance actually made. The first reading after rethink
+                 * starts is not one: the appliance has been sitting there with its own
+                 * settings, and treating it as a power-up made every restart re-apply three
+                 * of them — five writes, five beeps from a bedroom air conditioner, and
+                 * every one of them OFF because the values they re-apply had not been read
+                 * back yet. The re-apply is for the appliance's own power-up, which rethink
+                 * sees as a change from a state it had already recorded.
+                 */
+                if (this.powerStatePrev !== undefined && this.powerStatePrev !== powerState)
+                    for (const hook of this.powerChangeHooks) hook()
                 this.powerStatePrev = powerState
 
                 return false
@@ -516,7 +526,10 @@ export default class Device extends TLVDevice {
             },
             read_callback: (val) => {
                 if (typeof val !== 'string') return true
-                if (this.modePrev !== val) for (const hook of this.modeChangeHooks) hook()
+                // As with power: the first reading tells us where the appliance is, not that
+                // it moved. See the power branch above.
+                if (this.modePrev !== undefined && this.modePrev !== val)
+                    for (const hook of this.modeChangeHooks) hook()
                 this.modePrev = val
                 return true
             },

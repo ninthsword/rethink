@@ -520,3 +520,43 @@ describe('RAC_056905_WW energy total', () => {
         }
     })
 })
+
+describe('RAC_056905_WW writes nothing just because rethink restarted', () => {
+    /** A write carries the 0x02 0x01 header; a query carries 0x02 0x02. */
+    const writesOnly = (packets: Buffer[]) => packets.map(hex).filter((h) => h.slice(14, 20) === '020100' || h.slice(14, 20) === '020101')
+
+    test('coming up against a running appliance sends it nothing', (t) => {
+        // Air purify, energy saving and jet are re-applied whenever the appliance powers up,
+        // because it forgets them. rethink starting is not the appliance powering up: it
+        // finds the appliance already running with its own settings. Treating the first
+        // reading as a change sent five writes at once — five beeps from a bedroom air
+        // conditioner in the middle of the night — and every one of them OFF, because the
+        // values being re-applied had not been read back yet.
+        enableMockTimers(t)
+        const { thinq, dev } = makeDevice()
+        try {
+            thinq.emit('data', buf(CAPS_RESPONSE_HEX))
+            thinq.emit('data', buf(QUERY_RESPONSE_HEX))
+            tickMockTimers(t, 6000)
+
+            assert.deepEqual(writesOnly(thinq.outbox), [], 'only queries, never a setting')
+        } finally {
+            dev.drop()
+        }
+    })
+
+    test('a power-up the appliance actually made still re-applies them', (t) => {
+        const { thinq, dev } = buildReadyDevice(t)
+        try {
+            // rethink now knows where the appliance was, so switching off and on again is a
+            // change it can see — and the settings the appliance forgets are put back.
+            dev.processKeyValue(0x1f7, 0)
+            thinq.resetRecorder()
+            dev.processKeyValue(0x1f7, 1)
+
+            assert.ok(writesOnly(thinq.outbox).length > 0, 'the appliance forgets these, so they are re-sent')
+        } finally {
+            dev.drop()
+        }
+    })
+})
