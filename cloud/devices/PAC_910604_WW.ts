@@ -3,12 +3,11 @@ import { Device as Thinq2Device } from '../thinq2/device'
 import { ClimateComponent, DeviceDiscovery, type Connection } from '../homeassistant'
 import { type Metadata } from '../thinq'
 import { allowExtendedType } from '@/util/casting'
+import { EnergyMeter, energyTotalComponent as energyTotal } from './energy_meter'
 import * as TLV from '@/util/tlv'
 import { racAirTemp, racPipeTemp } from '@/util/ac_tables'
 import log from '@/util/logging'
 import HADevice from './base'
-import { dirname, join, resolve } from 'node:path'
-import { readFileSync, renameSync, writeFileSync } from 'node:fs'
 
 type PowerModeChangeHook = () => void
 type CheckMode = (arg: number) => boolean
@@ -55,29 +54,6 @@ const RETIRED_ENERGY_COMPONENTS = {
     energy_month: { platform: 'sensor' },
 }
 
-/** Beyond this, the gap is time the appliance did not report and nothing is assumed about it. */
-const MAX_POWER_SAMPLE_GAP_S = 5 * 60
-const ENERGY_PUBLISH_INTERVAL_MS = 60 * 1000
-
-type EnergyStats = {
-    /** A meter reading. It only ever goes up, and the periods are Home Assistant's job. */
-    totalWh: number
-    lastReportSignature?: string
-    lastReportAt?: number
-    /**
-     * Set once the appliance has sent a B115 statistics report. Those are authoritative and
-     * this unit stops estimating from the power reading — but this one has never sent a
-     * single one, which is why the estimate exists at all.
-     */
-    fromReports?: boolean
-}
-
-
-function dataDirectory() {
-    if (!process.argv[1]?.includes('rethink-cloud')) return
-    return dirname(resolve(process.argv[2] ?? './config.json'))
-}
-
 export default class Device extends TLVDevice {
     meta: Metadata
     initialValuesReceived: boolean = false
@@ -98,14 +74,12 @@ export default class Device extends TLVDevice {
     pacFanOnlyStopTimeout: ReturnType<typeof setTimeout> | undefined
     pacLongPowerTimeout: ReturnType<typeof setTimeout> | undefined
     pacFanModeBeforeLongPower: number = 0x0606
-    energyStats: EnergyStats
-    lastPowerSampleAt: number | undefined
-    lastEnergyPublishAt = 0
+    energy: EnergyMeter
 
     constructor(HA: Connection, thinq: Thinq2Device, meta: Metadata) {
         super(HA, thinq)
         this.meta = meta
-        this.energyStats = this.loadEnergyStats()
+        this.energy = new EnergyMeter(thinq.id, (wh) => this.HA.publishProperty(this.id, 'energy_total', wh))
     }
 
     drop() {
@@ -162,7 +136,7 @@ export default class Device extends TLVDevice {
             const intervalWh = buf.readUInt32LE(12)
             const intervalSeconds = buf.readUInt32LE(16)
             if (intervalWh > 0 && intervalSeconds >= 600 && intervalSeconds <= 1200) {
-                this.processEnergyInterval(intervalWh, intervalSeconds)
+                this.energy.addMeasuredInterval(intervalWh, intervalSeconds)
             }
         }
     }
@@ -1111,37 +1085,18 @@ export default class Device extends TLVDevice {
                 writable: false,
                 read_xform: (raw) => (isPac910604 ? (this.getPowerTLV() === 0 ? 3 : raw) : Math.max(5, raw - 60)),
                 read_callback: (value) => {
-                    if (isPac910604 && typeof value === 'number') this.integrateReportedPower(value)
+                    if (isPac910604 && typeof value === 'number') this.energy.integratePower(value)
                     return true
                 },
             })
         }
 
         if (isPac910604) {
-            /*
-             * One running total, for Home Assistant's energy dashboard to slice into hours,
-             * days and months itself. The hour, day and month sensors that used to be here
-             * did that slicing by hand and, for the month, competed with the official ThinQ
-             * integration's figure — which comes from LG's own accounting and is the one
-             * worth believing. What rethink has that the official integration does not is
-             * the live reading, so that is what it keeps: power now, and energy since.
-             */
-            const energyTotal = {
-                platform: 'sensor',
-                device_class: 'energy',
-                unique_id: '$deviceid-energy_total',
-                state_topic: '$this/energy_total',
-                name: '누적 전력 사용량',
-                unit_of_measurement: 'Wh',
-                // A meter reading, not a bucket: Home Assistant takes the differences.
-                state_class: 'total_increasing',
-                icon: 'mdi:lightning-bolt',
-            }
-            config['components']['energy_total'] = energyTotal
+            config['components']['energy_total'] = energyTotal()
         }
 
         this.setConfig(config, isPac910604 ? RETIRED_ENERGY_COMPONENTS : undefined)
-        if (isPac910604) this.publishEnergyStats()
+        if (isPac910604) this.energy.publish()
 
         if (this.filterLifeTime) {
             this.publishFilterData()
@@ -1160,99 +1115,6 @@ export default class Device extends TLVDevice {
         }
 
         this.query()
-    }
-
-    private energyStatsPath() {
-        const dir = dataDirectory()
-        return dir ? join(dir, `air-conditioner-energy-${this.id}.json`) : undefined
-    }
-
-    private loadEnergyStats(): EnergyStats {
-        const empty: EnergyStats = { totalWh: 0 }
-        const path = this.energyStatsPath()
-        if (!path) return empty
-        try {
-            const saved = JSON.parse(readFileSync(path, 'utf-8')) as EnergyStats
-            return {
-                totalWh: Number(saved.totalWh) || 0,
-                ...(saved.lastReportSignature ? { lastReportSignature: saved.lastReportSignature } : {}),
-                ...(Number.isFinite(saved.lastReportAt) ? { lastReportAt: Number(saved.lastReportAt) } : {}),
-                // Which source is in use has to survive a restart, or a unit that does send
-                // reports would be estimated against for the first quarter of an hour and
-                // then have the real figure added on top of it.
-                ...(saved.fromReports ? { fromReports: true } : {}),
-            }
-        } catch {
-            return empty
-        }
-    }
-
-    private saveEnergyStats() {
-        const path = this.energyStatsPath()
-        if (!path) return
-        const temporary = `${path}.tmp`
-        try {
-            writeFileSync(temporary, JSON.stringify(this.energyStats))
-            renameSync(temporary, path)
-        } catch (err) {
-            console.warn(`Unable to save air conditioner energy statistics: ${err}`)
-        }
-    }
-
-    private publishEnergyStats() {
-        this.HA.publishProperty(this.id, 'energy_total', Math.round(this.energyStats.totalWh))
-    }
-
-    /**
-     * Estimate consumption from the power the appliance reports, by adding what it drew
-     * over the time since the last reading.
-     *
-     * This unit has never sent a single B115 statistics report, so its hour, day and month
-     * figures sat at zero for as long as they have existed while the ThinQ app showed a
-     * full month of usage — the app's own numbers are an estimate too, which is why it says
-     * they may differ from actual. The power reading itself is sound: it was checked
-     * against an external meter, and it matches what the app displays to the watt.
-     *
-     * A gap longer than a few minutes is not credited. The appliance stops reporting this
-     * tag entirely when it is switched off, so the time either side of that is time we know
-     * nothing about, and guessing at it is worse than leaving it out.
-     */
-    private integrateReportedPower(watts: number, now = Date.now()) {
-        const previous = this.lastPowerSampleAt
-        this.lastPowerSampleAt = now
-        // A report arrived once, so that is what this unit is measured by.
-        if (this.energyStats.fromReports || previous === undefined) return
-
-        const seconds = Math.min((now - previous) / 1000, MAX_POWER_SAMPLE_GAP_S)
-        if (!(seconds > 0) || !Number.isFinite(watts) || watts < 0) return
-
-        this.energyStats.totalWh += (watts * seconds) / 3600
-
-        // Samples arrive several times a second; publishing and saving on each one would
-        // put thousands of retained messages and file writes an hour behind a figure that
-        // moves by fractions of a watt-hour.
-        if (now - this.lastEnergyPublishAt < ENERGY_PUBLISH_INTERVAL_MS) return
-        this.lastEnergyPublishAt = now
-        this.publishEnergyStats()
-        this.saveEnergyStats()
-    }
-
-    private processEnergyInterval(intervalWh: number, intervalSeconds: number, now = Date.now()) {
-        // The appliance's own accounting beats anything estimated from samples.
-        this.energyStats.fromReports = true
-        const signature = `${intervalWh}:${intervalSeconds}`
-        if (
-            this.energyStats.lastReportSignature === signature &&
-            this.energyStats.lastReportAt != null &&
-            now - this.energyStats.lastReportAt < 2 * 60_000
-        )
-            return
-
-        this.energyStats.lastReportSignature = signature
-        this.energyStats.lastReportAt = now
-        this.energyStats.totalWh += intervalWh
-        this.publishEnergyStats()
-        this.saveEnergyStats()
     }
 
     addTimerField(

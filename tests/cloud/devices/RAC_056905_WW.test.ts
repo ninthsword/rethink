@@ -459,3 +459,32 @@ describe(MODEL_ID, () => {
         dev.drop()
     })
 })
+
+describe('RAC_056905_WW energy total', () => {
+    // An appliance that says what it is drawing can also say what it has used.
+    test('adds up the corrected power reading, not the raw one', (t) => {
+        const { ha, dev } = buildReadyDevice(t)
+        try {
+            const total = ha.devices[DEVICE_ID].config!.components.energy_total as Record<string, unknown>
+            assert.equal(total.state_class, 'total_increasing', 'a meter for the energy dashboard')
+            assert.equal(total.unit_of_measurement, 'Wh')
+
+            // This model's raw value is biased, and the sensor shows raw - 60. The total has
+            // to be built from the same figure the sensor shows or the two disagree.
+            const at = (ms: number, raw: number) =>
+                (dev as unknown as { energy: { integratePower(w: number, now?: number): void } }).energy.integratePower(
+                    Math.max(5, raw - 60),
+                    ms,
+                )
+
+            dev.processKeyValue(0x2b3, 780)
+            assert.equal(ha.devices[DEVICE_ID].properties['energy_current-'], 720)
+
+            at(0, 780)
+            at(60 * 1000, 780)
+            assert.equal(ha.devices[DEVICE_ID].properties.energy_total, 12, '720 W for a minute is 12 Wh')
+        } finally {
+            dev.drop()
+        }
+    })
+})

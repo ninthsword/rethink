@@ -3,6 +3,7 @@ import { Device as Thinq2Device } from '../thinq2/device'
 import { ClimateComponent, DeviceDiscovery, type Connection } from '../homeassistant'
 import { type Metadata } from '../thinq'
 import { allowExtendedType } from '@/util/casting'
+import { EnergyMeter, energyTotalComponent as energyTotal } from './energy_meter'
 import * as TLV from '@/util/tlv'
 import { racAirTemp, racPipeTemp } from '@/util/ac_tables'
 import log from '@/util/logging'
@@ -84,10 +85,12 @@ export default class Device extends TLVDevice {
     filterChangedDate: number = 0
     filterInitialQueryTimeout: ReturnType<typeof setTimeout> | undefined
     filterQueryTimer: ReturnType<typeof setInterval> | undefined
+    energy: EnergyMeter
 
     constructor(HA: Connection, thinq: Thinq2Device, meta: Metadata) {
         super(HA, thinq)
         this.meta = meta
+        this.energy = new EnergyMeter(thinq.id, (wh) => this.HA.publishProperty(this.id, 'energy_total', wh))
     }
 
     drop() {
@@ -824,6 +827,10 @@ export default class Device extends TLVDevice {
             }
 
             config['components']['energy_current'] = energyCurrent
+            // An appliance that says what it is drawing can also say what it has used: the
+            // total is that reading added up over time, and Home Assistant's energy
+            // dashboard turns the total into hours, days and months.
+            config['components']['energy_total'] = energyTotal()
 
             // The measurements reported by AC appear to be Watts, but they are not accurate in several aspects:
             // - the value is biased by +50
@@ -838,7 +845,14 @@ export default class Device extends TLVDevice {
                 comp: 'energy_current',
                 writable: false,
                 read_xform: (raw) => Math.max(5, raw - 60),
+                // Whatever correction the reading needs, the total is added up from the
+                // corrected figure — the same one the sensor shows.
+                read_callback: (value) => {
+                    if (typeof value === 'number') this.energy.integratePower(value)
+                    return true
+                },
             })
+            this.energy.publish()
         }
 
         // Earlier builds published the sleep countdown as a select on this component id.
