@@ -100,8 +100,14 @@ function t1setup(manager: DeviceManager) {
 
     app.use(thinq1Routes(config))
 
-    // fallback
+    // The same blind spot on the ThinQ1 side; see the ThinQ2 fallback above.
     app.use((req, res) => {
+        const body = req.body && Object.keys(req.body).length ? JSON.stringify(req.body) : ''
+        log(
+            'unhandled-https',
+            `${req.method} ${req.hostname}${req.url}`,
+            body ? `body ${body.length}B: ${body.slice(0, 600)}` : '(no body)',
+        )
         res.json({})
     })
 
@@ -142,8 +148,22 @@ function t2setup(manager: DeviceManager) {
 
     app.use(thinq2Routes(config, ca))
 
-    // fallback
+    /*
+     * Anything the appliance asks for that is not one of the three provisioning routes above
+     * is answered with an empty body and nothing else happens to it — rethink neither
+     * handles it nor passes it on, and the appliance takes the 200 for success and never
+     * retries. That is fine for chatter, but it is also where an appliance's usage upload
+     * would go, and the LG cloud's daily energy figures stopped for every appliance on the
+     * day it was bridged while its live readings kept working. So say what is being
+     * swallowed, in enough detail to tell which it is.
+     */
     app.use((req, res) => {
+        const body = req.body && Object.keys(req.body).length ? JSON.stringify(req.body) : ''
+        log(
+            'unhandled-https',
+            `${req.method} ${req.hostname}${req.url}`,
+            body ? `body ${body.length}B: ${body.slice(0, 600)}` : '(no body)',
+        )
         res.header('content-type', 'text/xml;charset=utf-8')
         res.end('')
     })
