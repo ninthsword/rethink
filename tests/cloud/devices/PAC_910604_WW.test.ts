@@ -283,3 +283,76 @@ describe('PAC_910604_WW', () => {
         assert.equal(ha.devices[DEVICE_ID].properties['climate-fan_mode'], '약풍_강풍')
     })
 })
+
+describe('PAC_910604_WW energy without B115 reports', () => {
+    // This appliance has never sent a B115 statistics report, so the hour, day and month
+    // figures sat at zero for as long as they existed while the ThinQ app showed a full
+    // month of usage. The power reading it does send was checked against an external meter.
+    const integrate = (dev: { processKeyValue(k: number, v: number): void }, watts: number) =>
+        dev.processKeyValue(0x2b3, watts)
+
+    // Start part-way into an hour so a run of samples does not cross into the next one,
+    // and clean up whatever happens: the device holds intervals that outlive a failure.
+    function withClock(t: { mock: { timers: { enable(o: object): void } } }) {
+        t.mock.timers.enable({ apis: ['Date'], now: 5 * 60 * 1000 })
+        return configureDevice()
+    }
+
+    test('estimates consumption from the power the appliance reports', (t) => {
+        const { ha, dev } = withClock(t)
+        try {
+            integrate(dev, 900) // the first sample only starts the clock
+            t.mock.timers.tick(30 * 60 * 1000)
+            integrate(dev, 900)
+
+            // Half an hour is longer than one sample may cover, so only the cap is credited:
+            // the appliance stops reporting this tag entirely when it is switched off, and
+            // guessing at that time is worse than leaving it out.
+            assert.equal(ha.devices[DEVICE_ID].properties.energy_today, 75, '900 W for five minutes')
+        } finally {
+            dev.drop()
+        }
+    })
+
+    test('adds up over many samples the way the appliance actually reports', (t) => {
+        const { ha, dev } = withClock(t)
+        try {
+            integrate(dev, 720)
+            for (let minute = 0; minute < 30; minute++) {
+                t.mock.timers.tick(60 * 1000)
+                integrate(dev, 720)
+            }
+
+            const properties = ha.devices[DEVICE_ID].properties
+            assert.equal(properties.energy_today, 360, 'half an hour at 720 W is 360 Wh')
+            assert.equal(properties.energy_current_hour, 360)
+            assert.equal(properties.energy_month, 0.36)
+        } finally {
+            dev.drop()
+        }
+    })
+
+    test('a real report takes over and the estimate stops', (t) => {
+        const { ha, dev } = withClock(t)
+        try {
+            const packet = Buffer.alloc(20)
+            packet[6] = 0x87
+            packet[7] = 0xfd
+            packet[8] = 0x03
+            packet[10] = 0xb1
+            packet[11] = 0x15
+            packet.writeUInt32LE(200, 12)
+            packet.writeUInt32LE(900, 16)
+            dev.processData(packet)
+
+            integrate(dev, 900)
+            t.mock.timers.tick(5 * 60 * 1000)
+            integrate(dev, 900)
+
+            // Both sources adding to the same figure would count the same energy twice.
+            assert.equal(ha.devices[DEVICE_ID].properties.energy_today, 200)
+        } finally {
+            dev.drop()
+        }
+    })
+})

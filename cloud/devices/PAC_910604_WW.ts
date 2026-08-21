@@ -44,6 +44,10 @@ const HUMIDITY_SENSOR_MODE_COMMANDS = {
     1: Buffer.from('01020400000065fd0100050c00000001a140', 'hex'),
 } as const
 
+/** Beyond this, the gap is time the appliance did not report and nothing is assumed about it. */
+const MAX_POWER_SAMPLE_GAP_S = 5 * 60
+const ENERGY_PUBLISH_INTERVAL_MS = 60 * 1000
+
 type EnergyStats = {
     hour: string
     date: string
@@ -53,6 +57,12 @@ type EnergyStats = {
     monthWh: number
     lastReportSignature?: string
     lastReportAt?: number
+    /**
+     * Set once the appliance has sent a B115 statistics report. Those are authoritative and
+     * this unit stops estimating from the power reading — but this one has never sent a
+     * single one, which is why the estimate exists at all.
+     */
+    fromReports?: boolean
 }
 
 function localDate(timestamp = Date.now()) {
@@ -110,6 +120,8 @@ export default class Device extends TLVDevice {
     pacFanModeBeforeLongPower: number = 0x0606
     energyResetTimer: ReturnType<typeof setInterval> | undefined
     energyStats: EnergyStats
+    lastPowerSampleAt: number | undefined
+    lastEnergyPublishAt = 0
 
     constructor(HA: Connection, thinq: Thinq2Device, meta: Metadata) {
         super(HA, thinq)
@@ -1128,6 +1140,10 @@ export default class Device extends TLVDevice {
                 comp: 'energy_current',
                 writable: false,
                 read_xform: (raw) => (isPac910604 ? (this.getPowerTLV() === 0 ? 3 : raw) : Math.max(5, raw - 60)),
+                read_callback: (value) => {
+                    if (isPac910604 && typeof value === 'number') this.integrateReportedPower(value)
+                    return true
+                },
             })
         }
 
@@ -1209,6 +1225,10 @@ export default class Device extends TLVDevice {
                 monthWh: saved.month === current.month ? Number(saved.monthWh) || 0 : 0,
                 ...(saved.lastReportSignature ? { lastReportSignature: saved.lastReportSignature } : {}),
                 ...(Number.isFinite(saved.lastReportAt) ? { lastReportAt: Number(saved.lastReportAt) } : {}),
+                // Which source is in use has to survive a restart, or a unit that does send
+                // reports would be estimated against for the first quarter of an hour and
+                // then have the real figure added on top of it.
+                ...(saved.fromReports ? { fromReports: true } : {}),
             }
         } catch {
             return empty
@@ -1228,13 +1248,53 @@ export default class Device extends TLVDevice {
     }
 
     private publishEnergyStats() {
-        this.HA.publishProperty(this.id, 'energy_current_hour', this.energyStats.hourWh)
-        this.HA.publishProperty(this.id, 'energy_today', this.energyStats.dayWh)
+        this.HA.publishProperty(this.id, 'energy_current_hour', Math.round(this.energyStats.hourWh))
+        this.HA.publishProperty(this.id, 'energy_today', Math.round(this.energyStats.dayWh))
         this.HA.publishProperty(this.id, 'energy_month', Number((this.energyStats.monthWh / 1000).toFixed(3)))
+    }
+
+    /**
+     * Estimate consumption from the power the appliance reports, by adding what it drew
+     * over the time since the last reading.
+     *
+     * This unit has never sent a single B115 statistics report, so its hour, day and month
+     * figures sat at zero for as long as they have existed while the ThinQ app showed a
+     * full month of usage — the app's own numbers are an estimate too, which is why it says
+     * they may differ from actual. The power reading itself is sound: it was checked
+     * against an external meter, and it matches what the app displays to the watt.
+     *
+     * A gap longer than a few minutes is not credited. The appliance stops reporting this
+     * tag entirely when it is switched off, so the time either side of that is time we know
+     * nothing about, and guessing at it is worse than leaving it out.
+     */
+    private integrateReportedPower(watts: number, now = Date.now()) {
+        this.rollEnergyPeriods(now)
+        const previous = this.lastPowerSampleAt
+        this.lastPowerSampleAt = now
+        // A report arrived once, so that is what this unit is measured by.
+        if (this.energyStats.fromReports || previous === undefined) return
+
+        const seconds = Math.min((now - previous) / 1000, MAX_POWER_SAMPLE_GAP_S)
+        if (!(seconds > 0) || !Number.isFinite(watts) || watts < 0) return
+
+        const wh = (watts * seconds) / 3600
+        this.energyStats.hourWh += wh
+        this.energyStats.dayWh += wh
+        this.energyStats.monthWh += wh
+
+        // Samples arrive several times a second; publishing and saving on each one would
+        // put thousands of retained messages and file writes an hour behind a figure that
+        // moves by fractions of a watt-hour.
+        if (now - this.lastEnergyPublishAt < ENERGY_PUBLISH_INTERVAL_MS) return
+        this.lastEnergyPublishAt = now
+        this.publishEnergyStats()
+        this.saveEnergyStats()
     }
 
     private processEnergyInterval(intervalWh: number, intervalSeconds: number, now = Date.now()) {
         this.rollEnergyPeriods(now)
+        // The appliance's own accounting beats anything estimated from samples.
+        this.energyStats.fromReports = true
         const signature = `${intervalWh}:${intervalSeconds}`
         if (
             this.energyStats.lastReportSignature === signature &&
