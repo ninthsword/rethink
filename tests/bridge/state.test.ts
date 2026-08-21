@@ -1,6 +1,6 @@
 import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, rmSync, existsSync } from 'node:fs'
+import { mkdtempSync, rmSync, existsSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { JSONStorage } from '@/bridge/state'
@@ -12,6 +12,24 @@ function makeStore() {
     const dir = mkdtempSync(path.join(tmpdir(), 'rethink-bridge-'))
     return { store: new JSONStorage(dir), dir, cleanup: () => rmSync(dir, { recursive: true, force: true }) }
 }
+
+describe('bridge state durability', () => {
+    test('what cannot be rebuilt is written atomically and kept to the owner', () => {
+        const { store, dir, cleanup } = makeStore()
+        store.setCredentials({ refreshToken: 'secret', env: { countryCode: 'KR' } })
+        store.setDeviceState(ID, REGISTRATION)
+
+        // These hold the account's refresh token and each appliance's certificate, neither
+        // of which can be remade without the appliance. A half-written file costs a
+        // registration rather than a retry, and they were world readable.
+        for (const name of ['oauth2.json', `device_${ID}.json`]) {
+            const file = path.join(dir, name)
+            assert.equal(statSync(file).mode & 0o777, 0o600, name)
+        }
+        assert.equal(existsSync(path.join(dir, 'oauth2.json.tmp')), false, 'no temporary is left behind')
+        cleanup()
+    })
+})
 
 describe('bridge registration archive', () => {
     test('an archived registration comes back when the entry is re-added', () => {

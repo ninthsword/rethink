@@ -180,7 +180,17 @@ export class Broker extends TypedEmitter<BrokerEvents> {
 
         mqtt.on('connect', (packet) => {
             const keepalive = packet.keepalive ?? 0
-            log('status', 'mqtt client', packet.clientId, 'connected, keepalive', keepalive, 's')
+            // The protocol version decides whether a server could ever override that
+            // keepalive: only MQTT 5 carries Server Keep Alive in the acknowledgement.
+            log(
+                'status',
+                'mqtt client',
+                packet.clientId,
+                'connected, keepalive',
+                keepalive,
+                's, protocol',
+                `${packet.protocolId ?? '?'} v${packet.protocolVersion ?? '?'}`,
+            )
             const timeout = idleTimeoutFor(keepalive)
             if (timeout === 0)
                 log('status', 'not timing out', packet.clientId, 'for idleness; it asks for more silence than that')

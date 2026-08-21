@@ -187,17 +187,17 @@ export class DeviceAcceptor extends TypedEmitter<DeviceAcceptorEvents> {
 
     completeProvisioning(deviceId: string, payload: ClipMessage, client: ClientWithExtra) {
         if (!client.deployMsg) {
-            console.warn('completeProvisioning_ack received without deploy/preDeploy')
+            log('status', `${deviceId} acknowledged provisioning it never started; it will not be registered`)
             return
         }
 
         if (client.deviceObj) {
-            console.warn('completeProvisioning_ack received twice?')
+            log('status', `${deviceId} acknowledged provisioning twice; keeping the registration it already has`)
             return
         }
 
         if (this.clientsById[deviceId]) {
-            console.warn(`device ${deviceId} already connected, dropping the old one`)
+            log('status', `${deviceId} connected again; dropping its previous connection`)
             this.clientsById[deviceId].destroy()
         }
 

@@ -1,5 +1,5 @@
 import { Environment, Thinq1DeviceState, Thinq2DeviceState } from './thinqApi'
-import { readFileSync, unlinkSync, writeFileSync } from 'node:fs'
+import { readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
 
 export type Credentials = {
     refreshToken: string
@@ -28,6 +28,21 @@ export type BridgeState = {
 export class JSONStorage implements BridgeState {
     constructor(readonly basePath: string) {}
 
+    /**
+     * Writes through a temporary file so a crash cannot leave a half-written one behind.
+     * What is kept here — the account's refresh token and each appliance's bridge
+     * certificate — cannot be rebuilt without the appliance itself, so a truncated file
+     * costs a registration rather than a retry. The router's own settings have always been
+     * written this way; these are the files that deserve it more.
+     *
+     * The mode keeps them to the owner: they are credentials, and they were world readable.
+     */
+    private writeAtomically(path: string, contents: string | Buffer) {
+        const temporary = `${path}.tmp`
+        writeFileSync(temporary, contents, { mode: 0o600 })
+        renameSync(temporary, path)
+    }
+
     oauth2Path() {
         return `${this.basePath}/oauth2.json`
     }
@@ -49,7 +64,7 @@ export class JSONStorage implements BridgeState {
     }
 
     setCredentials(credentials: Credentials | undefined) {
-        if (credentials) writeFileSync(this.oauth2Path(), JSON.stringify(credentials))
+        if (credentials) this.writeAtomically(this.oauth2Path(), JSON.stringify(credentials))
         else unlinkSync(this.oauth2Path())
     }
 
@@ -64,14 +79,14 @@ export class JSONStorage implements BridgeState {
     }
 
     setDeviceState(id: string, state: Thinq1DeviceState | Thinq2DeviceState | undefined) {
-        if (state) writeFileSync(this.devicePath(id), JSON.stringify(state))
+        if (state) this.writeAtomically(this.devicePath(id), JSON.stringify(state))
         else unlinkSync(this.devicePath(id))
     }
 
     archiveDeviceState(id: string) {
         const state = this.getDeviceState(id)
         if (!state) return false
-        writeFileSync(this.archivePath(id), JSON.stringify(state))
+        this.writeAtomically(this.archivePath(id), JSON.stringify(state))
         unlinkSync(this.devicePath(id))
         return true
     }
@@ -90,7 +105,7 @@ export class JSONStorage implements BridgeState {
         // appliance was deliberately registered afresh rather than restored by accident.
         if (this.getDeviceState(id)) return false
         try {
-            writeFileSync(this.devicePath(id), readFileSync(this.archivePath(id)))
+            this.writeAtomically(this.devicePath(id), readFileSync(this.archivePath(id)))
             return true
         } catch {
             return false

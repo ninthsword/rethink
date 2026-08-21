@@ -32,6 +32,7 @@ import D121111 from './devices/D121111'
 import { Device as T1Device } from './thinq1/device'
 import { Device as T2Device } from './thinq2/device'
 import { type Connection } from './homeassistant'
+import log from '@/util/logging'
 import HADevice from './devices/base'
 import { type Metadata } from './thinq'
 import { AnyDevice } from './devmgr'
@@ -118,7 +119,14 @@ class Bridge {
         }
 
         if (!hadevice) {
-            console.warn(`${thinqdev.platform} device type ${meta.modelId} unknown`)
+            // The appliance is connected and bridging; it simply has no handler, so it
+            // produces no Home Assistant entities. That is easy to mistake for a
+            // connection problem — the dryer was, after being re-registered under a model
+            // id nothing here knew — so say what it is and what to do about it.
+            log(
+                'status',
+                `no handler for ${thinqdev.platform} model ${meta.modelId}; ${thinqdev.id} will have no Home Assistant entities`,
+            )
             return
         }
 

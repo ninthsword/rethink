@@ -154,7 +154,9 @@ export class Connection extends TypedEmitter<ConnectionEvents> {
         if (registeredName) localizedConfig.device.name = registeredName
         const validationIssues = validateDeviceDiscovery(localizedConfig)
         if (validationIssues.length > 0) {
-            console.warn(`Invalid Home Assistant MQTT discovery for ${id}: ${validationIssues.join('; ')}`)
+            // Nothing is published, so the appliance loses every entity it had. This is the
+            // loudest failure there is here and it used to be the quietest.
+            log('status', `discovery for ${id} rejected, publishing nothing: ${validationIssues.join('; ')}`)
             return
         }
         this.registerLocalizedCommands(id, config, localizedConfig)

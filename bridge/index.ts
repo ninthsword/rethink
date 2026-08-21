@@ -73,7 +73,7 @@ class BridgedDevice {
             this.connection = connection
             connection.on('message', (payload) => D.forward_message(payload))
             connection.on('close', () => this.disconnect())
-            connection.on('error', console.log)
+            connection.on('error', (err) => log('status', `ThinQ2 bridge ${U.deviceId} error: ${err.message}`))
         } else {
             console.warn("Can't connect bridge")
             return
