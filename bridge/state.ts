@@ -1,5 +1,5 @@
 import { Environment, Thinq1DeviceState, Thinq2DeviceState } from './thinqApi'
-import { readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
 
 export type Credentials = {
     refreshToken: string
@@ -37,6 +37,11 @@ export class JSONStorage implements BridgeState {
      *
      * The mode keeps them to the owner: they are credentials, and they were world readable.
      */
+    /** Removing what is already gone is the desired end state, not an error. */
+    private removeIfPresent(path: string) {
+        if (existsSync(path)) unlinkSync(path)
+    }
+
     private writeAtomically(path: string, contents: string | Buffer) {
         const temporary = `${path}.tmp`
         writeFileSync(temporary, contents, { mode: 0o600 })
@@ -65,7 +70,7 @@ export class JSONStorage implements BridgeState {
 
     setCredentials(credentials: Credentials | undefined) {
         if (credentials) this.writeAtomically(this.oauth2Path(), JSON.stringify(credentials))
-        else unlinkSync(this.oauth2Path())
+        else this.removeIfPresent(this.oauth2Path())
     }
 
     getDeviceState(id: string) {
@@ -80,14 +85,14 @@ export class JSONStorage implements BridgeState {
 
     setDeviceState(id: string, state: Thinq1DeviceState | Thinq2DeviceState | undefined) {
         if (state) this.writeAtomically(this.devicePath(id), JSON.stringify(state))
-        else unlinkSync(this.devicePath(id))
+        else this.removeIfPresent(this.devicePath(id))
     }
 
     archiveDeviceState(id: string) {
         const state = this.getDeviceState(id)
         if (!state) return false
         this.writeAtomically(this.archivePath(id), JSON.stringify(state))
-        unlinkSync(this.devicePath(id))
+        this.removeIfPresent(this.devicePath(id))
         return true
     }
 

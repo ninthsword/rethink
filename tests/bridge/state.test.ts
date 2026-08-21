@@ -92,3 +92,33 @@ describe('bridge registration archive', () => {
         cleanup()
     })
 })
+
+describe('deleting a router entry keeps the registration recoverable', () => {
+    test('archiving then clearing the state leaves the archive intact', () => {
+        const { store, cleanup } = makeStore()
+        store.setDeviceState(ID, REGISTRATION)
+
+        // This is the order the delete handler runs in. It used to be the other way round:
+        // the bridge cleared the state first, so the archive was made from a file that was
+        // already gone and the registration went for good — the one outcome the archive
+        // exists to prevent.
+        assert.equal(store.archiveDeviceState(ID), true)
+        store.setDeviceState(ID, undefined)
+
+        assert.equal(store.hasArchivedDeviceState(ID), true)
+        assert.equal(store.restoreDeviceState(ID), true)
+        assert.deepEqual(store.getDeviceState(ID), REGISTRATION)
+        cleanup()
+    })
+
+    test('clearing state that is already gone is not an error', () => {
+        const { store, cleanup } = makeStore()
+        // Archiving removes the live file, and the bridge then clears it again.
+        store.setDeviceState(ID, REGISTRATION)
+        store.archiveDeviceState(ID)
+        store.setDeviceState(ID, undefined)
+        store.setDeviceState(ID, undefined)
+        store.setCredentials(undefined)
+        cleanup()
+    })
+})

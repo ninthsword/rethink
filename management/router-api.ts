@@ -86,9 +86,13 @@ export class RouterAPI {
                 // brings it back; a deliberate re-registration overwrites it instead.
                 const entry = this.store.requireDevice(entryId)
                 if (entry.deviceId) {
-                    this.bridge?.disable(entry.deviceId)
+                    // Put it aside first. disable() deletes the very file the archive is
+                    // copied from, so archiving afterwards always found nothing and the
+                    // registration went for good — which is the one outcome this exists to
+                    // prevent.
                     if (this.bridge?.state.archiveDeviceState(entry.deviceId))
                         log('status', 'archived the bridge registration of', entry.deviceId)
+                    this.bridge?.disable(entry.deviceId)
                 }
                 this.store.deleteDevice(entryId)
                 res.status(204).end()
