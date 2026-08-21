@@ -187,8 +187,21 @@ export class RouterAPI {
                 if ((await this.stateFor(entry.entryId)) !== 'on')
                     throw new ConflictError('Turn DNAT on before starting Bridge')
                 if (!this.bridge) throw new Error('Bridge is not configured')
+                // enable() answers with a bare false for three different situations, and
+                // "Unable to start Bridge" told the owner none of them. The usual one is an
+                // appliance that has not reached rethink: the washers stop talking when they
+                // are idle and their Wi-Fi indicator goes out, which looks like a fault.
                 const started = await this.bridge.enable(entry.deviceId)
-                if (!started) throw new Error('Unable to start Bridge')
+                if (!started) {
+                    if (!this.bridge.isLoggedIn())
+                        throw new ConflictError('Sign in to the LG account before starting Bridge')
+                    if (!this.manager.allDevices[entry.deviceId])
+                        throw new ConflictError(
+                            'The appliance has not connected to rethink, so there is nothing to bridge yet. ' +
+                                'It reaches rethink when it next has something to report — run it, or switch it off and on again.',
+                        )
+                    throw new Error('The LG cloud refused the registration')
+                }
                 res.json(await this.snapshot())
             }),
         )
@@ -217,8 +230,17 @@ export class RouterAPI {
     private wrap(handler: Handler) {
         return (req: Request, res: Response, next: (err: any) => void) => {
             handler(req, res).catch((err) => {
-                if (err instanceof ConflictError) res.status(409).end(err.message)
-                else next(err)
+                if (res.headersSent) return next(err)
+                /*
+                 * The management page shows whatever comes back. Anything not handled here
+                 * reached Express's own error page, so a failed Bridge switch put a block of
+                 * HTML and a stack trace on screen where the reason should have been.
+                 */
+                const message = err instanceof Error && err.message ? err.message : 'Unexpected error'
+                res.status(err instanceof ConflictError ? 409 : 400)
+                    .type('text/plain')
+                    .end(message)
+                log('status', `${req.method} ${req.originalUrl} failed: ${message}`)
             })
         }
     }
