@@ -25,6 +25,29 @@
             .dashboard-meta span + span {
                 margin-left: 24px;
             }
+
+            /* Two nowrap items on one line run off the side of a phone. */
+            @media only screen and (max-width: 600px) {
+                .dashboard-meta span + span { margin-left: 0; display: block; }
+            }
+
+            /*
+             * The link between the two pages was hidden below 993px, which on a phone left
+             * no way at all to reach the router page — or back. It stays visible at every
+             * width now and becomes its icon where the words will not fit.
+             */
+            nav .nav-icon { display: none; }
+            @media only screen and (max-width: 992px) {
+                nav .nav-label { display: none; }
+                nav .nav-icon { display: inline; }
+                nav .brand-logo {
+                    font-size: 1.3rem;
+                    max-width: calc(100% - 72px);
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                    white-space: nowrap;
+                }
+            }
         </style>
         <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet" />
         <link
@@ -41,8 +64,13 @@
                     <span class="material-icons">psychology_alt</span>
                     Rethink management panel
                 </a>
-                <ul class="right hide-on-med-and-down">
-                    <li><a href="router.html">Asus Router DNAT Management</a></li>
+                <ul class="right">
+                    <li>
+                        <a href="router.html" title="Asus Router DNAT Management">
+                            <span class="nav-label">Asus Router DNAT Management</span>
+                            <i class="material-icons nav-icon">router</i>
+                        </a>
+                    </li>
                 </ul>
             </div>
         </nav>

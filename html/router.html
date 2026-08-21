@@ -38,6 +38,24 @@
             @media (max-width: 600px) {
                 .router-settings-row { grid-template-columns: 1fr; }
             }
+
+            /*
+             * The link between the two pages was hidden below 993px, which on a phone left
+             * no way at all to reach the router page — or back. It stays visible at every
+             * width now and becomes its icon where the words will not fit.
+             */
+            nav .nav-icon { display: none; }
+            @media only screen and (max-width: 992px) {
+                nav .nav-label { display: none; }
+                nav .nav-icon { display: inline; }
+                nav .brand-logo {
+                    font-size: 1.3rem;
+                    max-width: calc(100% - 72px);
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                    white-space: nowrap;
+                }
+            }
         </style>
     </head>
     <body>
@@ -47,7 +65,14 @@
                     <span class="material-icons">router</span>
                     Asus Router DNAT Management
                 </a>
-                <ul class="right hide-on-med-and-down"><li><a href="./">Rethink Management Panel</a></li></ul>
+                <ul class="right">
+                    <li>
+                        <a href="./" title="Rethink Management Panel">
+                            <span class="nav-label">Rethink Management Panel</span>
+                            <i class="material-icons nav-icon">psychology_alt</i>
+                        </a>
+                    </li>
+                </ul>
             </div>
         </nav>
 
@@ -74,12 +99,14 @@
             <div class="divider"></div>
             <div class="section">
                 <div class="row valign-wrapper">
-                    <div class="col s9">
+                    <!-- A quarter of a phone's width is not enough for the button, so the
+                         two halves stack there and sit side by side from tablet up. -->
+                    <div class="col s12 m9">
                         <h4 class="header orange-text">DNAT devices</h4>
                         Router: <span id="router_status" class="state-unknown">Not configured</span>
                         <span id="router_error" class="red-text"></span>
                     </div>
-                    <div class="col s3 right-align">
+                    <div class="col s12 m3 right-align">
                         <button id="refresh" class="btn waves-effect waves-light">
                             Refresh <i class="material-icons right">refresh</i>
                         </button>
