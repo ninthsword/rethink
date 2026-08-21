@@ -128,7 +128,12 @@
             <div class="modal-content">
                 <h4>Add device</h4>
                 <div class="input-field"><input id="device_ip" type="text" /><label for="device_ip">Device IP</label></div>
-                <p class="subtle">The name and ThinQ device ID will be detected after DNAT is enabled.</p>
+                <p class="subtle">
+                    The name and ThinQ device ID are detected the next time the appliance connects.
+                    Turn DNAT on <b>before</b> registering the appliance in the ThinQ app, so its
+                    registration goes through rethink; an appliance registered with DNAT off stays
+                    on LG's cloud until it is powered off and on again.
+                </p>
             </div>
             <div class="modal-footer">
                 <a href="#!" class="modal-close btn-flat">Cancel</a>

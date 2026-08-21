@@ -122,7 +122,20 @@ function renderDevice(device) {
         link.onclick = () => select.value && run(device.entryId, () => api(`api/router/devices/${device.entryId}/link`, { method: 'POST', body: { deviceId: select.value } }))
         identity.append(select, link)
         setTimeout(() => M.FormSelect.init(select), 0)
-    } else identity.textContent = 'Waiting for connection'
+    } else {
+        // "Waiting" on its own gave no way to tell a few seconds from forever. An appliance
+        // only arrives here when it dials out, and one that was registered while DNAT was
+        // off is already connected to LG's cloud and stays silent until it next has
+        // something to say — which can be hours.
+        identity.textContent = 'Waiting for connection'
+        const hint = document.createElement('span')
+        hint.className = 'subtle'
+        hint.innerHTML =
+            '<br>The appliance appears here the next time it connects. If it was ' +
+            'registered in the ThinQ app while DNAT was off, power it off and on again — ' +
+            'it will not move on its own while it is idle.'
+        identity.append(hint)
+    }
 
     const dnat = document.createElement('td')
     if (device.dnat === 'partial') {
@@ -154,13 +167,18 @@ function renderDevice(device) {
             saved.textContent = 'Certificate saved'
             bridge.append(saved)
         }
-        // An archived registration is only offered, never applied on its own: whether the
-        // entry was removed by mistake or on purpose is something only the owner knows,
-        // and the two answers lead to different appliances being registered.
-        if (device.bridgeArchived && !device.bridgeActive) {
+        // Nothing here is applied on its own: whether a registration should be kept, put
+        // back or thrown away is something only the owner knows, and the answers lead to
+        // different appliances being registered. Offered for a current registration too,
+        // not only an archived one — re-registering an appliance in the ThinQ app leaves
+        // the one rethink holds naming an identity the cloud has deleted, and without this
+        // the only way to be rid of it was to delete the whole entry.
+        if ((device.bridgeSaved || device.bridgeArchived) && !device.bridgeActive) {
             bridge.append(document.createElement('br'))
             const choose = button('Registration…', 'key')
-            choose.title = 'This IP has a bridge registration kept from when it was removed from the list.'
+            choose.title = device.bridgeArchived
+                ? 'Restore the registration kept from when this IP was removed, or pair a fresh one.'
+                : 'Pair a fresh registration — do this after re-registering the appliance in the ThinQ app.'
             choose.onclick = () => registrationChoice(device)
             bridge.append(choose)
         }
@@ -209,11 +227,31 @@ function toggle(checked, action, entryId) {
 }
 
 /**
- * Offers the two things that can be done with a registration kept from a removed entry.
- * The choice is the owner's because the consequences differ and neither is recoverable
- * from the other once the appliance has been registered again.
+ * Offers what can be done with a bridge registration. The choice is the owner's because
+ * the consequences differ and neither is recoverable from the other once the appliance has
+ * been registered again.
  */
+const RENEW_EXPLANATION =
+    'RENEW\n' +
+    '  Discards what rethink holds now and pairs a fresh certificate the next time the\n' +
+    '  Bridge is switched on. Choose this after deleting and re-adding the appliance in\n' +
+    '  the ThinQ app: what rethink holds names an identity the cloud no longer knows, and\n' +
+    '  keeping it makes rethink and the appliance two identities for one device — it shows\n' +
+    '  offline in the app and stops reporting.\n' +
+    '  The appliance keeps its name and its place in your LG home.'
+
 async function registrationChoice(device) {
+    const renew = () =>
+        run(device.entryId, () =>
+            api(`api/router/devices/${device.entryId}/bridge/registration/renew`, { method: 'POST' }),
+        )
+
+    // Nothing was kept aside, so renewing is the only thing on offer.
+    if (!device.bridgeArchived) {
+        if (!confirm(`Bridge registration for ${device.ip}\n\n${RENEW_EXPLANATION}\n\nRenew it now?`)) return
+        return renew()
+    }
+
     const restore =
         `Bridge registration for ${device.ip}\n\n` +
         'A registration was kept when this IP was removed from the list.\n\n' +
@@ -222,13 +260,8 @@ async function registrationChoice(device) {
         '  the appliance carries on with the certificate it already trusts and nothing has\n' +
         '  to be re-registered.\n' +
         '  Do NOT choose this if the appliance has since been deleted and added again in\n' +
-        '  the ThinQ app — the kept certificate no longer matches it, and rethink and the\n' +
-        '  appliance end up as two identities for one device: it shows offline in the app\n' +
-        '  and stops reporting.\n\n' +
-        'RENEW (Cancel, then confirm)\n' +
-        '  Discards what rethink holds now and pairs a fresh certificate the next time the\n' +
-        '  Bridge is switched on. Choose this after re-registering the appliance in the\n' +
-        '  ThinQ app. The appliance keeps its name and its place in your LG home.'
+        '  the ThinQ app — the kept certificate no longer matches it.\n\n' +
+        RENEW_EXPLANATION.replace('RENEW\n', 'RENEW (Cancel, then confirm)\n')
     if (confirm(restore)) {
         await run(device.entryId, () =>
             api(`api/router/devices/${device.entryId}/bridge/registration/restore`, { method: 'POST' }),
@@ -244,9 +277,7 @@ async function registrationChoice(device) {
         )
     )
         return
-    await run(device.entryId, () =>
-        api(`api/router/devices/${device.entryId}/bridge/registration/renew`, { method: 'POST' }),
-    )
+    await renew()
 }
 
 async function run(entryId, action) {
