@@ -22,6 +22,25 @@ class Subscription {
 /** Also the floor for a client that asks for a shorter keepalive than this. */
 const MIN_IDLE_TIMEOUT_MS = 5 * 60 * 1000
 
+/** How long a connection may be quiet before the kernel starts checking it is still there. */
+const KEEPALIVE_PROBE_AFTER_MS = 60 * 1000
+
+/**
+ * How long a client may stay silent before it is dropped, or 0 to leave it alone.
+ *
+ * The washer asks for twenty minutes and then sends nothing at all for longer than that,
+ * so even half again its keepalive cut it off — after a cycle finished and it went quiet,
+ * which is exactly when it should have been left alone. An appliance that asks for more
+ * silence than the timeout allows is one whose silence tells us nothing, so it is not
+ * timed out at all; the kernel's keepalive probes are what notice if it has really gone.
+ * Every other appliance here keeps to a sixty second keepalive and is timed out as before.
+ */
+export function idleTimeoutFor(keepaliveSeconds: number) {
+    if (keepaliveSeconds * 1000 > MIN_IDLE_TIMEOUT_MS) return 0
+    if (keepaliveSeconds > 0) return Math.max(MIN_IDLE_TIMEOUT_MS, keepaliveSeconds * 1500)
+    return MIN_IDLE_TIMEOUT_MS
+}
+
 type LWT = IConnectPacket['will']
 type ClientEvents = {
     destroy: (will: LWT) => void
@@ -160,17 +179,28 @@ export class Broker extends TypedEmitter<BrokerEvents> {
         })
 
         mqtt.on('connect', (packet) => {
-            // MQTT lets the client choose how long it may stay silent, and an idle LG
-            // appliance uses a much longer keepalive than the five minutes assumed here.
-            // Cutting it off early makes the appliance reconnect, which is what showed up
-            // in Home Assistant as an appliance going offline and back on by itself.
             const keepalive = packet.keepalive ?? 0
             log('status', 'mqtt client', packet.clientId, 'connected, keepalive', keepalive, 's')
-            if (keepalive > 0) stream.setTimeout(Math.max(MIN_IDLE_TIMEOUT_MS, keepalive * 1500))
+            const timeout = idleTimeoutFor(keepalive)
+            if (timeout === 0)
+                log('status', 'not timing out', packet.clientId, 'for idleness; it asks for more silence than that')
+            stream.setTimeout(timeout)
             this.emit('connect', packet, client)
         })
 
         this.clients.add(client)
+
+        /*
+         * Tell the kernel to probe a connection that goes quiet. An appliance that is
+         * merely idle answers and stays; one whose power has been pulled does not, and its
+         * socket is torn down without anything at this level having to guess from silence.
+         * This is what makes it safe not to time an appliance out above.
+         */
+        try {
+            stream.setKeepAlive(true, KEEPALIVE_PROBE_AFTER_MS)
+        } catch {
+            // Not every stream implementation carries it; the timeout below still applies.
+        }
 
         // Until the CONNECT packet says otherwise. The grace of half again the keepalive is
         // what the MQTT specification asks a server to allow.
