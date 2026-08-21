@@ -52,6 +52,13 @@ export type HAConfig = {
      * every entity flip to "unavailable" on the appliance's own standby cycle.
      */
     offline_grace_seconds?: number
+    /**
+     * Air conditioners that share an outdoor unit. Each indoor unit reports the outdoor
+     * unit's power rather than its own share, so their totals cannot simply be added. The
+     * first appliance in each group carries the group's power and energy sensors, and the
+     * members keep their own power reading but none of them carries a total.
+     */
+    outdoor_units?: Array<{ name?: string; devices: string[] }>
 }
 
 export type CA = {

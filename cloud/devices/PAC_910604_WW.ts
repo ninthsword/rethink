@@ -4,6 +4,7 @@ import { ClimateComponent, DeviceDiscovery, type Connection } from '../homeassis
 import { type Metadata } from '../thinq'
 import { allowExtendedType } from '@/util/casting'
 import { EnergyMeter, energyTotalComponent as energyTotal } from './energy_meter'
+import { outdoorUnitComponents, outdoorUnitFor, type OutdoorUnit } from './outdoor_unit'
 import * as TLV from '@/util/tlv'
 import { racAirTemp, racPipeTemp } from '@/util/ac_tables'
 import log from '@/util/logging'
@@ -75,11 +76,15 @@ export default class Device extends TLVDevice {
     pacLongPowerTimeout: ReturnType<typeof setTimeout> | undefined
     pacFanModeBeforeLongPower: number = 0x0606
     energy: EnergyMeter
+    outdoor: OutdoorUnit | undefined
 
     constructor(HA: Connection, thinq: Thinq2Device, meta: Metadata) {
         super(HA, thinq)
         this.meta = meta
         this.energy = new EnergyMeter(thinq.id, (wh) => this.HA.publishProperty(this.id, 'energy_total', wh))
+        this.outdoor = outdoorUnitFor(HA.config, thinq.id)
+        if (this.outdoor?.isPrimary(thinq.id))
+            this.outdoor.attachPrimary((property, value) => this.HA.publishProperty(this.id, property, value))
     }
 
     drop() {
@@ -1085,19 +1090,39 @@ export default class Device extends TLVDevice {
                 writable: false,
                 read_xform: (raw) => (this.getPowerTLV() === 0 ? (isPac910604 ? 3 : 5) : raw),
                 read_callback: (value) => {
-                    if (isPac910604 && typeof value === 'number')
-                        this.energy.integratePower(value, Date.now(), this.getPowerTLV() !== 0)
+                    if (isPac910604 && typeof value === 'number') {
+                        const running = this.getPowerTLV() !== 0
+                        if (this.outdoor) this.outdoor.report(this.id, value, running)
+                        else this.energy.integratePower(value, Date.now(), running)
+                    }
                     return true
                 },
             })
         }
 
         if (isPac910604) {
-            config['components']['energy_total'] = energyTotal()
+            // Where an outdoor unit is shared, the total belongs to the group rather than
+            // to either head, and lives on the group's primary appliance.
+            if (this.outdoor) {
+                if (this.outdoor.isPrimary(this.id)) Object.assign(config['components'], outdoorUnitComponents())
+            } else config['components']['energy_total'] = energyTotal()
         }
 
-        this.setConfig(config, isPac910604 ? RETIRED_ENERGY_COMPONENTS : undefined)
-        if (isPac910604) this.energy.publish()
+        this.setConfig(
+            config,
+            isPac910604
+                ? {
+                      ...RETIRED_ENERGY_COMPONENTS,
+                      // A head on a shared outdoor unit had a total of its own before the
+                      // group took it over; left alone it would count the same compressor.
+                      ...(this.outdoor ? { energy_total: { platform: 'sensor' } } : {}),
+                  }
+                : undefined,
+        )
+        if (isPac910604) {
+            if (this.outdoor) this.outdoor.publish()
+            else this.energy.publish()
+        }
 
         if (this.filterLifeTime) {
             this.publishFilterData()
