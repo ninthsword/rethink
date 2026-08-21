@@ -280,8 +280,8 @@ describe(MODEL_ID, () => {
         ha.setProperty(DEVICE_ID, 'target_humidity', 'command', '52')
         assert.deepEqual(thinq.outbox.map(hex), [WRITE_HUMIDITY_50_HEX])
 
-        // One definition per tag survives the read path, so the value has to reach the
-        // humidifier as well or its own slider goes stale.
+        // Both entities sit on tag 0x253 and both have to hear it, or whichever one lost
+        // the registration race goes stale while looking perfectly healthy.
         dev.processKeyValue(0x253, 65)
         assert.equal(ha.getProperty(DEVICE_ID, 'target_humidity', 'state'), 65)
         assert.equal(ha.getProperty(DEVICE_ID, 'dehumidifier', 'target_humidity_state'), 65)

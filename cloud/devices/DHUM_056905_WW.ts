@@ -236,13 +236,6 @@ export default class Device extends TLVDevice {
             name: '',
             comp: 'target_humidity',
             read_xform: (raw) => raw,
-            // Only one definition per tag survives in the read path, and this one replaced
-            // the humidifier's, so it carries the value across to it as well. Writes are
-            // unaffected: those are looked up by entity, and the two are separate.
-            read_callback: (value) => {
-                this.HA.publishProperty(this.id, 'dehumidifier-target_humidity', value)
-                return true
-            },
             write_xform: (value) => clampHumidity(value),
         })
 

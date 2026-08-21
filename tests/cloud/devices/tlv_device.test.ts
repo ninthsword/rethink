@@ -145,3 +145,39 @@ test('setProperty with write_attach as array sends additional TLVs', () => {
     assert.equal(tlv[1].t, 0x201)
     assert.equal(tlv[1].v, 9)
 })
+
+test('every entity registered on a tag is published, not just the last one', () => {
+    const { ha, dev, config } = makeDevice()
+    // The dehumidifier's target humidity is a humidifier slider and a number that steps
+    // the way the appliance does, both on one tag. Registering the second used to replace
+    // the first, and the entity that lost simply stopped updating without a word.
+    dev.addField(config, { id: 0x253, name: 'target_humidity', comp: 'sensor' })
+    dev.addField(config, { id: 0x253, name: '', comp: 'c' })
+
+    dev.processKeyValue(0x253, 55)
+
+    assert.equal(ha.devices[DEVICE_ID]?.properties['sensor-target_humidity'], 55)
+    assert.equal(ha.devices[DEVICE_ID]?.properties['c-'], 55)
+})
+
+test('each entity on a shared tag keeps its own transform', () => {
+    const { ha, dev, config } = makeDevice()
+    dev.addField(config, { id: 0x300, name: 'raw', comp: 'sensor' })
+    dev.addField(config, { id: 0x300, name: '', comp: 'c', read_xform: (raw) => (raw ? 'ON' : 'OFF') })
+
+    dev.processKeyValue(0x300, 1)
+
+    assert.equal(ha.devices[DEVICE_ID]?.properties['sensor-raw'], 1)
+    assert.equal(ha.devices[DEVICE_ID]?.properties['c-'], 'ON')
+})
+
+test('one entity discarding a reading does not silence the others on the tag', () => {
+    const { ha, dev, config } = makeDevice()
+    dev.addField(config, { id: 0x301, name: 'skips', comp: 'sensor', read_xform: () => undefined })
+    dev.addField(config, { id: 0x301, name: '', comp: 'c' })
+
+    dev.processKeyValue(0x301, 7)
+
+    assert.equal(ha.devices[DEVICE_ID]?.properties['sensor-skips'], undefined)
+    assert.equal(ha.devices[DEVICE_ID]?.properties['c-'], 7)
+})

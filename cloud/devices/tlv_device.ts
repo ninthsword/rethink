@@ -25,7 +25,14 @@ export default class TLVDevice extends HADevice {
     query_timer: ReturnType<typeof setInterval> | undefined
     query_last_timestamp: number | undefined = undefined
     query_last_interval: number | undefined = undefined
-    fields_by_id: Record<number, FieldDefinition> = {}
+    /*
+     * A tag can carry more than one entity. The dehumidifier's target humidity is both a
+     * humidifier slider and a number that steps the way the appliance does, and both are
+     * tag 0x253. This used to be a single definition per tag, so the second registration
+     * quietly replaced the first and the entity it belonged to simply stopped updating —
+     * with nothing said about it. Keeping them all means every entity on a tag hears it.
+     */
+    fields_by_id: Record<number, FieldDefinition[]> = {}
     fields_by_ha: Record<string, FieldDefinition> = {}
     raw_clip_state: Record<number, number> = {}
     query_caps_timeout: ReturnType<typeof setInterval> | undefined = undefined
@@ -50,9 +57,13 @@ export default class TLVDevice extends HADevice {
 
     // we waste memory by storing the field set per-device, not per-class. Whatever.
     addField(config: DeviceDiscovery, options: FieldDefinition, autoreg?: boolean) {
-        if (options.id) this.fields_by_id[options.id] = options
+        if (options.id) (this.fields_by_id[options.id] ??= []).push(options)
 
         let fullName = options.comp + '-' + options.name
+        // Two entities on one topic is never intentional: the second shadows the first for
+        // writes, and no amount of reading the device file makes that visible.
+        if (this.fields_by_ha[fullName])
+            log('status', this.id, `${fullName} is registered twice; the later one takes its commands`)
         this.fields_by_ha[fullName] = options
 
         if (autoreg !== false) {
@@ -270,9 +281,10 @@ export default class TLVDevice extends HADevice {
     processKeyValue(k: number, v: number) {
         this.raw_clip_state[k] = v
 
-        const def = this.fields_by_id[k]
-        if (!def) return
+        for (const def of this.fields_by_id[k] ?? []) this.publishKeyValue(def, v)
+    }
 
+    private publishKeyValue(def: FieldDefinition, v: number) {
         let processed: string | number = v
 
         if (def.read_xform) {

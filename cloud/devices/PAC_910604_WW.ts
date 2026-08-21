@@ -851,7 +851,7 @@ export default class Device extends TLVDevice {
         const jetHeat: boolean = !!(this.raw_clip_state[0x2cd] & 2)
         if (isPac910604) {
             this.addPacSwitchField(config, 0x236, 'coolpower', '아이스쿨파워', 'mdi:snowflake')
-            const coolPowerField = this.fields_by_id[0x236]
+            const coolPowerField = this.fields_by_id[0x236]?.[0]
             coolPowerField.read_callback = (value) => {
                 this.jetMode = value === 'ON'
                 return true
