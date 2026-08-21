@@ -44,17 +44,24 @@ const HUMIDITY_SENSOR_MODE_COMMANDS = {
     1: Buffer.from('01020400000065fd0100050c00000001a140', 'hex'),
 } as const
 
+/**
+ * The by-hand period buckets, replaced by a single running total. Named here so Home
+ * Assistant is told to drop them rather than being left showing three sensors that stopped
+ * moving.
+ */
+const RETIRED_ENERGY_COMPONENTS = {
+    energy_current_hour: { platform: 'sensor' },
+    energy_today: { platform: 'sensor' },
+    energy_month: { platform: 'sensor' },
+}
+
 /** Beyond this, the gap is time the appliance did not report and nothing is assumed about it. */
 const MAX_POWER_SAMPLE_GAP_S = 5 * 60
 const ENERGY_PUBLISH_INTERVAL_MS = 60 * 1000
 
 type EnergyStats = {
-    hour: string
-    date: string
-    month: string
-    hourWh: number
-    dayWh: number
-    monthWh: number
+    /** A meter reading. It only ever goes up, and the periods are Home Assistant's job. */
+    totalWh: number
     lastReportSignature?: string
     lastReportAt?: number
     /**
@@ -65,33 +72,6 @@ type EnergyStats = {
     fromReports?: boolean
 }
 
-function localDate(timestamp = Date.now()) {
-    const parts = new Intl.DateTimeFormat('en', {
-        timeZone: 'Asia/Seoul',
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit',
-    }).formatToParts(timestamp)
-    const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((item) => item.type === type)?.value
-    return `${part('year')}-${part('month')}-${part('day')}`
-}
-
-function localHour(timestamp = Date.now()) {
-    const parts = new Intl.DateTimeFormat('en-CA', {
-        timeZone: 'Asia/Seoul',
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit',
-        hour: '2-digit',
-        hourCycle: 'h23',
-    }).formatToParts(timestamp)
-    const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((item) => item.type === type)?.value
-    return `${part('year')}-${part('month')}-${part('day')}T${part('hour')}`
-}
-
-function localMonth(timestamp = Date.now()) {
-    return localDate(timestamp).slice(0, 7)
-}
 
 function dataDirectory() {
     if (!process.argv[1]?.includes('rethink-cloud')) return
@@ -118,7 +98,6 @@ export default class Device extends TLVDevice {
     pacFanOnlyStopTimeout: ReturnType<typeof setTimeout> | undefined
     pacLongPowerTimeout: ReturnType<typeof setTimeout> | undefined
     pacFanModeBeforeLongPower: number = 0x0606
-    energyResetTimer: ReturnType<typeof setInterval> | undefined
     energyStats: EnergyStats
     lastPowerSampleAt: number | undefined
     lastEnergyPublishAt = 0
@@ -127,10 +106,6 @@ export default class Device extends TLVDevice {
         super(HA, thinq)
         this.meta = meta
         this.energyStats = this.loadEnergyStats()
-        if (meta.modelId === 'PAC_910604_WW') {
-            this.energyResetTimer = setInterval(() => this.rollEnergyPeriods(), 60_000)
-            this.energyResetTimer.unref()
-        }
     }
 
     drop() {
@@ -162,11 +137,6 @@ export default class Device extends TLVDevice {
         if (this.pacLongPowerTimeout != undefined) {
             clearTimeout(this.pacLongPowerTimeout)
             this.pacLongPowerTimeout = undefined
-        }
-
-        if (this.energyResetTimer != undefined) {
-            clearInterval(this.energyResetTimer)
-            this.energyResetTimer = undefined
         }
 
         super.drop()
@@ -1148,43 +1118,29 @@ export default class Device extends TLVDevice {
         }
 
         if (isPac910604) {
-            const energyCurrentHour = {
+            /*
+             * One running total, for Home Assistant's energy dashboard to slice into hours,
+             * days and months itself. The hour, day and month sensors that used to be here
+             * did that slicing by hand and, for the month, competed with the official ThinQ
+             * integration's figure — which comes from LG's own accounting and is the one
+             * worth believing. What rethink has that the official integration does not is
+             * the live reading, so that is what it keeps: power now, and energy since.
+             */
+            const energyTotal = {
                 platform: 'sensor',
                 device_class: 'energy',
-                unique_id: '$deviceid-energy_current_hour',
-                state_topic: '$this/energy_current_hour',
-                name: '현재 시간 누적 사용량',
+                unique_id: '$deviceid-energy_total',
+                state_topic: '$this/energy_total',
+                name: '누적 전력 사용량',
                 unit_of_measurement: 'Wh',
-                state_class: 'total',
+                // A meter reading, not a bucket: Home Assistant takes the differences.
+                state_class: 'total_increasing',
                 icon: 'mdi:lightning-bolt',
             }
-            const energyToday = {
-                platform: 'sensor',
-                device_class: 'energy',
-                unique_id: '$deviceid-energy_today',
-                state_topic: '$this/energy_today',
-                name: '오늘 누적 사용량',
-                unit_of_measurement: 'Wh',
-                state_class: 'total',
-                icon: 'mdi:calendar-today',
-            }
-            const energyMonth = {
-                platform: 'sensor',
-                device_class: 'energy',
-                unique_id: '$deviceid-energy_month',
-                state_topic: '$this/energy_month',
-                name: '금월 누적 사용량',
-                unit_of_measurement: 'kWh',
-                state_class: 'total',
-                suggested_display_precision: 3,
-                icon: 'mdi:calendar-month',
-            }
-            config['components']['energy_current_hour'] = energyCurrentHour
-            config['components']['energy_today'] = energyToday
-            config['components']['energy_month'] = energyMonth
+            config['components']['energy_total'] = energyTotal
         }
 
-        this.setConfig(config)
+        this.setConfig(config, isPac910604 ? RETIRED_ENERGY_COMPONENTS : undefined)
         if (isPac910604) this.publishEnergyStats()
 
         if (this.filterLifeTime) {
@@ -1211,18 +1167,14 @@ export default class Device extends TLVDevice {
         return dir ? join(dir, `air-conditioner-energy-${this.id}.json`) : undefined
     }
 
-    private loadEnergyStats(now = Date.now()): EnergyStats {
-        const current = { hour: localHour(now), date: localDate(now), month: localMonth(now) }
-        const empty: EnergyStats = { ...current, hourWh: 0, dayWh: 0, monthWh: 0 }
+    private loadEnergyStats(): EnergyStats {
+        const empty: EnergyStats = { totalWh: 0 }
         const path = this.energyStatsPath()
         if (!path) return empty
         try {
             const saved = JSON.parse(readFileSync(path, 'utf-8')) as EnergyStats
             return {
-                ...current,
-                hourWh: saved.hour === current.hour ? Number(saved.hourWh) || 0 : 0,
-                dayWh: saved.date === current.date ? Number(saved.dayWh) || 0 : 0,
-                monthWh: saved.month === current.month ? Number(saved.monthWh) || 0 : 0,
+                totalWh: Number(saved.totalWh) || 0,
                 ...(saved.lastReportSignature ? { lastReportSignature: saved.lastReportSignature } : {}),
                 ...(Number.isFinite(saved.lastReportAt) ? { lastReportAt: Number(saved.lastReportAt) } : {}),
                 // Which source is in use has to survive a restart, or a unit that does send
@@ -1248,9 +1200,7 @@ export default class Device extends TLVDevice {
     }
 
     private publishEnergyStats() {
-        this.HA.publishProperty(this.id, 'energy_current_hour', Math.round(this.energyStats.hourWh))
-        this.HA.publishProperty(this.id, 'energy_today', Math.round(this.energyStats.dayWh))
-        this.HA.publishProperty(this.id, 'energy_month', Number((this.energyStats.monthWh / 1000).toFixed(3)))
+        this.HA.publishProperty(this.id, 'energy_total', Math.round(this.energyStats.totalWh))
     }
 
     /**
@@ -1268,7 +1218,6 @@ export default class Device extends TLVDevice {
      * nothing about, and guessing at it is worse than leaving it out.
      */
     private integrateReportedPower(watts: number, now = Date.now()) {
-        this.rollEnergyPeriods(now)
         const previous = this.lastPowerSampleAt
         this.lastPowerSampleAt = now
         // A report arrived once, so that is what this unit is measured by.
@@ -1277,10 +1226,7 @@ export default class Device extends TLVDevice {
         const seconds = Math.min((now - previous) / 1000, MAX_POWER_SAMPLE_GAP_S)
         if (!(seconds > 0) || !Number.isFinite(watts) || watts < 0) return
 
-        const wh = (watts * seconds) / 3600
-        this.energyStats.hourWh += wh
-        this.energyStats.dayWh += wh
-        this.energyStats.monthWh += wh
+        this.energyStats.totalWh += (watts * seconds) / 3600
 
         // Samples arrive several times a second; publishing and saving on each one would
         // put thousands of retained messages and file writes an hour behind a figure that
@@ -1292,7 +1238,6 @@ export default class Device extends TLVDevice {
     }
 
     private processEnergyInterval(intervalWh: number, intervalSeconds: number, now = Date.now()) {
-        this.rollEnergyPeriods(now)
         // The appliance's own accounting beats anything estimated from samples.
         this.energyStats.fromReports = true
         const signature = `${intervalWh}:${intervalSeconds}`
@@ -1305,37 +1250,9 @@ export default class Device extends TLVDevice {
 
         this.energyStats.lastReportSignature = signature
         this.energyStats.lastReportAt = now
-        this.energyStats.hourWh += intervalWh
-        this.energyStats.dayWh += intervalWh
-        this.energyStats.monthWh += intervalWh
+        this.energyStats.totalWh += intervalWh
         this.publishEnergyStats()
         this.saveEnergyStats()
-    }
-
-    private rollEnergyPeriods(now = Date.now()) {
-        const hour = localHour(now)
-        const date = localDate(now)
-        const month = localMonth(now)
-        let changed = false
-        if (this.energyStats.month !== month) {
-            this.energyStats.month = month
-            this.energyStats.monthWh = 0
-            changed = true
-        }
-        if (this.energyStats.date !== date) {
-            this.energyStats.date = date
-            this.energyStats.dayWh = 0
-            changed = true
-        }
-        if (this.energyStats.hour !== hour) {
-            this.energyStats.hour = hour
-            this.energyStats.hourWh = 0
-            changed = true
-        }
-        if (changed) {
-            this.publishEnergyStats()
-            this.saveEnergyStats()
-        }
     }
 
     addTimerField(

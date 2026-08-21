@@ -50,9 +50,7 @@ describe('PAC_910604_WW', () => {
             'displaylight',
             'smartcare',
             'humidity_sensor_mode',
-            'energy_current_hour',
-            'energy_today',
-            'energy_month',
+            'energy_total',
         ]) {
             assert.equal(
                 components[component].platform,
@@ -165,9 +163,7 @@ describe('PAC_910604_WW', () => {
         report(142, 900)
 
         const properties = ha.devices[DEVICE_ID].properties
-        assert.equal(properties.energy_current_hour, 265)
-        assert.equal(properties.energy_today, 265)
-        assert.equal(properties.energy_month, 0.265)
+        assert.equal(properties.energy_total, 265)
         dev.drop()
     })
 
@@ -308,7 +304,7 @@ describe('PAC_910604_WW energy without B115 reports', () => {
             // Half an hour is longer than one sample may cover, so only the cap is credited:
             // the appliance stops reporting this tag entirely when it is switched off, and
             // guessing at that time is worse than leaving it out.
-            assert.equal(ha.devices[DEVICE_ID].properties.energy_today, 75, '900 W for five minutes')
+            assert.equal(ha.devices[DEVICE_ID].properties.energy_total, 75, '900 W for five minutes')
         } finally {
             dev.drop()
         }
@@ -323,10 +319,11 @@ describe('PAC_910604_WW energy without B115 reports', () => {
                 integrate(dev, 720)
             }
 
-            const properties = ha.devices[DEVICE_ID].properties
-            assert.equal(properties.energy_today, 360, 'half an hour at 720 W is 360 Wh')
-            assert.equal(properties.energy_current_hour, 360)
-            assert.equal(properties.energy_month, 0.36)
+            assert.equal(
+                ha.devices[DEVICE_ID].properties.energy_total,
+                360,
+                'half an hour at 720 W is 360 Wh',
+            )
         } finally {
             dev.drop()
         }
@@ -350,9 +347,27 @@ describe('PAC_910604_WW energy without B115 reports', () => {
             integrate(dev, 900)
 
             // Both sources adding to the same figure would count the same energy twice.
-            assert.equal(ha.devices[DEVICE_ID].properties.energy_today, 200)
+            assert.equal(ha.devices[DEVICE_ID].properties.energy_total, 200)
         } finally {
             dev.drop()
         }
+    })
+})
+
+describe('PAC_910604_WW retires the by-hand period sensors', () => {
+    test('Home Assistant is told to drop them rather than left showing frozen ones', () => {
+        const { ha, dev } = configureDevice()
+        const published = ha.devices[DEVICE_ID].config!.components as Record<string, Record<string, unknown>>
+
+        // The month figure competed with the official ThinQ integration's, which comes from
+        // LG's own accounting; the hour and day ones did by hand what Home Assistant's
+        // energy dashboard does from a meter reading.
+        for (const retired of ['energy_current_hour', 'energy_today', 'energy_month'])
+            assert.equal(published[retired], undefined, `${retired} is gone from the live config`)
+
+        assert.equal(published.energy_total.state_class, 'total_increasing', 'a meter, not a bucket')
+        assert.equal(published.energy_total.unit_of_measurement, 'Wh')
+        assert.equal(published.energy_current.device_class, 'power', 'the live reading stays')
+        dev.drop()
     })
 })
