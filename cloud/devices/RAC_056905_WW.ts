@@ -832,23 +832,30 @@ export default class Device extends TLVDevice {
             // dashboard turns the total into hours, days and months.
             config['components']['energy_total'] = energyTotal()
 
-            // The measurements reported by AC appear to be Watts, but they are not accurate in several aspects:
-            // - the value is biased by +50
-            // - idle consumption (around 4W) and the 4-way valve is not included
-            // - fan modes' consumption appears to be approximated
-            //
-            // The formula below is expected to be within +/-10% of the actual power consumption. The discrepancy may
-            // be highest in fan-only modes.
+            /*
+             * The reading is in watts. What it is not is trustworthy in standby: these units
+             * keep reporting around fifty when they are switched off, which is a placeholder
+             * rather than a measurement, so a switched-off appliance is shown as five watts.
+             * That is what ha-smartthinq-sensors does with the same field, and it explains
+             * the "biased by +50" this code used to subtract from every reading — the bias
+             * is a standby artefact, not an offset on running values.
+             *
+             * The subtraction is kept for now because it has not been measured away. Running
+             * power is understated by about sixty watts if the reference is right; settling
+             * it needs the appliance run against a meter, which is how every other number
+             * here was confirmed.
+             */
             this.addField(config, {
                 id: 0x2b3,
                 name: '',
                 comp: 'energy_current',
                 writable: false,
-                read_xform: (raw) => Math.max(5, raw - 60),
+                read_xform: (raw) => (this.getPowerTLV() === 0 ? 5 : Math.max(5, raw - 60)),
                 // Whatever correction the reading needs, the total is added up from the
                 // corrected figure — the same one the sensor shows.
                 read_callback: (value) => {
-                    if (typeof value === 'number') this.energy.integratePower(value)
+                    if (typeof value === 'number')
+                        this.energy.integratePower(value, Date.now(), this.getPowerTLV() !== 0)
                     return true
                 },
             })

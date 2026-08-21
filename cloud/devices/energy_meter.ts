@@ -116,7 +116,19 @@ export class EnergyMeter {
      * power altogether when it is switched off, so a long gap is time nothing is known
      * about and guessing at it is worse than leaving it out.
      */
-    integratePower(watts: number, now = Date.now()) {
+    integratePower(watts: number, now = Date.now(), running = true) {
+        /*
+         * A switched-off appliance is not measured, it is substituted: these units report a
+         * fixed figure in standby that stands in for a reading nobody took. Adding it up
+         * would put a made-up hundred-odd watt-hours a day on the total, so an appliance
+         * that is off contributes nothing — and it forgets when it was last seen, so that
+         * the time it spent off is not handed to the first reading after it comes back.
+         */
+        if (!running) {
+            this.lastSampleAt = undefined
+            return
+        }
+
         const previous = this.lastSampleAt
         this.lastSampleAt = now
         // A measured report arrived once, so that is what this appliance is counted by.

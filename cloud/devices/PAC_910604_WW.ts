@@ -1085,7 +1085,8 @@ export default class Device extends TLVDevice {
                 writable: false,
                 read_xform: (raw) => (isPac910604 ? (this.getPowerTLV() === 0 ? 3 : raw) : Math.max(5, raw - 60)),
                 read_callback: (value) => {
-                    if (isPac910604 && typeof value === 'number') this.energy.integratePower(value)
+                    if (isPac910604 && typeof value === 'number')
+                        this.energy.integratePower(value, Date.now(), this.getPowerTLV() !== 0)
                     return true
                 },
             })

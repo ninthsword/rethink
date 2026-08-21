@@ -461,6 +461,9 @@ describe(MODEL_ID, () => {
 })
 
 describe('RAC_056905_WW energy total', () => {
+    const meter = (dev: unknown) =>
+        (dev as { energy: { integratePower(w: number, now?: number, running?: boolean): void } }).energy
+
     // An appliance that says what it is drawing can also say what it has used.
     test('adds up the corrected power reading, not the raw one', (t) => {
         const { ha, dev } = buildReadyDevice(t)
@@ -469,20 +472,49 @@ describe('RAC_056905_WW energy total', () => {
             assert.equal(total.state_class, 'total_increasing', 'a meter for the energy dashboard')
             assert.equal(total.unit_of_measurement, 'Wh')
 
-            // This model's raw value is biased, and the sensor shows raw - 60. The total has
-            // to be built from the same figure the sensor shows or the two disagree.
-            const at = (ms: number, raw: number) =>
-                (dev as unknown as { energy: { integratePower(w: number, now?: number): void } }).energy.integratePower(
-                    Math.max(5, raw - 60),
-                    ms,
-                )
-
+            // The raw value is biased, and the sensor shows raw - 60. The total has to be
+            // built from the same figure the sensor shows or the two disagree.
+            dev.raw_clip_state[0x1f7] = 1
             dev.processKeyValue(0x2b3, 780)
             assert.equal(ha.devices[DEVICE_ID].properties['energy_current-'], 720)
 
-            at(0, 780)
-            at(60 * 1000, 780)
+            meter(dev).integratePower(720, 0, true)
+            meter(dev).integratePower(720, 60 * 1000, true)
             assert.equal(ha.devices[DEVICE_ID].properties.energy_total, 12, '720 W for a minute is 12 Wh')
+        } finally {
+            dev.drop()
+        }
+    })
+
+    test('standby is shown but not counted', (t) => {
+        const { ha, dev } = buildReadyDevice(t)
+        try {
+            // Switched off, these units keep reporting around fifty watts. That is a
+            // placeholder, not a measurement, so it is displayed as five and adds nothing:
+            // counting it would put over a hundred made-up watt-hours a day on the total.
+            dev.raw_clip_state[0x1f7] = 0
+            dev.processKeyValue(0x2b3, 50)
+            assert.equal(ha.devices[DEVICE_ID].properties['energy_current-'], 5)
+
+            meter(dev).integratePower(5, 0, false)
+            meter(dev).integratePower(5, 60 * 60 * 1000, false)
+            assert.equal(ha.devices[DEVICE_ID].properties.energy_total, 0, 'an hour switched off is nothing')
+        } finally {
+            dev.drop()
+        }
+    })
+
+    test('the clock restarts when it comes back on', (t) => {
+        const { ha, dev } = buildReadyDevice(t)
+        try {
+            meter(dev).integratePower(720, 0, true)
+            // Off for an hour, then running again: the hour is not credited to either state.
+            meter(dev).integratePower(5, 30 * 60 * 1000, false)
+            meter(dev).integratePower(720, 60 * 60 * 1000, true)
+            assert.equal(ha.devices[DEVICE_ID].properties.energy_total ?? 0, 0)
+
+            meter(dev).integratePower(720, 60 * 60 * 1000 + 60 * 1000, true)
+            assert.equal(ha.devices[DEVICE_ID].properties.energy_total, 12, 'only the minute since it returned')
         } finally {
             dev.drop()
         }
