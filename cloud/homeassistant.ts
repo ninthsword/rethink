@@ -19,6 +19,18 @@ import { validateDeviceDiscovery } from '@/util/ha_mqtt_validation'
 //	  `rethink` instance starts.
 // 7. To solve this, we subscribe to the availability topics and clean up all the retained "online"
 // 	  messages on startup.
+//
+// The same reasoning applies to the state topics themselves. Every value is published with
+// retain=true so Home Assistant sees it whatever order things start in, which also means a
+// value outlives the entity that published it: rename a component, or replace one
+// representation with a better one, and the old payload stays on the broker with nobody
+// left to correct it. The living-room air conditioner still had filterused, filterlife and
+// filterchangeddate sitting there long after it moved to a single remaining-life figure.
+// So after publishing a device's discovery we look at what is actually retained under it
+// and clear anything the config no longer refers to.
+
+/** Long enough for the broker to deliver what it has stored, short enough to stay a sweep. */
+const SWEEP_WINDOW_MS = 10 * 1000
 
 function recursiveReplace(obj: unknown, replacements: Record<string, string>): unknown {
     if (Array.isArray(obj)) {
@@ -55,6 +67,9 @@ export class Connection extends TypedEmitter<ConnectionEvents> {
     /** Per state topic forward map, paired with localized discovery enum options. */
     readonly localizedStateValues = new Map<string, Map<string, string>>()
     private deviceNameResolver?: (id: string) => string | undefined
+    /** Property names the current discovery payload refers to, per device. */
+    private readonly liveProperties = new Map<string, Set<string>>()
+    private readonly sweepTimers = new Map<string, ReturnType<typeof setTimeout>>()
 
     constructor(readonly config: HAConfig) {
         super()
@@ -96,6 +111,9 @@ export class Connection extends TypedEmitter<ConnectionEvents> {
     }
 
     disconnected() {
+        for (const timer of this.sweepTimers.values()) clearTimeout(timer)
+        this.sweepTimers.clear()
+        this.liveProperties.clear()
         this.isConnected = false
         log('status', 'HA mqtt connection lost')
         this.emit('statusChanged', false)
@@ -118,6 +136,12 @@ export class Connection extends TypedEmitter<ConnectionEvents> {
                         this.localizedCommandValues.get(`${id}/${prop}`)?.get(mqttValue) ??
                         delocalizeValue(mqttValue, this.config.language)
                     this.emit('setProperty', id, prop, originalValue)
+                }
+
+                // rethink/+/PROPERTY, during a sweep window: a retained value with no entity
+                // left to own it. Live deliveries carry retain=false, so they never match.
+                if (pathelements.length === 2 && pathelements[1] !== 'availability' && packet.retain) {
+                    this.clearIfOrphaned(pathelements[0], pathelements[1], topic, message)
                 }
 
                 // rethink/+/availability
@@ -166,6 +190,63 @@ export class Connection extends TypedEmitter<ConnectionEvents> {
         // older entity definition (for example, a generic RAC definition discovered before the
         // exact model handler was available) until it happens to announce `online` again.
         this.client.publish(discoveryTopic + '/config', configPayload, { retain: true })
+        this.sweepRetainedState(id, localizedConfig)
+    }
+
+    /**
+     * Collect the device's own state topics from a discovery payload. Command topics and
+     * the availability topic are left out: the first are never retained, and the second has
+     * its own cleanup on connect.
+     */
+    private static stateProperties(config: DeviceDiscovery) {
+        const found = new Set<string>()
+        const walk = (value: unknown) => {
+            if (Array.isArray(value)) value.forEach(walk)
+            else if (value && typeof value === 'object') Object.values(value).forEach(walk)
+            else if (typeof value === 'string' && value.startsWith('$this/')) {
+                const property = value.substring('$this/'.length)
+                if (!property.includes('/') && property !== 'availability') found.add(property)
+            }
+        }
+        walk(config)
+        return found
+    }
+
+    /**
+     * Ask the broker what it is still holding for this device. Retained values arrive as
+     * soon as the subscription is acknowledged, so the window only has to outlast that;
+     * afterwards the subscription goes away rather than duplicating every live publish.
+     */
+    private sweepRetainedState(id: string, config: DeviceDiscovery) {
+        const properties = Connection.stateProperties(config)
+        const previous = this.liveProperties.get(id)
+        this.liveProperties.set(id, properties)
+        // Only worth asking when the set of entities has actually changed; that is exactly
+        // when something can have been left behind.
+        if (previous && previous.size === properties.size && [...properties].every((p) => previous.has(p))) return
+
+        const filter = `${this.config.rethink_prefix}/${id}/+`
+        const running = this.sweepTimers.get(id)
+        if (running) clearTimeout(running)
+        else this.client.subscribe(filter)
+
+        this.sweepTimers.set(
+            id,
+            setTimeout(() => {
+                this.sweepTimers.delete(id)
+                this.client.unsubscribe(filter)
+            }, SWEEP_WINDOW_MS),
+        )
+    }
+
+    private clearIfOrphaned(id: string, property: string, topic: string, message: Buffer) {
+        // Outside a sweep window we have no business judging what belongs here, and an
+        // already-empty topic is not holding anything.
+        if (!this.sweepTimers.has(id) || message.length === 0) return
+        if (this.liveProperties.get(id)?.has(property)) return
+
+        log('status', `clearing retained ${topic}, which no entity publishes any more`)
+        this.client.publish(topic, Buffer.alloc(0), { retain: true })
     }
 
     private registerLocalizedCommands(id: string, original: DeviceDiscovery, localized: DeviceDiscovery) {
