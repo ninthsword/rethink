@@ -472,10 +472,10 @@ describe('RAC_056905_WW energy total', () => {
             assert.equal(total.state_class, 'total_increasing', 'a meter for the energy dashboard')
             assert.equal(total.unit_of_measurement, 'Wh')
 
-            // The raw value is biased, and the sensor shows raw - 60. The total has to be
-            // built from the same figure the sensor shows or the two disagree.
+            // Running values are passed through: measured against the whole-house meter,
+            // the sixty this used to subtract was a standby artefact, not an offset.
             dev.raw_clip_state[0x1f7] = 1
-            dev.processKeyValue(0x2b3, 780)
+            dev.processKeyValue(0x2b3, 720)
             assert.equal(ha.devices[DEVICE_ID].properties['energy_current-'], 720)
 
             meter(dev).integratePower(720, 0, true)

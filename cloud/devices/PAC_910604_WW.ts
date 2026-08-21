@@ -1083,7 +1083,7 @@ export default class Device extends TLVDevice {
                 name: '',
                 comp: 'energy_current',
                 writable: false,
-                read_xform: (raw) => (isPac910604 ? (this.getPowerTLV() === 0 ? 3 : raw) : Math.max(5, raw - 60)),
+                read_xform: (raw) => (this.getPowerTLV() === 0 ? (isPac910604 ? 3 : 5) : raw),
                 read_callback: (value) => {
                     if (isPac910604 && typeof value === 'number')
                         this.energy.integratePower(value, Date.now(), this.getPowerTLV() !== 0)

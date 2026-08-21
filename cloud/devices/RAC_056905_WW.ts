@@ -833,24 +833,25 @@ export default class Device extends TLVDevice {
             config['components']['energy_total'] = energyTotal()
 
             /*
-             * The reading is in watts. What it is not is trustworthy in standby: these units
-             * keep reporting around fifty when they are switched off, which is a placeholder
-             * rather than a measurement, so a switched-off appliance is shown as five watts.
-             * That is what ha-smartthinq-sensors does with the same field, and it explains
-             * the "biased by +50" this code used to subtract from every reading — the bias
-             * is a standby artefact, not an offset on running values.
+             * The reading is in watts and needs nothing taken off it. This file used to
+             * subtract sixty from every value for a "bias of +50"; measured against the
+             * whole-house meter, that bias is a standby artefact and not an offset on
+             * running values — switched off, these units keep reporting around fifty, which
+             * is a placeholder rather than a measurement. So standby is shown as five watts
+             * and everything else is passed through, which is what ha-smartthinq-sensors
+             * does with the same field.
              *
-             * The subtraction is kept for now because it has not been measured away. Running
-             * power is understated by about sixty watts if the reference is right; settling
-             * it needs the appliance run against a meter, which is how every other number
-             * here was confirmed.
+             * Confirmed by running the bedroom unit alongside the living-room one on the
+             * same outdoor unit: its raw value tracked the living room's within twenty-five
+             * watts across seven samples — its own indoor fan — while the subtraction was
+             * making it read thirty-five watts lower than a unit measuring the same thing.
              */
             this.addField(config, {
                 id: 0x2b3,
                 name: '',
                 comp: 'energy_current',
                 writable: false,
-                read_xform: (raw) => (this.getPowerTLV() === 0 ? 5 : Math.max(5, raw - 60)),
+                read_xform: (raw) => (this.getPowerTLV() === 0 ? 5 : Math.max(5, raw)),
                 // Whatever correction the reading needs, the total is added up from the
                 // corrected figure — the same one the sensor shows.
                 read_callback: (value) => {
