@@ -136,6 +136,21 @@ class Bridge {
             this.pendingDrops.delete(thinqdev.id)
         }
 
+        /*
+         * Clearing that timer took away the only thing that would ever have called drop()
+         * on the handler being replaced, and nothing else holds a reference to it — nothing
+         * except its own intervals, which keep it alive and keep it working. Its queries go
+         * onto the broker topic the live appliance is subscribed to, so the appliance really
+         * does receive them; the answers go to the connection that closed. After three
+         * unanswered refreshes it publishes offline under the same id the replacement is
+         * using, and a healthy appliance goes unavailable in Home Assistant.
+         *
+         * So the superseded handler is silenced here. Not dropped: drop() would publish
+         * offline, which is the flicker the replacement path exists to avoid.
+         */
+        const superseded = this.haDevices.get(thinqdev.id)
+        if (superseded && superseded !== hadevice) superseded.stopTimers()
+
         // A ThinQ appliance may establish its replacement MQTT connection
         // before the old socket closes (notably shortly after a washer powers
         // itself off). The new handler publishes online during construction,

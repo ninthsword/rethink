@@ -39,7 +39,21 @@ export default class HADevice {
         this.publishConfig()
     }
 
+    /**
+     * Let go of everything that keeps running on its own — timers, subscriptions — without
+     * saying anything to Home Assistant.
+     *
+     * A handler is superseded whenever an appliance reconnects before the old socket has
+     * finished closing, and the replacement speaks for the same appliance under the same id.
+     * The old one must go quiet at that moment: its queries are published onto the broker
+     * topic the live appliance is subscribed to, so they still reach the appliance, and
+     * never hearing an answer it eventually reports a perfectly healthy appliance as
+     * unavailable. Handlers with nothing running need not override this.
+     */
+    stopTimers() {}
+
     drop() {
+        this.stopTimers()
         this.HA.publishProperty(this.id, 'availability', 'offline')
     }
 

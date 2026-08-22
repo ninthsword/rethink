@@ -201,12 +201,12 @@ export default class Device extends HADevice {
         this.requestMonitorSnapshot()
     }
 
-    drop() {
+    stopTimers() {
         this.started = false
         if (this.periodicTimeout) clearTimeout(this.periodicTimeout)
         if (this.monitorTimeout) clearTimeout(this.monitorTimeout)
         if (this.refreshTimeout) clearTimeout(this.refreshTimeout)
-        super.drop()
+        super.stopTimers()
     }
 
     private requestMonitorSnapshot() {

@@ -56,11 +56,28 @@ export class OutdoorUnit {
     report(deviceId: string, watts: number, running: boolean) {
         if (running) this.readings.set(deviceId, watts)
         else this.readings.delete(deviceId)
+        this.recompute()
+    }
 
-        const running_ = this.readings.size > 0
-        const power = running_ ? Math.max(...this.readings.values()) : 0
+    /**
+     * A head has gone away without saying it stopped.
+     *
+     * Only a report of its own can take a head out of the maximum, so a head that loses its
+     * connection while running leaves its last reading behind — and the group goes on
+     * publishing that figure, and going on accumulating energy from it, for as long as any
+     * other head keeps reporting. A 2-in-1 with one head unplugged at 470 W would have gone
+     * on adding 470 W to a total the energy dashboard treats as a meter reading.
+     */
+    forget(deviceId: string) {
+        if (!this.readings.delete(deviceId)) return
+        this.recompute()
+    }
+
+    private recompute() {
+        const running = this.readings.size > 0
+        const power = running ? Math.max(...this.readings.values()) : 0
         this.publisher?.('outdoor_power', power)
-        this.energy.integratePower(power, Date.now(), running_)
+        this.energy.integratePower(power, Date.now(), running)
     }
 
     /**

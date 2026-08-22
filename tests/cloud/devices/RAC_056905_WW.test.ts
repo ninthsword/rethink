@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import DUT from '@/cloud/devices/RAC_056905_WW'
 import type { Metadata } from '@/cloud/thinq'
 import { MockHAConnection, MockThinq2Device, buf, hex } from '@/tests/helpers/mocks'
-import { resetOutdoorUnits } from '@/cloud/devices/outdoor_unit'
+import { outdoorUnitFor, resetOutdoorUnits } from '@/cloud/devices/outdoor_unit'
 import { enableMockTimers, tickMockTimers } from '@/tests/helpers/timers'
 import * as TLV from '@/util/tlv'
 
@@ -460,6 +460,29 @@ describe(MODEL_ID, () => {
         assert.equal(components.compressor, undefined, 'the group owns the compressor, not the head')
         resetOutdoorUnits()
         dev.drop()
+    })
+
+    test('leaving takes the head out of its shared outdoor unit', (t) => {
+        enableMockTimers(t)
+        resetOutdoorUnits()
+        const ha = new MockHAConnection()
+        ha.config = { outdoor_units: [{ name: '2 in 1', devices: [DEVICE_ID, 'other-id'] }] }
+        const thinq = new MockThinq2Device(DEVICE_ID, META)
+        const dev = new DUT(ha.asConnection(), thinq, META)
+        thinq.emit('data', buf(CAPS_RESPONSE_HEX))
+        thinq.emit('data', buf(QUERY_RESPONSE_HEX))
+        tickMockTimers(t, 6000)
+
+        const outdoor = outdoorUnitFor(ha.config as never, DEVICE_ID)!
+        outdoor.report(DEVICE_ID, 470, true)
+        assert.equal(ha.devices[DEVICE_ID].properties.outdoor_power, 470)
+
+        // Losing the connection has to retire the reading, or the group keeps publishing it
+        // and keeps adding energy for an appliance that is gone.
+        dev.drop()
+        outdoor.report('other-id', 50, true)
+        assert.equal(ha.devices[DEVICE_ID].properties.outdoor_power, 50)
+        resetOutdoorUnits()
     })
 
     test('an appliance with its own outdoor unit reports its own compressor', (t) => {

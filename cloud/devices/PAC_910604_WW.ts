@@ -87,7 +87,7 @@ export default class Device extends TLVDevice {
             this.outdoor.attachPrimary((property, value) => this.HA.publishProperty(this.id, property, value))
     }
 
-    drop() {
+    stopTimers() {
         if (this.tlvBlacklistDisableTimer != undefined) {
             clearTimeout(this.tlvBlacklistDisableTimer)
             this.tlvBlacklistDisableTimer = undefined
@@ -118,7 +118,10 @@ export default class Device extends TLVDevice {
             this.pacLongPowerTimeout = undefined
         }
 
-        super.drop()
+        // Its last reading must not go on standing for the shared outdoor unit.
+        this.outdoor?.forget(this.id)
+
+        super.stopTimers()
     }
 
     processData(buf: Buffer) {

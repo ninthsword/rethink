@@ -78,6 +78,36 @@ describe('shared outdoor unit', () => {
         assert.equal(published.find(([p]) => p === 'outdoor_power')?.[1], 881)
     })
 
+    test('a head that disappears stops counting towards the outdoor unit', () => {
+        const { unit, latest } = makeUnit()
+
+        unit.report(LIVING, 470, true)
+        unit.report(BEDROOM, 50, true)
+        assert.equal(latest('outdoor_power'), 470)
+
+        /*
+         * The living room head loses its connection while running. Nothing else will ever
+         * report for it, so its 470 W would stay the maximum for as long as the bedroom head
+         * keeps reporting — and the group's total, which feeds the energy dashboard, would
+         * keep accumulating at 470 W for an appliance that is gone.
+         */
+        unit.forget(LIVING)
+        assert.equal(latest('outdoor_power'), 50, 'the reading of a head that is gone must not stand')
+
+        unit.forget(BEDROOM)
+        assert.equal(latest('outdoor_power'), 0, 'with no head left the outdoor unit is off')
+    })
+
+    test('forgetting a head that was never reporting changes nothing', () => {
+        const { unit, published } = makeUnit()
+
+        unit.report(BEDROOM, 881, true)
+        const before = published.length
+        unit.forget(LIVING)
+
+        assert.equal(published.length, before, 'nothing was holding a reading for that head')
+    })
+
     test('the compressor belongs to the group, not to the head that reported it', () => {
         const { unit, latest } = makeUnit()
 

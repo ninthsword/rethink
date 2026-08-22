@@ -4,6 +4,7 @@ import Bridge from '@/cloud/ha_bridge'
 import type { Metadata } from '@/cloud/thinq'
 import { MockHAConnection, MockThinq2Device } from '@/tests/helpers/mocks'
 import { normalize, type RawConfig } from '@/util/config'
+import { enableMockTimers, tickMockTimers } from '@/tests/helpers/timers'
 
 const META: Metadata = { modelId: 'Hd0C_F', modelName: 'Hd0C_F', swVersion: '2.10.93' }
 
@@ -91,5 +92,57 @@ describe('offline grace configuration', () => {
             homeassistant: { offline_grace_seconds: 60 },
         } as unknown as RawConfig
         assert.equal(normalize(overridden).homeassistant.offline_grace_seconds, 60)
+    })
+})
+
+describe('a handler that has been superseded', () => {
+    const TLV_META: Metadata = { modelId: 'RAC_056905_WW', modelName: 'TEST', swVersion: '1.0' }
+
+    test('stops asking the appliance once its connection has been replaced', (t) => {
+        enableMockTimers(t)
+        const ha = new AvailabilityRecordingHA()
+        const bridge = new Bridge(ha.asConnection(), 30 * 60 * 1000)
+        const first = new MockThinq2Device('ac-id', TLV_META)
+
+        bridge.newDevice(first)
+        // The capabilities query is retried every fifteen seconds until the appliance
+        // answers, so the superseded handler has a live interval to leak.
+        tickMockTimers(t, 30_000)
+        const asked = first.outbox.length
+        assert.ok(asked > 0, 'the first handler should have been querying')
+
+        const second = new MockThinq2Device('ac-id', TLV_META)
+        bridge.newDevice(second)
+        first.emit('close')
+        tickMockTimers(t, 60_000)
+
+        /*
+         * send() publishes onto the broker topic the live appliance is subscribed to, so a
+         * handler that keeps its timers keeps querying the real appliance — and, never
+         * hearing an answer, eventually reports the live appliance as unavailable.
+         */
+        assert.equal(first.outbox.length, asked, 'the superseded handler must stop querying')
+    })
+
+    test('lets go of every timer it was holding', (t) => {
+        enableMockTimers(t)
+        const ha = new AvailabilityRecordingHA()
+        const bridge = new Bridge(ha.asConnection(), 30 * 60 * 1000)
+
+        bridge.newDevice(new MockThinq2Device('ac-id', TLV_META))
+        const superseded = bridge.haDevices.get('ac-id') as unknown as Record<string, unknown>
+        assert.notEqual(superseded.query_caps_timeout, undefined, 'the first handler should be retrying')
+
+        bridge.newDevice(new MockThinq2Device('ac-id', TLV_META))
+
+        /*
+         * Left running, this interval would keep the handler alive and keep it querying an
+         * appliance that answers a different object — and after three unanswered refreshes
+         * it publishes offline under the id the replacement is using.
+         */
+        assert.equal(superseded.query_caps_timeout, undefined, 'the superseded handler kept a timer')
+        assert.equal(superseded.query_values_timeout, undefined)
+        assert.equal(superseded.query_timer, undefined)
+        assert.notEqual(bridge.haDevices.get('ac-id'), superseded, 'the replacement should be in charge')
     })
 })
