@@ -54,8 +54,8 @@ for _ in $(seq 1 30); do
     fi
 done
 
-curl -fsS "http://$MGMT/api/router/status" | python3 -c '
+curl -fsS "http://$MGMT/api/router/status" | python3 -c "
 import json, sys
-for device in sorted(json.load(sys.stdin)["devices"], key=lambda d: d["name"]):
-    print(f"  {device[\"name\"]:12} dnat={device[\"dnat\"]:5} connected={device[\"connected\"]}")
-'
+for d in sorted(json.load(sys.stdin)['devices'], key=lambda x: x['name']):
+    print('  %-12s dnat=%-5s connected=%s' % (d['name'], d['dnat'], d['connected']))
+"
