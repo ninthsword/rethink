@@ -5,6 +5,10 @@
  */
 const UNANSWERED_QUERIES_BEFORE_SILENT = 3
 
+/** First gap between initial-values attempts, doubling up to the maximum below. */
+const INITIAL_VALUES_RETRY_MS = 15 * 1000
+const INITIAL_VALUES_RETRY_MAX_MS = 5 * 60 * 1000
+
 // base implementation for devices with a TLV-based payload format
 import HADevice from './base'
 
@@ -43,7 +47,7 @@ export default class TLVDevice extends HADevice {
     fields_by_ha: Record<string, FieldDefinition> = {}
     raw_clip_state: Record<number, number> = {}
     query_caps_timeout: ReturnType<typeof setInterval> | undefined = undefined
-    query_values_timeout: ReturnType<typeof setInterval> | undefined = undefined
+    query_values_timeout: ReturnType<typeof setTimeout> | undefined = undefined
     /**
      * Refresh queries sent since the appliance last answered one.
      *
@@ -182,7 +186,7 @@ export default class TLVDevice extends HADevice {
         }
 
         if (this.query_values_timeout != undefined) {
-            clearInterval(this.query_values_timeout)
+            clearTimeout(this.query_values_timeout)
             this.query_values_timeout = undefined
         }
 
@@ -308,11 +312,21 @@ export default class TLVDevice extends HADevice {
             // perform initial values query
             this.query()
 
-            // retry every 15 s until initial values are received
-            this.query_values_timeout = setInterval(() => {
-                log('status', this.id, 're-trying initial values query due to timeout')
+            /*
+             * Retry, but back off. Asking every fifteen seconds for ever means an appliance
+             * that falls behind never gets a quiet moment to catch up: one air conditioner
+             * took seven hundred and eighty-seven packets without once answering, while the
+             * one that started cleanly took forty-two in total. Backing off gives the slow
+             * ones room and stops a stuck appliance being drowned by the attempt to reach it.
+             */
+            let wait = INITIAL_VALUES_RETRY_MS
+            const askAgain = () => {
+                log('status', this.id, `re-trying initial values query after ${Math.round(wait / 1000)} s`)
                 this.query()
-            }, 15 * 1000)
+                wait = Math.min(wait * 2, INITIAL_VALUES_RETRY_MAX_MS)
+                this.query_values_timeout = setTimeout(askAgain, wait)
+            }
+            this.query_values_timeout = setTimeout(askAgain, wait)
         }
 
         // values are expected to be received also post-init time
@@ -320,7 +334,7 @@ export default class TLVDevice extends HADevice {
         if (this.query_caps_timeout == undefined && this.isValuesResponse(tlvArray)) {
             if (this.query_values_timeout != undefined) {
                 log('status', this.id, 'received initial values key')
-                clearInterval(this.query_values_timeout)
+                clearTimeout(this.query_values_timeout)
                 this.query_values_timeout = undefined
             }
             this.valuesReceived()
