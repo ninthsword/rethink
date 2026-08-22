@@ -4,6 +4,7 @@ import TLVDevice from '@/cloud/devices/tlv_device'
 import * as TLV from '@/util/tlv'
 import type { DeviceDiscovery } from '@/cloud/homeassistant'
 import { MockHAConnection, MockThinq2Device, buf } from '@/tests/helpers/mocks'
+import { enableMockTimers, tickMockTimers } from '@/tests/helpers/timers'
 
 const DEVICE_ID = 'test-id'
 function makeDevice() {
@@ -184,43 +185,62 @@ test('one entity discarding a reading does not silence the others on the tag', (
 
 describe('an appliance that stops answering', () => {
     const availability = (ha: MockHAConnection) => ha.devices[DEVICE_ID]?.availability
-
-    /** A TLV frame the device would send back; the contents do not matter here. */
     const reply = () => buf('000004000000A7020101027DC163E3')
+    /** Fire the periodic refresh the way its timer does. */
+    const refresh = (dev: TLVDevice, t: import('node:test').TestContext) => tickMockTimers(t, 15 * 60 * 1000)
 
-    test('three unanswered refresh queries take its entities out of service', () => {
+    test('three unanswered refreshes take its entities out of service', (t) => {
         // Being quiet is not being gone — most appliances say nothing for hours. A refresh
-        // query is a question, though, and one that goes unanswered several times over is
-        // the appliance no longer listening. The living-room dehumidifier sat like that with
+        // query is a question, though, and one unanswered several times over is the
+        // appliance no longer listening. The living-room dehumidifier sat like that with
         // its socket up while Home Assistant showed two-hour-old values as current.
+        enableMockTimers(t)
         const { ha, dev } = makeDevice()
+        dev.setQueryInterval()
 
-        dev.query()
-        dev.query()
-        assert.equal(availability(ha), undefined, 'two is not yet an answer nobody gave')
+        refresh(dev, t)
+        refresh(dev, t)
+        assert.notEqual(availability(ha), 'offline', 'twice is not yet an answer nobody gave')
 
-        dev.query()
+        refresh(dev, t)
         assert.equal(availability(ha), 'offline')
+        dev.drop()
     })
 
-    test('answering again puts them back', () => {
+    test('the startup retries do not count', (t) => {
+        // They fire every fifteen seconds until the appliance answers, which would call it
+        // silent three quarters of a minute in rather than three quarters of an hour.
+        enableMockTimers(t)
+        const { ha, dev } = makeDevice()
+
+        for (let i = 0; i < 20; i++) dev.query()
+        assert.notEqual(availability(ha), 'offline')
+        dev.drop()
+    })
+
+    test('answering again puts them back', (t) => {
+        enableMockTimers(t)
         const { ha, thinq, dev } = makeDevice()
-        dev.query()
-        dev.query()
-        dev.query()
+        dev.setQueryInterval()
+        refresh(dev, t)
+        refresh(dev, t)
+        refresh(dev, t)
         assert.equal(availability(ha), 'offline')
 
         thinq.emit('data', reply())
         assert.equal(availability(ha), 'online')
+        dev.drop()
     })
 
-    test('an appliance that keeps answering is never taken out of service', () => {
-        // However long it goes between having anything to report.
+    test('an appliance that keeps answering is never taken out of service', (t) => {
+        enableMockTimers(t)
         const { ha, thinq, dev } = makeDevice()
-        for (let round = 0; round < 20; round++) {
-            dev.query()
+        dev.setQueryInterval()
+        for (let round = 0; round < 10; round++) {
+            refresh(dev, t)
             thinq.emit('data', reply())
         }
         assert.notEqual(availability(ha), 'offline')
+        dev.drop()
     })
 })

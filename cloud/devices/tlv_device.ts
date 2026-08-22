@@ -110,7 +110,14 @@ export default class TLVDevice extends HADevice {
     query() {
         this.send([1, 1, 2, 2, 1], [{ t: 0x1f5, v: 2 }])
         this.query_last_timestamp = performance.now()
+    }
 
+    /**
+     * Count a periodic refresh, and only that. The startup paths retry every fifteen
+     * seconds until the appliance answers, so counting every query at all would call an
+     * appliance silent three quarters of a minute in rather than three quarters of an hour.
+     */
+    private askedForRefresh() {
         this.unansweredQueries += 1
         if (this.unansweredQueries < UNANSWERED_QUERIES_BEFORE_SILENT || this.silent) return
         // Saying nothing is not the same as being unreachable, so this is not a disconnect:
@@ -148,6 +155,7 @@ export default class TLVDevice extends HADevice {
         }
         this.query_timer = setInterval(() => {
             log('status', this.id, 'sending periodic refresh query')
+            this.askedForRefresh()
             this.query()
         }, interval)
         this.query_last_interval = interval
