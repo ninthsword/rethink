@@ -60,6 +60,16 @@
   // reaches "received initial values".
   //  "passthrough_hostnames": ["*mclip*"],
 
+  // The other way to quiet a host rethink cannot serve: accept the connection and answer
+  // it with nothing at all, closing it a minute later. rethink cannot produce a
+  // certificate the appliance will accept for such a host — the appliance only ever
+  // refreshes its aws-iot trust slot, and whatever slot it validates these against keeps
+  // LG's own CA — so the choice is between refusing instantly and saying nothing. Refused,
+  // the appliance asks again about once a second for as long as it is powered; held, it
+  // waits out its own timeout. Unlike passing the host through, this gives the appliance
+  // no working route to LG, so it keeps reporting its state over MQTT to rethink.
+  //  "stall_hostnames": ["*mclip*"],
+
   // If port forwarding or other redirection is involved, the bind port may not match
   // the port that the device will connect to from the outside.
   // In such cases, you may need to specify them separately:

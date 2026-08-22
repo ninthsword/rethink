@@ -207,6 +207,7 @@ function t2setup(manager: DeviceManager) {
     const thinq2Https = reportTlsErrors(https.createServer(tlsServerOptions, app), 'thinq2 https')
     createSNIRouter({
         passThrough: config.passthrough_hostnames,
+        stall: config.stall_hostnames,
         upstreamPort: 443,
         handleLocally: (socket: net.Socket) => thinq2Https.emit('connection', socket),
     }).listen(config.https_port.bind)

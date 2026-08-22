@@ -14,10 +14,7 @@ function clientHello(serverName?: string) {
         const name = Buffer.from(serverName, 'ascii')
         const entry = Buffer.concat([Buffer.from([0x00]), Buffer.from([name.length >> 8, name.length & 0xff]), name])
         const list = Buffer.concat([Buffer.from([entry.length >> 8, entry.length & 0xff]), entry])
-        extensions = Buffer.concat([
-            Buffer.from([0x00, 0x00, list.length >> 8, list.length & 0xff]),
-            list,
-        ])
+        extensions = Buffer.concat([Buffer.from([0x00, 0x00, list.length >> 8, list.length & 0xff]), list])
     }
     parts.push(Buffer.from([extensions.length >> 8, extensions.length & 0xff]), extensions)
     const body = Buffer.concat([Buffer.from([0x03, 0x03]), ...parts])
@@ -69,7 +66,7 @@ describe('routing a live connection', () => {
      * the ClientHello and then handing the socket on is only correct if the bytes are still
      * there, and a listener that merely counts them cannot tell the difference.
      */
-    async function withRouter(passThrough: string[]) {
+    async function withRouter(passThrough: string[], stall: string[] = [], stallMs?: number) {
         const [net, tls, { execFileSync }, { mkdtempSync, readFileSync, rmSync }, { tmpdir }, { join }] =
             await Promise.all([
                 import('node:net'),
@@ -84,8 +81,23 @@ describe('routing a live connection', () => {
         const dir = mkdtempSync(join(tmpdir(), 'rethink-sni-router-'))
         const key = join(dir, 'k.pem')
         const cert = join(dir, 'c.pem')
-        execFileSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-keyout', key, '-out', cert,
-            '-days', '2', '-subj', '/CN=common.lgthinq.com', '-addext', 'subjectAltName=DNS:common.lgthinq.com'])
+        execFileSync('openssl', [
+            'req',
+            '-x509',
+            '-newkey',
+            'rsa:2048',
+            '-nodes',
+            '-keyout',
+            key,
+            '-out',
+            cert,
+            '-days',
+            '2',
+            '-subj',
+            '/CN=common.lgthinq.com',
+            '-addext',
+            'subjectAltName=DNS:common.lgthinq.com',
+        ])
         const credentials = { key: readFileSync(key, 'utf-8'), cert: readFileSync(cert, 'utf-8') }
         rmSync(dir, { recursive: true, force: true })
 
@@ -96,6 +108,8 @@ describe('routing a live connection', () => {
         })
         const router = createSNIRouter({
             passThrough,
+            stall,
+            stallMs,
             upstreamPort: 1,
             handleLocally: (socket) => tlsServer.emit('connection', socket),
         })
@@ -136,6 +150,33 @@ describe('routing a live connection', () => {
 
         assert.notEqual(result, 'connected', 'no certificate of ours is offered for it')
         assert.deepEqual(served, [], 'the local server is never involved')
+        close()
+    })
+
+    test('a stalled host is held open instead of being refused', async () => {
+        // A real hold is a minute; the test only needs long enough to show that nothing
+        // was offered and nothing was refused in the meantime.
+        const { port, served, close, tls } = await withRouter([], ['*mclip*'], 1500)
+
+        // Refusing is instant, and an appliance that is refused asks again a second later.
+        // Held open, it waits on its own timeout instead — the only part of this exchange
+        // rethink can lengthen, since it cannot produce a certificate the appliance trusts.
+        let client: import('node:tls').TLSSocket | undefined
+        const result = await new Promise<string>((resolve) => {
+            client = tls.connect(
+                { port, host: '127.0.0.1', servername: 'kic-mclip.lgthinq.com', rejectUnauthorized: false },
+                () => resolve('connected'),
+            )
+            client.on('error', (err) => resolve(`error: ${err.message}`))
+            client.on('close', () => resolve('closed'))
+            setTimeout(() => resolve('still waiting'), 700)
+        })
+
+        assert.equal(result, 'still waiting', 'the connection was answered with neither a certificate nor a refusal')
+        assert.deepEqual(served, [], 'and the local server was never involved')
+        // The server end holds this open for a minute by design, so the test has to let go
+        // of it or the run waits that minute out.
+        client?.destroy()
         close()
     })
 })

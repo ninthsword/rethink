@@ -27,6 +27,7 @@ export type RawConfig = {
      * for one rethink cannot serve leaves the appliance retrying a refusal forever.
      */
     passthrough_hostnames?: string[]
+    stall_hostnames?: string[]
     bridge?: {
         storage_path: string
         preserve_existing_devices?: boolean
@@ -49,6 +50,7 @@ export type Config = {
     sni_certificates: boolean
     route_servers?: { apiServer: string; mqttServer: string }
     passthrough_hostnames: string[]
+    stall_hostnames: string[]
     bridge?: {
         storage_path: string
         preserve_existing_devices: boolean
@@ -107,6 +109,7 @@ export function normalize(config: RawConfig): Config {
          * house, so the list is the owner's to write.
          */
         passthrough_hostnames: [],
+        stall_hostnames: [],
         ...config,
         homeassistant: {
             language: 'english',

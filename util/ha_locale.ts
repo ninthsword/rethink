@@ -119,6 +119,7 @@ const KOREAN_NAMES: Record<string, string> = {
     'Reduce static': '정전기 감소',
     'Reset filter usage': '필터 사용량 초기화',
     'Shabbat Mode': '안식일 모드',
+    Compressor: '압축기',
     'Sleep time': '취침 시간',
     'Start time': '시작 시간',
     'Smart care+': '스마트케어+',

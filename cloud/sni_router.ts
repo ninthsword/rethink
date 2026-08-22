@@ -64,16 +64,42 @@ export function matchesHostPattern(hostname: string, pattern: string) {
     return new RegExp(`^${escaped}$`, 'i').test(hostname)
 }
 
+/**
+ * How long a stalled connection is held before it is closed. Long enough that the appliance
+ * is waiting on its own timeout rather than ours, short enough that the sockets do not pile
+ * up: at one attempt a second, a minute's hold is sixty open sockets at a time.
+ */
+export const STALL_MS = 60_000
+
 export type SNIRouterOptions = {
     /** Hostnames to splice through to the real server instead of terminating here. */
     passThrough: string[]
+    /**
+     * Hostnames to accept and then answer with nothing at all.
+     *
+     * Refusing a handshake is instant, so an appliance that will not accept rethink's
+     * certificate for a host simply asks again about once a second, for as long as it is
+     * powered. Saying nothing makes it wait out its own timeout instead, which is the only
+     * part of the exchange rethink can lengthen — it cannot produce a certificate the
+     * appliance trusts, and passing the host through hands the appliance a working route to
+     * LG, which is what stopped four appliances reporting over MQTT at all.
+     */
+    stall?: string[]
+    /** How long a stalled connection is held before being closed. Defaults to STALL_MS. */
+    stallMs?: number
     /** The port the appliance originally addressed, before the firewall redirected it. */
     upstreamPort: number
     /** Hand the connection to the local TLS server, with its first bytes put back. */
     handleLocally: (socket: net.Socket) => void
 }
 
-export function createSNIRouter({ passThrough, upstreamPort, handleLocally }: SNIRouterOptions) {
+export function createSNIRouter({
+    passThrough,
+    stall = [],
+    stallMs = STALL_MS,
+    upstreamPort,
+    handleLocally,
+}: SNIRouterOptions) {
     return net.createServer((socket) => {
         let buffered = Buffer.alloc(0)
         let settled = false
@@ -113,6 +139,23 @@ export function createSNIRouter({ passThrough, upstreamPort, handleLocally }: SN
             })
         }
 
+        const stallConnection = (hostname: string) => {
+            stopPeeking()
+            log('status', `holding a connection for ${hostname} open rather than refusing it`)
+            /*
+             * Both the socket and its timer are unreferenced. A held connection is one
+             * rethink has decided to ignore, so it should never be the reason the process
+             * stays alive; the listening server keeps it running for as long as it should.
+             */
+            const timer = setTimeout(() => socket.destroy(), stallMs)
+            timer.unref()
+            socket.unref()
+            // An appliance that gives up first must not leave the timer behind it.
+            socket.on('close', () => clearTimeout(timer))
+            socket.on('error', () => socket.destroy())
+            socket.resume()
+        }
+
         const onReadable = () => {
             for (;;) {
                 if (settled) return
@@ -123,6 +166,7 @@ export function createSNIRouter({ passThrough, upstreamPort, handleLocally }: SN
                 const hostname = readServerName(buffered)
                 if (hostname) {
                     if (passThrough.some((pattern) => matchesHostPattern(hostname, pattern))) splice(hostname)
+                    else if (stall.some((pattern) => matchesHostPattern(hostname, pattern))) stallConnection(hostname)
                     else takeLocally()
                     return
                 }

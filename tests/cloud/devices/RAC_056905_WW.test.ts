@@ -438,6 +438,40 @@ describe(MODEL_ID, () => {
         dev.drop()
     })
 
+    test('an appliance with its own outdoor unit reports its own compressor', (t) => {
+        enableMockTimers(t)
+        const ha = new MockHAConnection()
+        const meta: Metadata = { ...META, modelId: 'WINF_056905_WW' }
+        const thinq = new MockThinq2Device(DEVICE_ID, meta)
+        const dev = new DUT(ha.asConnection(), thinq, meta)
+        thinq.emit('data', buf(CAPS_RESPONSE_HEX))
+        thinq.emit('data', buf(QUERY_RESPONSE_HEX))
+        tickMockTimers(t, 6000)
+
+        const components = ha.devices[DEVICE_ID].config!.components as Record<string, Record<string, unknown>>
+        assert.ok(components.compressor, 'no compressor sensor')
+        assert.equal(components.compressor.platform, 'binary_sensor')
+        assert.equal(components.compressor.device_class, 'running')
+
+        // 15 Hz is the cap the tag reports whatever the real speed is; anything above zero
+        // is the compressor turning, and it cannot turn while the appliance is off.
+        dev.processKeyValue(0x1f7, 1)
+        dev.processKeyValue(0x22a, 15)
+        assert.equal(ha.getProperty(DEVICE_ID, 'compressor', 'state'), 'ON')
+
+        dev.processKeyValue(0x22a, 0)
+        assert.equal(ha.getProperty(DEVICE_ID, 'compressor', 'state'), 'OFF')
+
+        dev.processKeyValue(0x1f7, 0)
+        dev.processKeyValue(0x22a, 15)
+        assert.equal(
+            ha.getProperty(DEVICE_ID, 'compressor', 'state'),
+            'OFF',
+            'a switched-off unit has no compressor running',
+        )
+        dev.drop()
+    })
+
     test('every reservation slider gets a countdown sensor beside it', (t) => {
         enableMockTimers(t)
         const ha = new MockHAConnection()

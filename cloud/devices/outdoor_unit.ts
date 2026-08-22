@@ -29,7 +29,7 @@ const groups = new Map<string, OutdoorUnit>()
 export class OutdoorUnit {
     private readonly readings = new Map<string, number>()
     private readonly energy: EnergyMeter
-    private publisher: ((property: string, value: number) => void) | undefined
+    private publisher: ((property: string, value: string | number) => void) | undefined
 
     constructor(
         readonly primaryId: string,
@@ -44,7 +44,7 @@ export class OutdoorUnit {
     }
 
     /** The primary's device is where the group's two sensors appear. */
-    attachPrimary(publish: (property: string, value: number) => void) {
+    attachPrimary(publish: (property: string, value: string | number) => void) {
         this.publisher = publish
         this.publish()
     }
@@ -61,6 +61,18 @@ export class OutdoorUnit {
         const power = running_ ? Math.max(...this.readings.values()) : 0
         this.publisher?.('outdoor_power', power)
         this.energy.integratePower(power, Date.now(), running_)
+    }
+
+    /**
+     * The compressor lives in the outdoor unit, so whether it is turning is a fact about
+     * the group and not about any one head. Only some heads report it: the bedroom unit
+     * sends the Hz tag and the living room one never does, and the bedroom sends it while
+     * switched off — 15 Hz with its own power at standby, at the same minute the living
+     * room head was drawing 473 W. It is describing the compressor it shares, so it is
+     * reported here as it arrives, without reference to the sender's own power.
+     */
+    reportCompressor(running: boolean) {
+        this.publisher?.('outdoor_compressor', running ? 'ON' : 'OFF')
     }
 
     publish() {
@@ -99,6 +111,14 @@ export function outdoorUnitComponents() {
             unit_of_measurement: 'W',
             state_class: 'measurement',
             suggested_display_precision: 0,
+        },
+        outdoor_compressor: {
+            platform: 'binary_sensor',
+            unique_id: '$deviceid-outdoor_compressor',
+            state_topic: '$this/outdoor_compressor',
+            name: '실외기 압축기',
+            device_class: 'running',
+            icon: 'mdi:air-conditioner',
         },
         outdoor_energy_total: {
             platform: 'sensor',

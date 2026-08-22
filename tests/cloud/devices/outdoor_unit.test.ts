@@ -10,7 +10,7 @@ const CONFIG = {
 } as unknown as HAConfig
 
 function makeUnit() {
-    const published: Array<[string, number]> = []
+    const published: Array<[string, string | number]> = []
     const unit = new OutdoorUnit(LIVING, [LIVING, BEDROOM], '2 in 1')
     unit.attachPrimary((property, value) => published.push([property, value]))
     const latest = (property: string) => [...published].reverse().find(([p]) => p === property)?.[1]
@@ -71,10 +71,24 @@ describe('shared outdoor unit', () => {
         const unit = new OutdoorUnit(LIVING, [LIVING, BEDROOM], '2 in 1')
         unit.report(BEDROOM, 881, true)
 
-        const published: Array<[string, number]> = []
+        const published: Array<[string, string | number]> = []
         unit.attachPrimary((property, value) => published.push([property, value]))
         unit.report(BEDROOM, 881, true)
 
         assert.equal(published.find(([p]) => p === 'outdoor_power')?.[1], 881)
+    })
+
+    test('the compressor belongs to the group, not to the head that reported it', () => {
+        const { unit, latest } = makeUnit()
+
+        // The bedroom unit sends the Hz tag while switched off, describing the compressor
+        // its 2-in-1 partner is running. Gating it on the sender's own power would report
+        // the outdoor unit as idle at the exact moment it is working hardest.
+        unit.report(BEDROOM, 50, false)
+        unit.reportCompressor(true)
+        assert.equal(latest('outdoor_compressor'), 'ON')
+
+        unit.reportCompressor(false)
+        assert.equal(latest('outdoor_compressor'), 'OFF')
     })
 })

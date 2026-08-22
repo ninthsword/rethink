@@ -582,14 +582,49 @@ export default class Device extends TLVDevice {
         )
 
         /*
-         * [ 0x22a, 0x32f ] - ODU compressor Hz
-         * Standard2 IDUs even notify about the former
-         * tag changes.
+         * [ 0x22a, 0x32f ] - ODU compressor Hz. Standard2 IDUs even notify about the former
+         * tag changes. The value is capped at 15 Hz regardless of the actual compressor
+         * speed, which is why it is not published as a speed — but the cap does not touch
+         * the one thing it says plainly, which is whether the compressor is turning at all.
          *
-         * But the value seems to be capped at 15 Hz
-         * regardless of the actual compressor speed,
-         * which makes it of limited usability.
+         * Measured over 287 samples from the two units that send it: 15 Hz went with 242 to
+         * 263 W on the small room unit and 0 Hz with 57 to 66 W, the difference between a
+         * compressor and a fan. The intermediate 1 and 9 appeared while it was ramping.
+         *
+         * It describes the outdoor unit, not the head that sends it. The bedroom unit
+         * reported 15 Hz while switched off and drawing standby, in the same minute its
+         * 2-in-1 partner was drawing 473 W. So on a shared unit the reading goes to the
+         * group, untouched by the sender's own power; on an appliance with an outdoor unit
+         * to itself, a compressor cannot be turning while the appliance is off.
          */
+        if (this.outdoor) {
+            this.addField(config, {
+                id: 0x22a,
+                name: '',
+                comp: '',
+                writable: false,
+                read_callback: (value) => {
+                    if (typeof value === 'number') this.outdoor!.reportCompressor(value > 0)
+                    return true
+                },
+            })
+        } else {
+            config['components']['compressor'] = allowExtendedType({
+                platform: 'binary_sensor',
+                unique_id: '$deviceid-compressor',
+                state_topic: '$this/compressor',
+                name: 'Compressor',
+                device_class: 'running',
+                icon: 'mdi:air-conditioner',
+            })
+            this.addField(config, {
+                id: 0x22a,
+                name: '',
+                comp: 'compressor',
+                writable: false,
+                read_xform: (raw) => (this.getPowerTLV() !== 0 && raw > 0 ? 'ON' : 'OFF'),
+            })
+        }
 
         // 0x2fb is the target fan RPM, while this is the current RPM
         this.addOptionalSensorField(
