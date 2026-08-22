@@ -49,6 +49,15 @@
   // routes for; offering a certificate for one of those only produces a refusal the
   // appliance retries about once a second, indefinitely. Empty by default, because
   // anything listed here leaves the house.
+  //
+  // Listing a host here also stops rethink from seeing anything the appliance sends
+  // over it: a passed-through connection is spliced byte for byte, encrypted end to
+  // end between the appliance and LG. Some appliances treat a reachable LG host as
+  // permission to report their state there instead of over MQTT, and then rethink
+  // holds a live-looking connection while its own values never arrive -- the cloud
+  // and the ThinQ app stay current, Home Assistant goes stale. Adding a host to
+  // silence a refusal storm is not free; check afterwards that every appliance still
+  // reaches "received initial values".
   //  "passthrough_hostnames": ["*mclip*"],
 
   // If port forwarding or other redirection is involved, the bind port may not match
