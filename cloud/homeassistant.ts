@@ -4,6 +4,7 @@ import { HAConfig } from '@/util/config'
 import log from '@/util/logging'
 import { delocalizeValue, localizeDiscovery, localizeValue } from '@/util/ha_locale'
 import { validateDeviceDiscovery } from '@/util/ha_mqtt_validation'
+import { nameEntities } from '@/util/entity_naming'
 
 // Notes on availability topic handling:
 // 1. We want HA to be able to tell if a device is available.
@@ -176,6 +177,7 @@ export class Connection extends TypedEmitter<ConnectionEvents> {
         // that must not be passed through the generic device-type translator.
         const registeredName = this.deviceNameResolver?.(id)
         if (registeredName) localizedConfig.device.name = registeredName
+        nameEntities(localizedConfig)
         const validationIssues = validateDeviceDiscovery(localizedConfig)
         if (validationIssues.length > 0) {
             // Nothing is published, so the appliance loses every entity it had. This is the
