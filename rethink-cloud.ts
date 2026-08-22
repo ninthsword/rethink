@@ -19,6 +19,7 @@ import { normalize as normalizeConfig, RawConfig, CA } from './util/config'
 import * as Management from './management'
 
 import log, { setFilter as setLogFilter } from './util/logging'
+import { createSNIRouter } from './cloud/sni_router'
 import { DeviceManager } from './cloud/devmgr'
 import { Bridge } from './bridge'
 import { JSONStorage } from './bridge/state'
@@ -129,8 +130,16 @@ function reportTlsErrors<T extends { on(event: 'tlsClientError', handler: (err: 
     name: string,
 ) {
     server.on('tlsClientError', (err, socket) => {
-        const from = (socket as unknown as { remoteAddress?: string }).remoteAddress ?? 'unknown'
-        log('status', `TLS handshake refused on ${name} from ${from}: ${err.message}`)
+        const s = socket as unknown as { remoteAddress?: string; remotePort?: number; servername?: string }
+        const from = s.remoteAddress ?? 'unknown'
+        /*
+         * The name matters more than the error. Everything arrives from the router's address
+         * because it masquerades the whole house, so the hostname the appliance asked for is
+         * the only thing that says which service it wanted — and an "unknown ca" refusal
+         * means the appliance would not accept the certificate offered for that name.
+         */
+        const wanted = s.servername ? ` for ${s.servername}` : ' with no server name'
+        log('status', `TLS handshake refused on ${name} from ${from}:${s.remotePort ?? '?'}${wanted}: ${err.message}`)
     })
     return server
 }
@@ -168,7 +177,18 @@ function t2setup(manager: DeviceManager) {
         res.end('')
     })
 
-    reportTlsErrors(https.createServer(tlsServerOptions, app), 'thinq2 https').listen(config.https_port.bind)
+    /*
+     * The firewall sends every port-443 connection here, including hosts rethink has no
+     * routes for. Those are read far enough to learn the name asked for and then spliced
+     * through to the real server, so the appliance meets the certificate it expects instead
+     * of one it refuses.
+     */
+    const thinq2Https = reportTlsErrors(https.createServer(tlsServerOptions, app), 'thinq2 https')
+    createSNIRouter({
+        passThrough: config.passthrough_hostnames,
+        upstreamPort: 443,
+        handleLocally: (socket: net.Socket) => thinq2Https.emit('connection', socket),
+    }).listen(config.https_port.bind)
 
     // internal MQTT broker
     const broker = new Broker()

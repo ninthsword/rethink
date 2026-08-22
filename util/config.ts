@@ -11,6 +11,12 @@ export type RawConfig = {
     thinq1_port?: Port | number
     mqtt?: boolean
     sni_certificates?: boolean
+    /**
+     * Hostnames the appliances address that rethink has no routes for, and so must not
+     * answer: the firewall rule catches every host on port 443, and offering a certificate
+     * for one rethink cannot serve leaves the appliance retrying a refusal forever.
+     */
+    passthrough_hostnames?: string[]
     bridge?: {
         storage_path: string
         preserve_existing_devices?: boolean
@@ -31,6 +37,7 @@ export type Config = {
     thinq1_port: Port
     mqtt: boolean
     sni_certificates: boolean
+    passthrough_hostnames: string[]
     bridge?: {
         storage_path: string
         preserve_existing_devices: boolean
@@ -82,6 +89,13 @@ export function normalize(config: RawConfig): Config {
         log: ['status', 'incoming', 'HTTPS'],
         mqtt: true,
         sni_certificates: false,
+        /*
+         * Empty on purpose. rethink can run with the appliances forwarded to it and no cloud
+         * bridge at all, and quietly splicing a host through to LG would reopen from behind
+         * exactly the connection that setup exists to cut. Anything listed here leaves the
+         * house, so the list is the owner's to write.
+         */
+        passthrough_hostnames: [],
         ...config,
         homeassistant: {
             language: 'english',

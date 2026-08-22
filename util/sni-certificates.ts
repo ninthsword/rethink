@@ -14,13 +14,24 @@ function runOpenSSL(args: string[]) {
     if (result.status !== 0) throw new Error(`openssl failed (${result.status}): ${result.stderr.trim()}`)
 }
 
+export type IssuedCertificate = {
+    key: string
+    /** The leaf followed by the certificate that signed it. */
+    chain: string
+    context: SecureContext
+}
+
 /** Creates and caches leaf certificates signed by rethink's device-trusted CA. */
 export class SNICertificateProvider {
-    readonly cache = new Map<string, SecureContext>()
+    readonly cache = new Map<string, IssuedCertificate>()
 
     constructor(readonly ca: CA) {}
 
     forServerName(serverName: string): SecureContext {
+        return this.issue(serverName).context
+    }
+
+    issue(serverName: string): IssuedCertificate {
         const hostname = serverName.trim().toLowerCase().replace(/\.$/, '')
         if (!DNS_NAME.test(hostname)) throw new Error(`Invalid TLS SNI hostname: ${serverName}`)
 
@@ -32,7 +43,7 @@ export class SNICertificateProvider {
         return generated
     }
 
-    private generate(hostname: string): SecureContext {
+    private generate(hostname: string): IssuedCertificate {
         const dir = mkdtempSync(join(tmpdir(), 'rethink-sni-'))
         try {
             const caKey = join(dir, 'ca-key.pem')
@@ -83,7 +94,16 @@ export class SNICertificateProvider {
             if (!new X509Certificate(cert).checkHost(hostname)) {
                 throw new Error(`Generated certificate does not cover ${hostname}`)
             }
-            return createSecureContext({ key, cert })
+            /*
+             * The issuer goes out with the leaf. Sent on its own, an appliance that cannot
+             * find the certificate that signed it answers "unknown ca" and gives up —
+             * measured at about a refusal a second, indefinitely, from an appliance that
+             * then never got far enough to re-establish anything else. The MQTT listener
+             * never had the problem because it presents the CA certificate itself, which is
+             * the very one the appliance was given.
+             */
+            const chain = [cert.trimEnd(), this.ca.cert.trimEnd(), ''].join('\n')
+            return { key, chain, context: createSecureContext({ key, cert: chain }) }
         } finally {
             rmSync(dir, { recursive: true, force: true })
         }
