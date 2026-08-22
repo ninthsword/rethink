@@ -30,8 +30,20 @@ rethink의 로그, 관리 API의 `connected: true`, 브로커의 보존 메시�
 실행에서 남은 것일 수 있습니다.
 
 무엇이든 고쳤다고 보고하기 전에 `scripts/check-home-assistant.mts`를 실행해 11대 전부가
-초기값을 받았고 엔티티가 `unavailable`이 아닌지 확인하세요. 홈어시스턴트에 직접 닿는
-`ha-mcp` MCP 서버도 이 프로젝트에 설정되어 있습니다.
+초기값을 받았고 엔티티가 `unavailable`이 아닌지 확인하세요.
+
+**홈어시스턴트를 확인할 때는 두 곳을 모두 봅니다.**
+
+- `ha-mcp` MCP 서버 — 엔티티 상태·이력·로그 등 살아 있는 값
+- SSH로 접근하는 설정 폴더 — `ssh -p PORT root@HA-HOST`, 설정은 `/config`
+
+어느 한쪽만으로는 부족합니다. ha-mcp는 값이 최신인지 말해 주지만, `configuration.yaml`의
+템플릿이 죽은 엔티티를 읽고 있는지, `.storage/lovelace.lovelace`가 어떤 엔티티를 참조하는지,
+`core.config_entries`에 레지스트리 개명이 닿지 않는 entity_id가 들어 있는지는 설정 폴더에서만
+드러납니다. 반대로 파일만 봐서는 값이 신선한지 알 수 없습니다.
+
+`.storage` 파일은 **읽기만** 하세요. 홈어시스턴트의 내부 상태라 직접 쓰면 무시되거나
+덮어써집니다. 변경은 ha-mcp나 홈어시스턴트 API로 합니다.
 
 ## 3. 시각은 한국 표준시로 적는다
 
