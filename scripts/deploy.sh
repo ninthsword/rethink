@@ -23,7 +23,11 @@ cd "$(dirname "$0")/.."
 say() { printf '\n== %s\n' "$*"; }
 
 say "releasing the DNAT rules ($MGMT)"
-curl -fsS -X POST "http://$MGMT/api/router/dnat/release" | head -c 400
+# A rethink too old to know the route cannot release anything; say so and carry on rather
+# than refusing to deploy the very version that adds it.
+if ! curl -fsS -X POST "http://$MGMT/api/router/dnat/release"; then
+    echo "  (the running rethink has no release route — deploying without it)"
+fi
 echo
 
 say "building $IMAGE_TAG"
