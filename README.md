@@ -517,8 +517,26 @@ rethink는 MQTT Discovery를 사용합니다. `config.json`의 MQTT 주소, ID/P
 
 ## 6. 업데이트
 
+컨테이너를 교체하면 가전은 접속해 있던 상대를 잃습니다. 대부분은 keepalive 주기(60초)에
+바로 돌아오지만, 세탁기류는 keepalive가 1200초라 **최대 20분 동안 아무 데도 없는 상태**가
+됩니다. 그 사이에 다시 배포하면 그 상태가 계속 연장됩니다.
+
+그래서 배포 전에 DNAT 규칙을 먼저 걷어냅니다. 규칙이 없는 동안 가전은 LG 클라우드와 직접
+통신하므로 상대를 잃지 않고, rethink가 올라오면 DNAT 조정기가 규칙을 스스로 되돌립니다.
+아래 스크립트가 그 순서대로 수행합니다.
+
 ```sh
 cd ~/docker/rethink
+git pull --ff-only origin master
+scripts/deploy.sh
+```
+
+수동으로 하는 경우에도 첫 줄을 먼저 실행하세요.
+
+```sh
+cd ~/docker/rethink
+curl -fsS -X POST http://127.0.0.1:44401/api/router/dnat/release   # 규칙 해제
+
 git pull --ff-only origin master
 docker build --pull -t rethink-lg-bridge:local .
 
@@ -534,6 +552,9 @@ docker run -d \
   -v "$HOME/docker/rethink-data:/app/data" \
   rethink-lg-bridge:local
 ```
+
+규칙은 rethink가 올라오고 30초 뒤 DNAT 조정기가 되돌립니다. `dnatDesired` 기록은 해제 시에도
+유지되므로 별도의 복구 조작이 필요하지 않습니다.
 
 업데이트 전 `~/docker/rethink-data`를 백업하는 것을 권장합니다.
 
@@ -655,12 +676,28 @@ Rethink를 계속 사용할 계획이라면 공유기 재부팅이나 일시적�
 ### DNAT를 적용했지만 rethink로 전환되지 않음
 
 - 기기의 고정 IP와 DNAT 출발지 IP가 같은지 확인합니다.
-- 기존 연결이 conntrack에 남아 있을 수 있으므로 재접속을 기다립니다.
+- 기존 연결이 conntrack에 남아 있을 수 있으므로 **기기의 keepalive 주기만큼 기다립니다.**
+  대부분 60초면 돌아오지만 세탁기류는 1200초(20분)입니다. 그때까지는 어디에도 접속하지
+  않은 상태가 정상이며, 이 시간을 기다리지 않고 다시 조작하면 계속 연장됩니다.
 - 공유기에서 DNAT 패킷 카운터가 증가하는지 확인합니다.
+- 20분을 넘겨도 오지 않으면 `config.json`의 `route_servers`를 확인합니다. 이 항목이 없으면
+  rethink는 `/route`에서 자기 `hostname`을 알려주는데, DNAT로 유도하는 구성에서는 그 이름이
+  어디에도 등록되어 있지 않습니다. 그 주소를 받아 간 기기는 접속 시도 자체를 하지 않으며
+  전원을 껐다 켜야 돌아옵니다.
+- 로그에 `TLS handshake refused ... unknown ca`가 반복되면, 기기가 rethink가 서비스할 수 없는
+  호스트로 가고 있다는 뜻입니다. 거부된 호스트 이름을 `passthrough_hostnames`에 넣습니다.
 
 ### bridge와 실제 기기가 반복적으로 재접속
 
-동일한 MQTT client ID 충돌 가능성이 큽니다. bridge를 먼저 비활성화한 뒤 DNAT를 제거하세요.
+동일한 MQTT client ID 충돌 가능성이 큽니다. DNAT를 먼저 끄고, 그래도 계속되면 bridge를 끕니다.
+
+**bridge 끄기는 그 기기의 등록 인증서를 삭제합니다.** 기기 없이는 다시 만들 수 없는 값이므로,
+일상적인 조작이나 업데이트 절차에 넣지 마세요. 업데이트할 때는 위 6절대로 DNAT만 해제하면
+되고, bridge는 프로세스가 종료되면 알아서 멈춥니다.
+
+목록에서 항목을 삭제할 때는 인증서가 자동으로 보관되며, 항목을 다시 추가하고 기기를 연결하면
+관리 화면에서 복원할지 갱신할지 고를 수 있습니다. 앱에서 삭제 후 재등록한 기기는 **갱신**을
+선택합니다.
 
 ## 원작자 및 라이선스
 

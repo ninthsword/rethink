@@ -1,4 +1,10 @@
 {
+  // Used to name rethink to the appliances, and so it must be a name they can resolve.
+  // The original setup earns that by redirecting DNS long enough to re-provision each
+  // appliance onto this name. Where a firewall rule does the redirecting instead, this
+  // name was never published anywhere: set "route_servers" below, or an appliance that
+  // asks where its servers are will be handed an address that does not exist and stop
+  // dialling until its power is cycled.
   "hostname": "rethink.lan", // this can't be an IP address
 
   "homeassistant": {
@@ -12,12 +18,38 @@
     "offline_grace_seconds": 1800,
     "mqtt_user": "",
     "mqtt_pass": ""
+
+    // Air conditioners that share an outdoor unit. Each indoor head reports the outdoor
+    // unit's power rather than its own share, and only while it is itself running, so
+    // their totals can be neither added nor taken one at a time. The first appliance of
+    // each group carries the group's power and energy sensors; the heads keep their own
+    // power reading and none of them carries a total.
+    //  "outdoor_units": [
+    //    { "name": "living room / bedroom 2-in-1", "devices": ["<id>", "<id>"] }
+    //  ]
   },
 
   "ca_key_file": "ca.key", // will be created on first run if necessary
   "ca_cert_file": "ca.cert", // will be created on first run if necessary
   // Generate a CA-signed leaf certificate for every TLS SNI hostname.
   "sni_certificates": true,
+
+  // What to tell an appliance its servers are when it asks. Leave it out to name rethink
+  // itself, which is right when the appliances were pointed here deliberately. With a
+  // firewall rule doing the redirecting, name the appliances' own servers instead: they
+  // keep addresses that resolve, and the rule goes on redirecting them. The values are
+  // whatever the appliances report as api-server and mqtt-server when they announce.
+  //  "route_servers": {
+  //    "apiServer": "https://kic-common.lgthinq.com:443",
+  //    "mqttServer": "ssl://common.iot.kic.lgthinq.com:8883"
+  //  },
+
+  // Hosts to splice through to the real server rather than answer here. A firewall rule
+  // on port 443 catches every host an appliance talks to, including ones rethink has no
+  // routes for; offering a certificate for one of those only produces a refusal the
+  // appliance retries about once a second, indefinitely. Empty by default, because
+  // anything listed here leaves the house.
+  //  "passthrough_hostnames": ["*mclip*"],
 
   // If port forwarding or other redirection is involved, the bind port may not match
   // the port that the device will connect to from the outside.
