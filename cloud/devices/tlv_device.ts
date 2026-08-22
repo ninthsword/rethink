@@ -60,6 +60,17 @@ export default class TLVDevice extends HADevice {
      */
     unansweredQueries = 0
     silent = false
+    /**
+     * What was last asked of the appliance and when, so a reply can be matched to it.
+     *
+     * These appliances answer the initial-values query with their capability table, over and
+     * over, and rethink has no way to tell a fresh wrong answer from the same answer sent
+     * twice: the frame carries a sequence byte the code has never looked at. Pairing the two
+     * says which it is, and how long the appliance took.
+     */
+    lastAskedAt: number | undefined
+    lastAskedFor: 'capabilities' | 'values' | undefined
+    lastReplySequence: number | undefined
 
     constructor(
         HA: Connection,
@@ -109,11 +120,17 @@ export default class TLVDevice extends HADevice {
     // clip-side
     queryCaps() {
         this.send([1, 1, 2, 2, 1], [{ t: 0x1f5, v: 1 }])
+        this.lastAskedAt = Date.now()
+        this.lastAskedFor = 'capabilities'
+        log('exchange', this.id, 'asked for capabilities')
     }
 
     query() {
         this.send([1, 1, 2, 2, 1], [{ t: 0x1f5, v: 2 }])
         this.query_last_timestamp = performance.now()
+        this.lastAskedAt = Date.now()
+        this.lastAskedFor = 'values'
+        log('exchange', this.id, 'asked for values')
     }
 
     /**
@@ -206,6 +223,18 @@ export default class TLVDevice extends HADevice {
         ) {
             // ignore the CRC, we assume that the modem verifies it :/
             log('status', this.id, 'received TLV packet')
+            const sequence = buf[9]
+            const tlv = TLV.parse(buf.subarray(11, buf.length - 2))
+            log(
+                'exchange',
+                this.id,
+                `replied seq=${sequence}${sequence === this.lastReplySequence ? ' (same as last)' : ''}`,
+                `${tlv.length} tags`,
+                this.isCapsResponse(tlv) ? 'capabilities' : this.isValuesResponse(tlv) ? 'values' : 'neither',
+                `to the ${this.lastAskedFor ?? 'nothing'} asked`,
+                this.lastAskedAt ? `${Date.now() - this.lastAskedAt} ms earlier` : '',
+            )
+            this.lastReplySequence = sequence
             this.heard()
             this.processTLV(TLV.parse(buf.subarray(11, buf.length - 2)))
         }
