@@ -214,6 +214,32 @@ nano ~/docker/rethink-data/config.json
 - `bridge.storage_path`: 인증서와 bridge 상태를 보관할 위치. 데이터 폴더 내부의 `./state`
 - `bridge.preserve_existing_devices`: bridge 사용 중 기존 LG ThinQ Home 등록과 별칭을 유지하려면 `true`. 이 옵션은 완전 원복 시 Wi-Fi 재등록을 생략하게 해 주는 옵션이 아닙니다.
 
+DNAT로 유도하는 구성에서는 다음 항목도 필요합니다. 자세한 설명과 주의점은 [문제 해결](#문제-해결)에 있습니다.
+
+- `route_servers`: `/route`로 기기에 알려 줄 주소. **DNAT 구성에서는 반드시 지정합니다.**
+  지정하지 않으면 rethink가 자기 `hostname`을 알려 주는데, 그 이름은 어디에도 등록되어 있지
+  않아 기기가 접속 시도를 멈춥니다. 공장 주소를 그대로 돌려주면 DNAT가 알아서 rethink로
+  보냅니다.
+- `stall_hostnames`: rethink가 서비스할 수 없는 호스트 이름 목록. 연결을 받아두고 아무 응답도
+  하지 않다가 1분 뒤 닫습니다. `unknown ca` 거부가 반복될 때 **먼저 이쪽을 쓰세요.**
+- `passthrough_hostnames`: 같은 목적이지만 연결을 실제 서버로 그대로 이어 줍니다. 오가는 내용을
+  rethink가 볼 수 없고, 가전이 그쪽으로 상태를 보고하기 시작할 수 있으므로 마지막 수단입니다.
+- `outdoor_units`: 실외기를 공유하는 에어컨 묶음. 2 in 1처럼 실내기 여러 대가 한 실외기를 쓰면
+  각 실내기가 자기 몫이 아니라 실외기 전체 전력을 보고하므로, 그대로 더하면 같은 압축기를 두 번
+  세게 됩니다. 묶어 주면 실외기 소비 전력·누적 사용량·압축기 센서가 목록의 **첫 번째** 기기에
+  하나씩만 생깁니다.
+
+```jsonc
+{
+    "route_servers": {
+        "apiServer": "https://kic-common.lgthinq.com:443",
+        "mqttServer": "ssl://common.iot.kic.lgthinq.com:8883",
+    },
+    "stall_hostnames": ["*mclip*"],
+    "outdoor_units": [{ "name": "거실/안방 2 in 1", "devices": ["DEVICE_ID_1", "DEVICE_ID_2"] }],
+}
+```
+
 DNAT 예시에서 TCP 443을 컨테이너의 TCP 4433으로 전달한다면 다음처럼 bind 포트와 기기에 알릴 포트를 나눕니다.
 
 ```jsonc
@@ -513,6 +539,22 @@ rethink는 MQTT Discovery를 사용합니다. `config.json`의 MQTT 주소, ID/P
 4. 상태 확인부터 하고 전원, 모드, 온도 같은 제어는 한 항목씩 시험합니다.
 5. LG ThinQ 앱에서도 같은 기기의 상태와 제어가 정상인지 확인합니다.
 
+**rethink 안에서 본 상태는 정상의 근거가 아닙니다.** 관리 화면의 `connected`는 TCP 세션이
+있다는 뜻일 뿐이고, 브로커에 남은 값은 이전 실행에서 온 것일 수 있습니다. 실제로 관리 화면이
+모두 연결됨을 보이는 동안 에어컨 두 대가 Home Assistant에서 "사용할 수 없음"이었고, 제습기는
+두 시간 반 전 값을 현재값처럼 보여주고 있었습니다.
+
+그래서 확인은 Home Assistant 쪽에서 합니다.
+
+```sh
+cd ~/docker/rethink
+npx tsx scripts/check-home-assistant.mts
+```
+
+기기별로 발행된 엔티티 수, 사용 가능 여부, 초기값을 아직 받지 못했는지, 마지막 발행이 언제였는지를
+출력하고, 설명되지 않는 항목이 하나라도 있으면 0이 아닌 값으로 종료합니다. 무언가 고쳤다고
+판단하기 전에 이것부터 통과시키세요.
+
 지원 목록에 없는 모델은 Connected devices에 나타나고 bridge가 동작해도 Home Assistant 엔티티가 일부만 생성되거나 제어가 동작하지 않을 수 있습니다. 이런 경우 모델별 핸들러 추가가 필요합니다. 핸들러 추가 작업은 rethink 모니터에서 수집한 통신 패킷, 기존 유사 모델의 핸들러와 원하는 Home Assistant 엔티티를 함께 분석해야 하므로 AI 코딩 도구를 이용하여 진행하는 것을 권장합니다. 다만 AI가 생성한 명령과 상태 해석이 항상 정확한 것은 아니므로, 한 번에 하나의 기능만 추가하고 실제 기기에서 안전하게 동작하는지 확인한 뒤 다음 기능으로 확장하세요.
 
 ## 6. 업데이트와 재시작
@@ -520,9 +562,17 @@ rethink는 MQTT Discovery를 사용합니다. `config.json`의 MQTT 주소, ID/P
 아래는 새 버전을 배포할 때의 절차이지만, **컨테이너가 내려가는 모든 경우**에 그대로
 적용됩니다. 설정 한 줄 수정이나 로그 토픽 변경 때문에 잠깐 재시작하는 것도 포함입니다.
 
-컨테이너를 교체하면 가전은 접속해 있던 상대를 잃습니다. 대부분은 keepalive 주기(60초)에
-바로 돌아오지만, 세탁기류는 keepalive가 1200초라 **최대 20분 동안 아무 데도 없는 상태**가
-됩니다. 그 사이에 다시 배포하면 그 상태가 계속 연장됩니다.
+컨테이너를 교체하면 가전은 접속해 있던 상대를 잃습니다. `--network host`로 실행하므로 프로세스가
+끝나면 커널이 열려 있던 소켓에 RST를 보내고, 대부분의 가전은 그것을 즉시 알아채 1분 안에
+돌아옵니다. 실측한 재시작에서는 11대 중 10대가 64초 안에 재접속했습니다.
+
+문제는 그 신호를 받지 못하는 경우입니다. 세탁기류는 keepalive가 1200초라 연결이 조용히
+사라지면 **최대 20분 동안 아무 데도 없는 상태**가 되고, 같은 재시작에서 세탁기 한 대가 실제로
+25분 걸렸습니다. 그 사이에 다시 배포하면 그 상태가 계속 연장됩니다.
+
+돌아올 때 가전은 `clip/provisioning`으로 `undeploy`를 보낸 뒤 `deploy`를 보냅니다. 로그에
+"undeployed itself; dropping its registration"이 찍히지만 **이것은 정상적인 재등록 절차이며
+디스크의 인증서는 삭제되지 않습니다.** 앱에서 다시 등록할 필요가 없습니다.
 
 그래서 배포 전에 DNAT 규칙을 먼저 걷어냅니다. 규칙이 없는 동안 가전은 LG 클라우드와 직접
 통신하므로 상대를 잃지 않고, rethink가 올라오면 DNAT 조정기가 규칙을 스스로 되돌립니다.
@@ -660,6 +710,8 @@ Rethink를 계속 사용할 계획이라면 공유기 재부팅이나 일시적�
 - [`packet-sender`](tools/packet-sender.ts): 가전으로 보낼 TLV 패킷 생성
 - [`rethink-capture`](tools/rethink-capture.ts): 기기 통신 캡처
 - [`lgcloud-monitor`](tools/lgcloud-monitor.ts): 공식 LG 클라우드 알림 모니터링
+- [`check-home-assistant`](scripts/check-home-assistant.mts): Home Assistant 쪽에서 본 가전 상태 점검
+- [`deploy`](scripts/deploy.sh): DNAT 해제 → 빌드 → 컨테이너 교체 → 규칙 복구까지 순서대로 수행
 
 ## 문제 해결
 
