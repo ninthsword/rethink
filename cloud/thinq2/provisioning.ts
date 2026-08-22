@@ -6,13 +6,15 @@ import { ClipDeployMessage } from './clip'
 export function routes(config: Config, ca: CA) {
     const router = Router()
     router.get('/route', (req, res) => {
-        res.json({
-            resultCode: '0000',
-            result: {
-                apiServer: 'https://' + config.hostname + ':' + config.https_port.advertise,
-                mqttServer: 'ssl://' + config.hostname + ':' + config.mqtts_port.advertise,
-            },
-        })
+        // Naming rethink here only works if that name resolves for the appliance, which is
+        // true when the appliance was pointed at rethink deliberately and not when a
+        // firewall rule redirects it. An appliance handed an address that does not exist
+        // stops dialling altogether.
+        const servers = config.route_servers ?? {
+            apiServer: 'https://' + config.hostname + ':' + config.https_port.advertise,
+            mqttServer: 'ssl://' + config.hostname + ':' + config.mqtts_port.advertise,
+        }
+        res.json({ resultCode: '0000', result: servers })
     })
 
     router.get('/route/certificate', (req, res) => {

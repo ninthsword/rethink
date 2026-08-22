@@ -12,6 +12,16 @@ export type RawConfig = {
     mqtt?: boolean
     sni_certificates?: boolean
     /**
+     * What to tell an appliance its servers are, when it asks. Left unset, rethink names
+     * itself — which is what the original setup does, having first made that name resolve
+     * and pointed the appliance at it deliberately. Where the appliances are redirected by a
+     * firewall rule instead, that name was never published anywhere and an appliance told to
+     * use it is left with an address that does not exist: it stops dialling and only a power
+     * cycle brings it back. Naming its own factory servers keeps the appliance on addresses
+     * that resolve, and the firewall rule goes on redirecting them.
+     */
+    route_servers?: { apiServer: string; mqttServer: string }
+    /**
      * Hostnames the appliances address that rethink has no routes for, and so must not
      * answer: the firewall rule catches every host on port 443, and offering a certificate
      * for one rethink cannot serve leaves the appliance retrying a refusal forever.
@@ -37,6 +47,7 @@ export type Config = {
     thinq1_port: Port
     mqtt: boolean
     sni_certificates: boolean
+    route_servers?: { apiServer: string; mqttServer: string }
     passthrough_hostnames: string[]
     bridge?: {
         storage_path: string
