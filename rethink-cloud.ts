@@ -24,6 +24,7 @@ import { DeviceManager } from './cloud/devmgr'
 import { Bridge } from './bridge'
 import { JSONStorage } from './bridge/state'
 import { SNICertificateProvider } from './util/sni-certificates'
+import { collapseRepeats, withoutErrorTag } from './util/repeated_log'
 
 const configPath = resolve(process.argv[2] ?? './config.json')
 const configDir = dirname(configPath)
@@ -120,15 +121,24 @@ function t1setup(manager: DeviceManager) {
     acceptor.on('newDevice', manager.accept.bind(manager))
 }
 
+/** How often a refusal that keeps repeating is worth restating. */
+const REFUSAL_SUMMARY_MS = 60_000
+
 /**
  * A refused TLS handshake was completely silent until now: neither server had a
  * tlsClientError listener, so an appliance that could not agree a connection simply never
  * appeared and left nothing to look at. Every listener gets one.
  */
-function reportTlsErrors<T extends { on(event: 'tlsClientError', handler: (err: Error, socket: TLSSocket) => void): T }>(
-    server: T,
-    name: string,
-) {
+function reportTlsErrors<
+    T extends { on(event: 'tlsClientError', handler: (err: Error, socket: TLSSocket) => void): T },
+>(server: T, name: string) {
+    /*
+     * A refused host keeps being refused: the appliance retries about once a second and will
+     * do so for as long as it is powered. Saying so once a minute, with the count, describes
+     * that exactly as well as thirty identical lines do.
+     */
+    const report = collapseRepeats(REFUSAL_SUMMARY_MS, (line) => log('status', line))
+
     server.on('tlsClientError', (err, socket) => {
         const s = socket as unknown as { remoteAddress?: string; remotePort?: number; servername?: string }
         const from = s.remoteAddress ?? 'unknown'
@@ -139,7 +149,18 @@ function reportTlsErrors<T extends { on(event: 'tlsClientError', handler: (err: 
          * means the appliance would not accept the certificate offered for that name.
          */
         const wanted = s.servername ? ` for ${s.servername}` : ' with no server name'
-        log('status', `TLS handshake refused on ${name} from ${from}:${s.remotePort ?? '?'}${wanted}: ${err.message}`)
+        const reason = withoutErrorTag(err.message)
+
+        /*
+         * The port is deliberately not part of the key. It changes on every attempt, and
+         * keying on it would mean every refusal is a first one and nothing ever collapses.
+         */
+        report(
+            `${name}|${s.servername ?? ''}|${reason}`,
+            (held) =>
+                `TLS handshake refused on ${name} from ${from}:${s.remotePort ?? '?'}${wanted}: ${reason}` +
+                (held ? ` (and ${held} more like it since the last report)` : ''),
+        )
     })
     return server
 }
