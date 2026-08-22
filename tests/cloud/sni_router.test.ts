@@ -64,57 +64,78 @@ describe('which hosts are passed through', () => {
 })
 
 describe('routing a live connection', () => {
-    test('a host rethink serves is handed to the local server, bytes intact', async () => {
+    /**
+     * A real TLS server behind the router. The point is the handshake completing: peeking at
+     * the ClientHello and then handing the socket on is only correct if the bytes are still
+     * there, and a listener that merely counts them cannot tell the difference.
+     */
+    async function withRouter(passThrough: string[]) {
+        const [net, tls, { execFileSync }, { mkdtempSync, readFileSync, rmSync }, { tmpdir }, { join }] =
+            await Promise.all([
+                import('node:net'),
+                import('node:tls'),
+                import('node:child_process'),
+                import('node:fs'),
+                import('node:os'),
+                import('node:path'),
+            ])
         const { createSNIRouter } = await import('@/cloud/sni_router')
-        const net = await import('node:net')
-        const hello = clientHello('common.lgthinq.com')
 
-        const handled: Buffer[] = []
+        const dir = mkdtempSync(join(tmpdir(), 'rethink-sni-router-'))
+        const key = join(dir, 'k.pem')
+        const cert = join(dir, 'c.pem')
+        execFileSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-keyout', key, '-out', cert,
+            '-days', '2', '-subj', '/CN=common.lgthinq.com', '-addext', 'subjectAltName=DNS:common.lgthinq.com'])
+        const credentials = { key: readFileSync(key, 'utf-8'), cert: readFileSync(cert, 'utf-8') }
+        rmSync(dir, { recursive: true, force: true })
+
+        const served: string[] = []
+        const tlsServer = tls.createServer(credentials, (socket) => {
+            served.push(socket.servername || '')
+            socket.end('ok')
+        })
         const router = createSNIRouter({
-            passThrough: ['*mclip*'],
-            upstreamPort: 443,
-            handleLocally: (socket) => {
-                socket.on('data', (chunk) => handled.push(chunk))
-            },
+            passThrough,
+            upstreamPort: 1,
+            handleLocally: (socket) => tlsServer.emit('connection', socket),
         })
         await new Promise<void>((resolve) => router.listen(0, '127.0.0.1', resolve))
         const port = (router.address() as { port: number }).port
+        return { port, served, credentials, close: () => router.close(), tls, net }
+    }
 
-        const client = net.connect(port, '127.0.0.1')
-        await new Promise<void>((resolve) => client.on('connect', () => resolve()))
-        client.write(hello)
-        await new Promise((resolve) => setTimeout(resolve, 150))
+    test('a host rethink serves completes a handshake with it', async () => {
+        const { port, served, credentials, close, tls } = await withRouter(['*mclip*'])
+        const finished = await new Promise<string>((resolve) => {
+            const socket = tls.connect(
+                { port, host: '127.0.0.1', servername: 'common.lgthinq.com', ca: credentials.cert },
+                () => {
+                    let body = ''
+                    socket.on('data', (chunk) => (body += chunk))
+                    socket.on('end', () => resolve(body))
+                },
+            )
+            socket.on('error', (err) => resolve(`error: ${err.message}`))
+        })
 
-        // The local server must see the ClientHello it would have seen without any of this.
-        assert.deepEqual(Buffer.concat(handled), hello, 'the peeked bytes are put back')
-        client.destroy()
-        router.close()
+        assert.equal(finished, 'ok', 'the handshake completed and the server answered')
+        assert.deepEqual(served, ['common.lgthinq.com'], 'and it saw the name it was asked for')
+        close()
     })
 
-    test('a host it cannot serve is never handed to the local server', async () => {
-        const { createSNIRouter } = await import('@/cloud/sni_router')
-        const net = await import('node:net')
-
-        let handledLocally = false
-        const router = createSNIRouter({
-            passThrough: ['*mclip*'],
-            // Nothing listens here; the point is only that the local server is not used.
-            upstreamPort: 1,
-            handleLocally: () => {
-                handledLocally = true
-            },
+    test('a host it cannot serve never reaches the local server', async () => {
+        const { port, served, close, tls } = await withRouter(['*mclip*'])
+        const result = await new Promise<string>((resolve) => {
+            const socket = tls.connect(
+                { port, host: '127.0.0.1', servername: 'kic-mclip.lgthinq.com', rejectUnauthorized: false },
+                () => resolve('connected'),
+            )
+            socket.on('error', () => resolve('refused'))
+            setTimeout(() => resolve('nothing'), 1500)
         })
-        await new Promise<void>((resolve) => router.listen(0, '127.0.0.1', resolve))
-        const port = (router.address() as { port: number }).port
 
-        const client = net.connect(port, '127.0.0.1')
-        await new Promise<void>((resolve) => client.on('connect', () => resolve()))
-        client.on('error', () => {})
-        client.write(clientHello('kic-mclip.lgthinq.com'))
-        await new Promise((resolve) => setTimeout(resolve, 250))
-
-        assert.equal(handledLocally, false, 'no certificate of ours is ever offered for it')
-        client.destroy()
-        router.close()
+        assert.notEqual(result, 'connected', 'no certificate of ours is offered for it')
+        assert.deepEqual(served, [], 'the local server is never involved')
+        close()
     })
 })

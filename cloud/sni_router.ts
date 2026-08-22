@@ -76,17 +76,30 @@ export type SNIRouterOptions = {
 export function createSNIRouter({ passThrough, upstreamPort, handleLocally }: SNIRouterOptions) {
     return net.createServer((socket) => {
         let buffered = Buffer.alloc(0)
+        let settled = false
+
+        /*
+         * Paused, and read explicitly. A socket in flowing mode cannot have bytes put back
+         * on it, so peeking with a 'data' handler and then unshifting hands the local server
+         * a connection with its ClientHello missing — which it waits out and drops.
+         */
+        socket.pause()
+
+        const stopPeeking = () => {
+            settled = true
+            socket.removeListener('readable', onReadable)
+            socket.removeListener('end', onEnd)
+            socket.removeListener('error', onEarlyError)
+        }
 
         const takeLocally = () => {
-            socket.removeListener('data', onData)
-            socket.removeListener('error', onEarlyError)
+            stopPeeking()
             if (buffered.length) socket.unshift(buffered)
             handleLocally(socket)
         }
 
         const splice = (hostname: string) => {
-            socket.removeListener('data', onData)
-            socket.removeListener('error', onEarlyError)
+            stopPeeking()
             const upstream = net.connect(upstreamPort, hostname)
             upstream.on('error', (err) => {
                 log('status', `cannot reach ${hostname}:${upstreamPort} for a passed-through appliance: ${err.message}`)
@@ -100,21 +113,30 @@ export function createSNIRouter({ passThrough, upstreamPort, handleLocally }: SN
             })
         }
 
-        const onData = (chunk: Buffer) => {
-            buffered = Buffer.concat([buffered, chunk])
-            const hostname = readServerName(buffered)
-            if (!hostname) {
+        const onReadable = () => {
+            for (;;) {
+                if (settled) return
+                const chunk = socket.read() as Buffer | null
+                if (!chunk) return
+                buffered = Buffer.concat([buffered, chunk])
+
+                const hostname = readServerName(buffered)
+                if (hostname) {
+                    if (passThrough.some((pattern) => matchesHostPattern(hostname, pattern))) splice(hostname)
+                    else takeLocally()
+                    return
+                }
                 // Either still arriving or not a ClientHello at all; do not wait forever.
-                if (buffered.length >= MAX_HELLO_BYTES) takeLocally()
-                return
+                if (buffered.length >= MAX_HELLO_BYTES) return takeLocally()
             }
-            if (passThrough.some((pattern) => matchesHostPattern(hostname, pattern))) splice(hostname)
-            else takeLocally()
         }
 
-        // A connection that says nothing is not worth holding open on a guess.
+        // Whatever it was, it is the local server's to answer or refuse, not ours to drop.
+        const onEnd = () => takeLocally()
         const onEarlyError = () => socket.destroy()
+
+        socket.on('readable', onReadable)
+        socket.on('end', onEnd)
         socket.on('error', onEarlyError)
-        socket.on('data', onData)
     })
 }
