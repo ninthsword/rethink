@@ -31,7 +31,8 @@
     "start": "node dist/rethink-cloud.js",
     "format": "npx prettier . --write",
     "postinstall": "node scripts/install-git-hooks.mjs",
-    "test": "node scripts/run-tests.mjs"
+    "test": "node scripts/run-tests.mjs",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "simple-git-hooks": {
     "pre-commit": "npx pretty-quick --staged"

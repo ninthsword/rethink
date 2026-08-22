@@ -103,7 +103,9 @@ describe('routing a live connection', () => {
 
         const served: string[] = []
         const tlsServer = tls.createServer(credentials, (socket) => {
-            served.push(socket.servername || '')
+            // servername is set by the SNI handshake but is not in @types/node's TLSSocket;
+            // cloud/rethink-cloud.ts reaches it through the same cast.
+            served.push((socket as unknown as { servername?: string }).servername || '')
             socket.end('ok')
         })
         const router = createSNIRouter({

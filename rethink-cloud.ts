@@ -238,6 +238,24 @@ function t2setup(manager: DeviceManager) {
         })
 }
 
+/*
+ * A rejection nobody handled ends the process in Node, and here that is expensive: every
+ * appliance loses the peer it was attached to, all eleven go through undeploy and deploy
+ * again, and the washer-class ones are gone for up to twenty-five minutes while their
+ * keepalive runs out. Almost none of that is worth paying for a stray promise.
+ *
+ * So the process stays up and says what happened. An uncaught exception is different — the
+ * state after one is not known to be sound — so that one is reported and then allowed to
+ * end the process, which is at least a restart with a reason attached to it.
+ */
+process.on('unhandledRejection', (reason) => {
+    log('status', `unhandled rejection, continuing: ${reason instanceof Error ? reason.stack : reason}`)
+})
+process.on('uncaughtException', (err) => {
+    log('status', `uncaught exception, exiting: ${err.stack ?? err}`)
+    process.exit(1)
+})
+
 // HA connector
 const haConnection = new HA_connection(config.homeassistant)
 // An appliance that drops its connection is usually only entering standby, not going

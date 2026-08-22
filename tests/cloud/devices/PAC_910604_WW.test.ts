@@ -302,8 +302,16 @@ describe('PAC_910604_WW energy without B115 reports', () => {
 
     // Start part-way into an hour so a run of samples does not cross into the next one,
     // and clean up whatever happens: the device holds intervals that outlive a failure.
-    function withClock(t: { mock: { timers: { enable(o: object): void } } }) {
-        t.mock.timers.enable({ apis: ['Date'], now: 5 * 60 * 1000 })
+    /*
+     * The parameter is the real TestContext. Declaring a narrower shape looked harmless and
+     * made every call site a type error, which nothing noticed because the build excludes
+     * tests. enable() is reached through a cast for the same reason tests/helpers/timers.ts
+     * needs one: @types/node declares one of the two accepted argument forms depending on
+     * the version installed.
+     */
+    function withClock(t: import('node:test').TestContext) {
+        const enable = t.mock.timers.enable.bind(t.mock.timers) as (arg: unknown) => void
+        enable({ apis: ['Date'], now: 5 * 60 * 1000 })
         return configureDevice()
     }
 
