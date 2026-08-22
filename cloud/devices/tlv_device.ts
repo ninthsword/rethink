@@ -5,9 +5,8 @@
  */
 const UNANSWERED_QUERIES_BEFORE_SILENT = 3
 
-/** First gap between initial-values attempts, doubling up to the maximum below. */
+/** Gap between initial-values attempts. */
 const INITIAL_VALUES_RETRY_MS = 15 * 1000
-const INITIAL_VALUES_RETRY_MAX_MS = 5 * 60 * 1000
 
 // base implementation for devices with a TLV-based payload format
 import HADevice from './base'
@@ -47,7 +46,7 @@ export default class TLVDevice extends HADevice {
     fields_by_ha: Record<string, FieldDefinition> = {}
     raw_clip_state: Record<number, number> = {}
     query_caps_timeout: ReturnType<typeof setInterval> | undefined = undefined
-    query_values_timeout: ReturnType<typeof setTimeout> | undefined = undefined
+    query_values_timeout: ReturnType<typeof setInterval> | undefined = undefined
     /**
      * Refresh queries sent since the appliance last answered one.
      *
@@ -203,7 +202,7 @@ export default class TLVDevice extends HADevice {
         }
 
         if (this.query_values_timeout != undefined) {
-            clearTimeout(this.query_values_timeout)
+            clearInterval(this.query_values_timeout)
             this.query_values_timeout = undefined
         }
 
@@ -342,20 +341,16 @@ export default class TLVDevice extends HADevice {
             this.query()
 
             /*
-             * Retry, but back off. Asking every fifteen seconds for ever means an appliance
-             * that falls behind never gets a quiet moment to catch up: one air conditioner
-             * took seven hundred and eighty-seven packets without once answering, while the
-             * one that started cleanly took forty-two in total. Backing off gives the slow
-             * ones room and stops a stuck appliance being drowned by the attempt to reach it.
+             * Retry at a fixed interval. Backing off was tried and was the wrong reading of
+             * the evidence: an appliance that will not answer sends the same capability
+             * table however often it is asked, and asking less often only takes longer to
+             * find out. The one that recovered did so from a single query it answered four
+             * times over, so what matters is being there when it does.
              */
-            let wait = INITIAL_VALUES_RETRY_MS
-            const askAgain = () => {
-                log('status', this.id, `re-trying initial values query after ${Math.round(wait / 1000)} s`)
+            this.query_values_timeout = setInterval(() => {
+                log('status', this.id, 're-trying initial values query due to timeout')
                 this.query()
-                wait = Math.min(wait * 2, INITIAL_VALUES_RETRY_MAX_MS)
-                this.query_values_timeout = setTimeout(askAgain, wait)
-            }
-            this.query_values_timeout = setTimeout(askAgain, wait)
+            }, INITIAL_VALUES_RETRY_MS)
         }
 
         // values are expected to be received also post-init time
@@ -363,7 +358,7 @@ export default class TLVDevice extends HADevice {
         if (this.query_caps_timeout == undefined && this.isValuesResponse(tlvArray)) {
             if (this.query_values_timeout != undefined) {
                 log('status', this.id, 'received initial values key')
-                clearTimeout(this.query_values_timeout)
+                clearInterval(this.query_values_timeout)
                 this.query_values_timeout = undefined
             }
             this.valuesReceived()
