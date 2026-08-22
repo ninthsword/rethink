@@ -22,6 +22,12 @@ export class MockHAConnection extends EventEmitter {
     devices: Record<string, DeviceInfo> = {}
     publishedConfigs: DeviceDiscovery[] = []
     isConnected = true
+    /**
+     * The handler configuration a real Connection carries. Left undefined by default, which
+     * is the ordinary case; set it to exercise the paths that depend on it, such as an
+     * appliance belonging to a declared shared outdoor unit.
+     */
+    config: unknown
 
     publishConfig(id: string, config: DeviceDiscovery) {
         assert.deepEqual(validateDeviceDiscovery(config), [], `invalid Home Assistant MQTT discovery for ${id}`)

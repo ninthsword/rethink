@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import DUT from '@/cloud/devices/RAC_056905_WW'
 import type { Metadata } from '@/cloud/thinq'
 import { MockHAConnection, MockThinq2Device, buf, hex } from '@/tests/helpers/mocks'
+import { resetOutdoorUnits } from '@/cloud/devices/outdoor_unit'
 import { enableMockTimers, tickMockTimers } from '@/tests/helpers/timers'
 import * as TLV from '@/util/tlv'
 
@@ -435,6 +436,29 @@ describe(MODEL_ID, () => {
                 index > removal && (config.components.sleeptimer as Record<string, unknown>)?.platform === 'number',
         )
         assert.notEqual(republish, -1, 'the number entity was not republished after the removal')
+        dev.drop()
+    })
+
+    test('an appliance sharing an outdoor unit still gets a Home Assistant device', (t) => {
+        enableMockTimers(t)
+        resetOutdoorUnits()
+        const ha = new MockHAConnection()
+        ha.config = { outdoor_units: [{ name: '2 in 1', devices: ['other-id', DEVICE_ID] }] }
+        const thinq = new MockThinq2Device(DEVICE_ID, META)
+        const dev = new DUT(ha.asConnection(), thinq, META)
+        thinq.emit('data', buf(CAPS_RESPONSE_HEX))
+        thinq.emit('data', buf(QUERY_RESPONSE_HEX))
+        tickMockTimers(t, 6000)
+
+        // The compressor reading goes to the group rather than to a component of this
+        // appliance's own, and a registration with no component behind it used to throw
+        // while attaching its topics — taking the whole configure() call with it, so the
+        // appliance published no discovery and no availability at all.
+        assert.ok(ha.devices[DEVICE_ID]?.config, 'the appliance published no discovery')
+        assert.equal(ha.devices[DEVICE_ID].availability, 'online')
+        const components = ha.devices[DEVICE_ID].config!.components as Record<string, unknown>
+        assert.equal(components.compressor, undefined, 'the group owns the compressor, not the head')
+        resetOutdoorUnits()
         dev.drop()
     })
 

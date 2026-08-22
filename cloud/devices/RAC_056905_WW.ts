@@ -598,16 +598,29 @@ export default class Device extends TLVDevice {
          * to itself, a compressor cannot be turning while the appliance is off.
          */
         if (this.outdoor) {
-            this.addField(config, {
-                id: 0x22a,
-                name: '',
-                comp: '',
-                writable: false,
-                read_callback: (value) => {
-                    if (typeof value === 'number') this.outdoor!.reportCompressor(value > 0)
-                    return true
+            /*
+             * No component of its own: the group publishes this on the primary appliance,
+             * so this registration exists only to be handed the value. autoreg false and a
+             * callback returning false keep it from reaching for a component that is not
+             * there — attaching topics to config.components[''] throws, and the exception
+             * takes the whole configure() call with it, leaving the appliance with no Home
+             * Assistant device at all.
+             */
+            this.addField(
+                config,
+                {
+                    id: 0x22a,
+                    name: 'outdoor_compressor',
+                    comp: '',
+                    readable: false,
+                    writable: false,
+                    read_callback: (value) => {
+                        if (typeof value === 'number') this.outdoor!.reportCompressor(value > 0)
+                        return false
+                    },
                 },
-            })
+                false,
+            )
         } else {
             config['components']['compressor'] = allowExtendedType({
                 platform: 'binary_sensor',
