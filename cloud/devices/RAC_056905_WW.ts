@@ -228,6 +228,13 @@ export default class Device extends TLVDevice {
 
         this.HA.publishProperty(this.id, 'filterused', this.filterUsedTime)
         this.HA.publishProperty(this.id, 'filterlife', this.filterLifeTime)
+        /*
+         * An appliance whose filter has never been reset reports the date as zero, which
+         * formats to 0000-00-00. That is not a date, and the sensor carries device_class
+         * date, so Home Assistant rejects the message and logs a warning every time the
+         * appliance reconnects — forty-four of them on the bedroom unit alone, while the
+         * sensor sat at unknown regardless. Saying nothing leaves it at unknown honestly.
+         */
         if (this.filterLifeTime > 0) {
             const remaining = Math.max(
                 0,
@@ -235,7 +242,7 @@ export default class Device extends TLVDevice {
             )
             this.HA.publishProperty(this.id, 'filterremaining', remaining)
         }
-        this.HA.publishProperty(this.id, 'filterchangeddate', changedDate)
+        if (this.filterChangedDate > 0) this.HA.publishProperty(this.id, 'filterchangeddate', changedDate)
     }
 
     processFilterCmdResp(success: boolean, data: Buffer) {

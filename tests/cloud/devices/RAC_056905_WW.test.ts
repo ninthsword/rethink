@@ -438,6 +438,26 @@ describe(MODEL_ID, () => {
         dev.drop()
     })
 
+    test('a filter that was never reset publishes no date at all', (t) => {
+        enableMockTimers(t)
+        const ha = new MockHAConnection()
+        const thinq = new MockThinq2Device(DEVICE_ID, META)
+        const dev = new DUT(ha.asConnection(), thinq, META)
+        thinq.emit('data', buf(CAPS_RESPONSE_HEX))
+        thinq.emit('data', buf(QUERY_RESPONSE_HEX))
+        tickMockTimers(t, 6000)
+
+        // Zero formats to 0000-00-00, which the date device class rejects: Home Assistant
+        // logged a warning on every reconnect and left the sensor at unknown anyway. The
+        // sensor reads unknown either way, so the warning bought nothing.
+        assert.equal(
+            ha.getProperty(DEVICE_ID, 'filterchangeddate', 'state'),
+            undefined,
+            'a filter with no reset date must not publish one',
+        )
+        dev.drop()
+    })
+
     test('the RAC retires the sound and temperature step it no longer offers', (t) => {
         enableMockTimers(t)
         const ha = new MockHAConnection()
