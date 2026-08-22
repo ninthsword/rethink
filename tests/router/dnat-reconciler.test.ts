@@ -142,3 +142,23 @@ describe('DNAT reconciler', () => {
         rmSync(dir, { recursive: true, force: true })
     })
 })
+
+describe('rules released for a restart', () => {
+    test('are put back, and stay wanted while they are gone', async () => {
+        // Restarting rethink with the appliances still pointed at it leaves them without an
+        // endpoint, and the washers do not dial back once that happens. Releasing the rules
+        // first sends them to LG directly; the reconciler is what brings them home
+        // afterwards, so the release must not clear the record of what was wanted.
+        const { store, cleanup } = makeStore()
+        const released = store.addDevice('192.168.1.10')
+        store.setDnatDesired(released.entryId, true)
+        const actuator = new RecordingActuator({ [released.entryId]: 'off' })
+
+        const result = await new DNATReconciler(store, () => actuator).reconcile()
+
+        assert.deepEqual(result.restored, [released.entryId], 'a released rule is restored')
+        assert.deepEqual(actuator.enabled, [released.entryId])
+        assert.equal(store.requireDevice(released.entryId).dnatDesired, true, 'and stays wanted')
+        cleanup()
+    })
+})

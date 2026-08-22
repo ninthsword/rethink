@@ -122,6 +122,27 @@ export class RouterAPI {
         )
 
         app.post(
+            '/api/router/dnat/release',
+            this.wrap(async (_req, res) => {
+                /*
+                 * For restarting rethink without pointing the appliances at a process that
+                 * is going away. With the rules gone they go back to talking to LG directly
+                 * and stay connected to something; without this they lose the endpoint
+                 * underneath them, and the two washers do not dial back once that happens.
+                 *
+                 * dnatDesired is deliberately left alone, so the reconciler treats the rules
+                 * as missing and puts them back on its own once rethink is up again.
+                 */
+                this.requireConfigured()
+                const manager = new DNATManager(this.store.router())
+                const entries = this.store.devices().filter((entry) => entry.dnatDesired)
+                for (const entry of entries) await manager.disable(entry)
+                log('status', `released the DNAT rules for ${entries.length} appliances; they will be restored`)
+                res.json({ released: entries.map((entry) => entry.entryId) })
+            }),
+        )
+
+        app.post(
             '/api/router/devices/:entryId/dnat/enable',
             this.wrap(async (req, res) => {
                 this.requireConfigured()
