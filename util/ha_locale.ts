@@ -120,6 +120,7 @@ const KOREAN_NAMES: Record<string, string> = {
     'Reset filter usage': '필터 사용량 초기화',
     'Shabbat Mode': '안식일 모드',
     'Sleep time': '취침 시간',
+    'Start time': '시작 시간',
     'Smart care+': '스마트케어+',
     'Softener dispenser': '섬유유연제 자동 투입',
     'Softener dose': '섬유유연제 투입량',

@@ -158,6 +158,21 @@ export default class Device extends TLVDevice {
                     mode: 'slider',
                 },
                 /*
+                 * The slider only moves in whole hours, so it reads 1 h whether seven
+                 * minutes are left or fifty-nine. The appliance counts the reservation down
+                 * every minute and sends the real figure; this shows it.
+                 */
+                off_time: {
+                    platform: 'sensor',
+                    unique_id: '$deviceid-off-time',
+                    name: 'Stop time',
+                    icon: 'mdi:timer-stop-outline',
+                    state_topic: '$this/off_time',
+                    device_class: 'duration',
+                    unit_of_measurement: 'min',
+                    entity_category: 'diagnostic',
+                },
+                /*
                  * The appliance only accepts multiples of five, and its capability response
                  * says so. Home Assistant's humidifier entity has no step setting — its
                  * slider always moves one per cent at a time — so the value gets its own
@@ -294,8 +309,12 @@ export default class Device extends TLVDevice {
             name: '',
             comp: 'off_timer',
             // The appliance counts the reservation down every minute, so round the
-            // remaining time up to the hour the slider can actually show.
-            read_xform: (raw) => Math.ceil(raw / 60),
+            // remaining time up to the hour the slider can actually show. The companion
+            // sensor keeps the minutes the rounding throws away.
+            read_xform: (raw) => {
+                this.HA.publishProperty(this.id, 'off_time', raw)
+                return Math.ceil(raw / 60)
+            },
             write_xform: (value) => {
                 const hours = Number(value)
                 if (!Number.isFinite(hours)) return null

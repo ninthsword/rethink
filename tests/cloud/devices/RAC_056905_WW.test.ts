@@ -438,6 +438,32 @@ describe(MODEL_ID, () => {
         dev.drop()
     })
 
+    test('every reservation slider gets a countdown sensor beside it', (t) => {
+        enableMockTimers(t)
+        const ha = new MockHAConnection()
+        const thinq = new MockThinq2Device(DEVICE_ID, META)
+        const dev = new DUT(ha.asConnection(), thinq, META)
+        thinq.emit('data', buf(CAPS_RESPONSE_HEX))
+        thinq.emit('data', buf(QUERY_RESPONSE_HEX))
+        tickMockTimers(t, 6000)
+
+        // The slider rounds to the quarter hour it can display, so on its own it cannot say
+        // that eleven minutes are left. The appliance sends the real figure every minute.
+        const components = ha.devices[DEVICE_ID].config!.components as Record<string, Record<string, unknown>>
+        for (const [slider, counter] of [
+            ['sleeptimer', 'sleep_time'],
+            ['starttimer', 'start_time'],
+            ['stoptimer', 'stop_time'],
+        ]) {
+            assert.ok(components[slider], `${slider} is missing`)
+            assert.ok(components[counter], `${slider} has no countdown sensor`)
+            assert.equal(components[counter].platform, 'sensor')
+            assert.equal(components[counter].unit_of_measurement, 'min')
+            assert.equal(components[counter].device_class, 'duration')
+        }
+        dev.drop()
+    })
+
     test('a filter that was never reset publishes no date at all', (t) => {
         enableMockTimers(t)
         const ha = new MockHAConnection()

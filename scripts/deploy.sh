@@ -36,7 +36,13 @@ docker build -q -t "rethink-lg-bridge:$IMAGE_TAG" . > /dev/null
 say "swapping the container"
 docker stop rethink > /dev/null
 docker rm rethink > /dev/null
+# Docker's json-file driver does no rotation unless it is told to, and this container
+# writes about seventy megabytes a day, so an unbounded log is a slow disk leak. Five files
+# of fifty megabytes caps it at 250 MB, which is several days of history: long enough for
+# scripts/check-home-assistant.mts to tell an appliance that never finished starting up
+# from one that is merely quiet, and for a fault to still be readable the next morning.
 docker run -d --name rethink --network host --restart unless-stopped \
+    --log-opt max-size=50m --log-opt max-file=5 \
     -v "$DATA:/app/data" "rethink-lg-bridge:$IMAGE_TAG" \
     sh -c '[ -f /app/data/config.json ] || cp /app/config.json /app/data/config.json; exec node dist/rethink-cloud.js /app/data/config.json' \
     > /dev/null

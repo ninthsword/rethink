@@ -684,18 +684,27 @@ export default class Device extends TLVDevice {
             this.addJetField(config, 0x323, 'jet', 'Jet', 'mdi:wind-power', jetCool, jetHeat)
         }
 
+        const sleepCountdown = { component: 'sleep_time', name: 'Sleep time', icon: 'mdi:weather-night' }
         if (isWinf) {
             // WINF reports and accepts the sleep countdown on 0x21a even though its extended
             // capability bitmap does not use the legacy bit. Match the other ACs' number entity.
-            this.addTimerField(config, 0x21a, 'sleeptimer', 'Sleep timer', 'mdi:bed-clock', 12, true)
+            this.addTimerField(config, 0x21a, 'sleeptimer', 'Sleep timer', 'mdi:bed-clock', 12, true, sleepCountdown)
         } else if (this.raw_clip_state[0x2d3] & 1) {
             // 15h - displayed in hex as "FH"
-            this.addTimerField(config, 0x21a, 'sleeptimer', 'Sleep timer', 'mdi:bed-clock', 15)
+            this.addTimerField(config, 0x21a, 'sleeptimer', 'Sleep timer', 'mdi:bed-clock', 15, false, sleepCountdown)
         }
 
         if (this.raw_clip_state[0x2d3] & 4) {
-            this.addTimerField(config, 0x21c, 'starttimer', 'Turn-on timer', 'mdi:timer-play', 24)
-            this.addTimerField(config, 0x21b, 'stoptimer', 'Turn-off timer', 'mdi:timer-stop', 24)
+            this.addTimerField(config, 0x21c, 'starttimer', 'Turn-on timer', 'mdi:timer-play', 24, false, {
+                component: 'start_time',
+                name: 'Start time',
+                icon: 'mdi:timer-play-outline',
+            })
+            this.addTimerField(config, 0x21b, 'stoptimer', 'Turn-off timer', 'mdi:timer-stop', 24, false, {
+                component: 'stop_time',
+                name: 'Stop time',
+                icon: 'mdi:timer-stop-outline',
+            })
         }
 
         if (this.raw_clip_state[0x2cc] & 2) {
@@ -935,6 +944,13 @@ export default class Device extends TLVDevice {
         this.query()
     }
 
+    /**
+     * `countdown` adds a read-only companion to the slider. The number entity rounds the
+     * remaining time to the quarter hour it can display, so it cannot say that eleven
+     * minutes are left; the appliance sends the real figure every minute and the sensor
+     * shows it. The living room air conditioner has had this pair since it was split off,
+     * and the timers behave the same way on every model here.
+     */
     addTimerField(
         config: DeviceDiscovery,
         id: number,
@@ -943,6 +959,7 @@ export default class Device extends TLVDevice {
         icon: string,
         max: number,
         requiresPower = false,
+        countdown?: { component: string; name: string; icon: string },
     ) {
         const comp = {
             platform: 'number',
@@ -958,6 +975,19 @@ export default class Device extends TLVDevice {
         } as const
         config['components'][name] = comp
 
+        if (countdown) {
+            config['components'][countdown.component] = allowExtendedType({
+                platform: 'sensor',
+                unique_id: '$deviceid-' + countdown.component,
+                name: countdown.name,
+                icon: countdown.icon,
+                device_class: 'duration',
+                unit_of_measurement: 'min',
+                state_topic: '$this/' + countdown.component,
+                entity_category: 'diagnostic',
+            })
+        }
+
         /*
          * Upon setting this field the device starts counting down and
          * every minute sends the remaining time.
@@ -966,7 +996,10 @@ export default class Device extends TLVDevice {
             id: id,
             name: '',
             comp: name,
-            read_xform: (raw) => Math.ceil(raw / 60 / 0.25) * 0.25,
+            read_xform: (raw) => {
+                if (countdown) this.HA.publishProperty(this.id, countdown.component, raw)
+                return Math.ceil(raw / 60 / 0.25) * 0.25
+            },
             write_xform: (val) => Math.round(Number(val) * 60),
             write_callback: requiresPower ? () => this.allowSleepTimerWriteWhilePowered() : undefined,
         })

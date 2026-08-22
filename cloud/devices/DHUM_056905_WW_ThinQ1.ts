@@ -165,6 +165,21 @@ export default class Device extends HADevice {
                         step: 1,
                         mode: 'slider',
                     },
+                    /*
+                     * The slider only moves in whole hours, so it reads 1 h whether seven
+                     * minutes are left or fifty-nine. The appliance reports the minutes it
+                     * has left; this shows them.
+                     */
+                    off_time: {
+                        platform: 'sensor',
+                        unique_id: '$deviceid-off-time',
+                        name: 'Stop time',
+                        icon: 'mdi:timer-stop-outline',
+                        state_topic: '$this/off_time',
+                        device_class: 'duration',
+                        unit_of_measurement: 'min',
+                        entity_category: 'diagnostic',
+                    },
                     error: {
                         platform: 'sensor',
                         unique_id: '$deviceid-error',
@@ -281,7 +296,10 @@ export default class Device extends HADevice {
         // down, so round up to the hour the slider can show. Its own schema documents the
         // field this way: "1시간일 경우 60으로 데이터 받음".
         const offTime = numberInRange(status.OffTime, 0, MAX_OFF_TIMER_HOURS * 60)
-        if (offTime !== undefined) this.publishProperty('off_timer', Math.ceil(offTime / 60))
+        if (offTime !== undefined) {
+            this.publishProperty('off_timer', Math.ceil(offTime / 60))
+            this.publishProperty('off_time', offTime)
+        }
         if (typeof status.DiagCode === 'string')
             this.publishProperty('error', status.DiagCode === '00' ? 'normal' : status.DiagCode)
 

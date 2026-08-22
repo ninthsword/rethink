@@ -84,7 +84,16 @@ describe('PAC_910604_WW', () => {
         ])
         assert.deepEqual(components.climate.swing_horizontal_modes, ['정지', '우측회전', '좌측회전', '회전'])
 
-        for (const component of ['humidity', 'pm1', 'pm25', 'pm10', 'filterremaining', 'sleep_time', 'stop_time'])
+        for (const component of [
+            'humidity',
+            'pm1',
+            'pm25',
+            'pm10',
+            'filterremaining',
+            'sleep_time',
+            'start_time',
+            'stop_time',
+        ])
             assert.equal(components[component].platform, 'sensor')
 
         dev.processKeyValue(0x225, 37)
@@ -116,6 +125,9 @@ describe('PAC_910604_WW', () => {
         dev.processKeyValue(0x355, 508)
         dev.processKeyValue(0x21a, 45)
         dev.processKeyValue(0x21b, 90)
+        // The turn-on reservation counts down like the other two and had no sensor only
+        // because it was never given one.
+        dev.processKeyValue(0x21c, 20)
         assert.equal(ha.devices[DEVICE_ID].properties['climate-current_humidity'], 68)
         assert.equal(ha.devices[DEVICE_ID].properties.humidity, 68)
         assert.equal(ha.devices[DEVICE_ID].properties['pm1-'], 8)
@@ -124,6 +136,7 @@ describe('PAC_910604_WW', () => {
         assert.equal(ha.devices[DEVICE_ID].properties['filterremaining-'], 70)
         assert.equal(ha.devices[DEVICE_ID].properties.sleep_time, 45)
         assert.equal(ha.devices[DEVICE_ID].properties.stop_time, 90)
+        assert.equal(ha.devices[DEVICE_ID].properties.start_time, 20)
 
         dev.processKeyValue(0x21f, 3)
         assert.equal(ha.devices[DEVICE_ID].properties['displaylight-'], 'OFF')
@@ -319,11 +332,7 @@ describe('PAC_910604_WW energy without B115 reports', () => {
                 integrate(dev, 720)
             }
 
-            assert.equal(
-                ha.devices[DEVICE_ID].properties.energy_total,
-                360,
-                'half an hour at 720 W is 360 Wh',
-            )
+            assert.equal(ha.devices[DEVICE_ID].properties.energy_total, 360, 'half an hour at 720 W is 360 Wh')
         } finally {
             dev.drop()
         }

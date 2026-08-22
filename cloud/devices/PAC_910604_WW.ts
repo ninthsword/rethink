@@ -888,12 +888,24 @@ export default class Device extends TLVDevice {
                 'Sleep timer',
                 'mdi:bed-clock',
                 15,
-                isPac910604 ? { component: 'sleep_time', name: 'Sleep time' } : undefined,
+                isPac910604 ? { component: 'sleep_time', name: 'Sleep time', icon: 'mdi:weather-night' } : undefined,
             )
         }
 
         if (this.raw_clip_state[0x2d3] & 4) {
-            this.addTimerField(config, 0x21c, 'starttimer', 'Turn-on timer', 'mdi:timer-play', 24)
+            // The turn-on reservation counts down the same way the other two do, and had no
+            // companion sensor only because it was never given one.
+            this.addTimerField(
+                config,
+                0x21c,
+                'starttimer',
+                'Turn-on timer',
+                'mdi:timer-play',
+                24,
+                isPac910604
+                    ? { component: 'start_time', name: 'Start time', icon: 'mdi:timer-play-outline' }
+                    : undefined,
+            )
             this.addTimerField(
                 config,
                 0x21b,
@@ -901,7 +913,7 @@ export default class Device extends TLVDevice {
                 'Turn-off timer',
                 'mdi:timer-stop',
                 24,
-                isPac910604 ? { component: 'stop_time', name: 'Stop time' } : undefined,
+                isPac910604 ? { component: 'stop_time', name: 'Stop time', icon: 'mdi:timer-stop-outline' } : undefined,
             )
         }
 
@@ -1163,7 +1175,7 @@ export default class Device extends TLVDevice {
         desc: string,
         icon: string,
         max: number,
-        sensor?: { component: string; name: string },
+        sensor?: { component: string; name: string; icon: string },
     ) {
         const comp = {
             platform: 'number',
@@ -1184,10 +1196,11 @@ export default class Device extends TLVDevice {
                 platform: 'sensor',
                 unique_id: '$deviceid-' + sensor.component,
                 name: sensor.name,
-                icon: 'mdi:weather-night',
+                icon: sensor.icon,
                 device_class: 'duration',
                 unit_of_measurement: 'min',
                 state_topic: '$this/' + sensor.component,
+                entity_category: 'diagnostic',
             }
             config['components'][sensor.component] = timerSensor
         }

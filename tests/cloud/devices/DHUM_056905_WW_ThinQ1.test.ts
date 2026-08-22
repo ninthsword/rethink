@@ -26,6 +26,7 @@ describe('ThinQ1 DHUM_056905_WW', () => {
             'clean_dry',
             'sensor_mode',
             'off_timer',
+            'off_time',
             'error',
         ])
         // The appliance only takes multiples of five and Home Assistant's humidifier
@@ -125,6 +126,8 @@ describe('ThinQ1 DHUM_056905_WW', () => {
         // still the two hours the slider can show.
         thinq.emit('data', Buffer.from(JSON.stringify({ Operation: '1', OffTime: '119' })))
         assert.equal(ha.devices[DEVICE_ID].properties.off_timer, 2)
+        // The slider cannot say 119, so the companion sensor carries the minutes it drops.
+        assert.equal(ha.devices[DEVICE_ID].properties.off_time, 119)
         thinq.resetRecorder()
 
         // The appliance offers eight hours, so a larger request is clamped rather than
