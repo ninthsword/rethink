@@ -1,4 +1,4 @@
-import { test } from 'node:test'
+import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 import TLVDevice from '@/cloud/devices/tlv_device'
 import * as TLV from '@/util/tlv'
@@ -180,4 +180,47 @@ test('one entity discarding a reading does not silence the others on the tag', (
 
     assert.equal(ha.devices[DEVICE_ID]?.properties['sensor-skips'], undefined)
     assert.equal(ha.devices[DEVICE_ID]?.properties['c-'], 7)
+})
+
+describe('an appliance that stops answering', () => {
+    const availability = (ha: MockHAConnection) => ha.devices[DEVICE_ID]?.availability
+
+    /** A TLV frame the device would send back; the contents do not matter here. */
+    const reply = () => buf('000004000000A7020101027DC163E3')
+
+    test('three unanswered refresh queries take its entities out of service', () => {
+        // Being quiet is not being gone — most appliances say nothing for hours. A refresh
+        // query is a question, though, and one that goes unanswered several times over is
+        // the appliance no longer listening. The living-room dehumidifier sat like that with
+        // its socket up while Home Assistant showed two-hour-old values as current.
+        const { ha, dev } = makeDevice()
+
+        dev.query()
+        dev.query()
+        assert.equal(availability(ha), undefined, 'two is not yet an answer nobody gave')
+
+        dev.query()
+        assert.equal(availability(ha), 'offline')
+    })
+
+    test('answering again puts them back', () => {
+        const { ha, thinq, dev } = makeDevice()
+        dev.query()
+        dev.query()
+        dev.query()
+        assert.equal(availability(ha), 'offline')
+
+        thinq.emit('data', reply())
+        assert.equal(availability(ha), 'online')
+    })
+
+    test('an appliance that keeps answering is never taken out of service', () => {
+        // However long it goes between having anything to report.
+        const { ha, thinq, dev } = makeDevice()
+        for (let round = 0; round < 20; round++) {
+            dev.query()
+            thinq.emit('data', reply())
+        }
+        assert.notEqual(availability(ha), 'offline')
+    })
 })

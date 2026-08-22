@@ -1,3 +1,10 @@
+/**
+ * How many refresh queries may go unanswered before the appliance is treated as no longer
+ * listening. Three of them span three quarters of an hour at the default interval, which no
+ * appliance that is merely idle will ever reach — it answers whether or not it has news.
+ */
+const UNANSWERED_QUERIES_BEFORE_SILENT = 3
+
 // base implementation for devices with a TLV-based payload format
 import HADevice from './base'
 
@@ -37,6 +44,18 @@ export default class TLVDevice extends HADevice {
     raw_clip_state: Record<number, number> = {}
     query_caps_timeout: ReturnType<typeof setInterval> | undefined = undefined
     query_values_timeout: ReturnType<typeof setInterval> | undefined = undefined
+    /**
+     * Refresh queries sent since the appliance last answered one.
+     *
+     * An appliance can be connected and say nothing for hours — most of them do, and being
+     * quiet is not being gone. But a refresh query is a question, and one that goes
+     * unanswered several times over is the appliance no longer listening. That happened to
+     * the living-room dehumidifier: its socket stayed up, rethink asked two hundred and
+     * sixty-four times, and Home Assistant went on showing the values from the last answer
+     * as though they were current.
+     */
+    unansweredQueries = 0
+    silent = false
 
     constructor(
         HA: Connection,
@@ -91,6 +110,27 @@ export default class TLVDevice extends HADevice {
     query() {
         this.send([1, 1, 2, 2, 1], [{ t: 0x1f5, v: 2 }])
         this.query_last_timestamp = performance.now()
+
+        this.unansweredQueries += 1
+        if (this.unansweredQueries < UNANSWERED_QUERIES_BEFORE_SILENT || this.silent) return
+        // Saying nothing is not the same as being unreachable, so this is not a disconnect:
+        // the entities go unavailable rather than showing an answer nobody gave.
+        this.silent = true
+        log(
+            'status',
+            this.id,
+            `has not answered ${this.unansweredQueries} refresh queries; its entities are unavailable until it does`,
+        )
+        this.HA.publishProperty(this.id, 'availability', 'offline')
+    }
+
+    /** The appliance answered, so whatever it says now is current again. */
+    private heard() {
+        this.unansweredQueries = 0
+        if (!this.silent) return
+        this.silent = false
+        log('status', this.id, 'answered again; its entities are available')
+        this.HA.publishProperty(this.id, 'availability', 'online')
     }
 
     setQueryInterval(interval: number = 15 * 60 * 1000) {
@@ -154,6 +194,7 @@ export default class TLVDevice extends HADevice {
         ) {
             // ignore the CRC, we assume that the modem verifies it :/
             log('status', this.id, 'received TLV packet')
+            this.heard()
             this.processTLV(TLV.parse(buf.subarray(11, buf.length - 2)))
         }
         if (
