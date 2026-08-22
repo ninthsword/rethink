@@ -438,6 +438,46 @@ describe(MODEL_ID, () => {
         dev.drop()
     })
 
+    test('the RAC retires the sound and temperature step it no longer offers', (t) => {
+        enableMockTimers(t)
+        const ha = new MockHAConnection()
+        const thinq = new MockThinq2Device(DEVICE_ID, META)
+        const dev = new DUT(ha.asConnection(), thinq, META)
+        thinq.emit('data', buf(CAPS_RESPONSE_HEX))
+        thinq.emit('data', buf(QUERY_RESPONSE_HEX))
+        tickMockTimers(t, 6000)
+
+        // Both were offered on every model this handler serves before being narrowed to the
+        // WINF. Leaving them out of the payload does not take them off the bedroom unit's
+        // page: Home Assistant keeps an entity until it is told the component is gone, and
+        // these two sat there unavailable for days because nobody looked at that page.
+        const removal = ha.publishedConfigs.findIndex(
+            (config) => config.components.sound !== undefined && config.components.temperature_step !== undefined,
+        )
+        assert.notEqual(removal, -1, 'the RAC never retired the sound and temperature step')
+
+        const last = ha.publishedConfigs[ha.publishedConfigs.length - 1]
+        assert.equal(last.components.sound, undefined, 'the RAC must not offer a sound switch')
+        assert.equal(last.components.temperature_step, undefined, 'the RAC must not offer a temperature step')
+        dev.drop()
+    })
+
+    test('the WINF keeps the sound and temperature step it does have', (t) => {
+        enableMockTimers(t)
+        const ha = new MockHAConnection()
+        const meta: Metadata = { ...META, modelId: 'WINF_056905_WW' }
+        const thinq = new MockThinq2Device(DEVICE_ID, meta)
+        const dev = new DUT(ha.asConnection(), thinq, meta)
+        thinq.emit('data', buf(CAPS_RESPONSE_HEX))
+        thinq.emit('data', buf(QUERY_RESPONSE_HEX))
+        tickMockTimers(t, 6000)
+
+        const last = ha.publishedConfigs[ha.publishedConfigs.length - 1]
+        assert.ok(last.components.sound, 'the WINF panel has a sound button')
+        assert.ok(last.components.temperature_step, 'the WINF panel has a temperature step button')
+        dev.drop()
+    })
+
     test('RAC variant also retires the duplicate sleep timer select', (t) => {
         enableMockTimers(t)
         const ha = new MockHAConnection()
@@ -523,7 +563,8 @@ describe('RAC_056905_WW energy total', () => {
 
 describe('RAC_056905_WW writes nothing just because rethink restarted', () => {
     /** A write carries the 0x02 0x01 header; a query carries 0x02 0x02. */
-    const writesOnly = (packets: Buffer[]) => packets.map(hex).filter((h) => h.slice(14, 20) === '020100' || h.slice(14, 20) === '020101')
+    const writesOnly = (packets: Buffer[]) =>
+        packets.map(hex).filter((h) => h.slice(14, 20) === '020100' || h.slice(14, 20) === '020101')
 
     test('coming up against a running appliance sends it nothing', (t) => {
         // Air purify, energy saving and jet are re-applied whenever the appliance powers up,

@@ -901,6 +901,12 @@ export default class Device extends TLVDevice {
             // A head on a shared outdoor unit had a total of its own before the group took
             // it over; left alone it would sit there counting the same compressor again.
             ...(this.outdoor ? { energy_total: { platform: 'sensor' } } : {}),
+            // The sound switch and the temperature step select were offered on every model
+            // this handler serves before they were narrowed to the WINF, which is the only
+            // one whose panel has the buttons. Dropping them from the payload is not enough:
+            // Home Assistant keeps an entity it was told about until it is told otherwise,
+            // so the bedroom unit carried two unavailable controls for days.
+            ...(isWinf ? {} : { sound: { platform: 'switch' }, temperature_step: { platform: 'select' } }),
         })
 
         if (this.filterLifeTime) {
