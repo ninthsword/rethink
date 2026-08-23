@@ -19,6 +19,12 @@ Ask only if a real user decision gate exists.
 
 ## 3. Plan
 
+Match the process to the work. One obvious localized fix needs only
+understand -> implement -> verify -> review. Multiple files or non-trivial behavior
+adds acceptance criteria, a task plan, and independent review before repair. Cross-layer
+or migration work earns a dependency-aware task graph, subagents for independent
+research, worktrees where parallel workers would collide, and checkpointed state.
+
 For three or more meaningful steps, use structured tasks.
 Add dependency edges when ordering matters.
 Identify independent work that can safely run in parallel.
