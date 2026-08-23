@@ -8,4 +8,9 @@ node_modules
 dist
 oauth.json
 state
+# 'state' above protects bridge.storage_path, whose device certificates cannot be
+# rebuilt without the appliance. It also matched .claude/state/, which is project
+# knowledge meant to be committed.
+!.claude/state/
 captures/
+.claude/worktrees/
