@@ -14,3 +14,5 @@ state
 !.claude/state/
 captures/
 .claude/worktrees/
+
+CLAUDE.local.md

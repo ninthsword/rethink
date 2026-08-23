@@ -62,7 +62,8 @@ rethink의 로그, 관리 API의 `connected: true`, 브로커의 보존 메시�
 **홈어시스턴트를 확인할 때는 두 곳을 모두 봅니다.**
 
 - `ha-mcp` MCP 서버 — 엔티티 상태·이력·로그 등 살아 있는 값
-- SSH로 접근하는 설정 폴더 — `ssh -p PORT root@HA-HOST`, 설정은 `/config`
+- SSH로 접근하는 설정 폴더 — 설정은 `/config`. 이 저장소는 공개이므로 접속 주소와
+  포트는 커밋하지 않습니다. 실제 값은 `CLAUDE.local.md`에 있습니다(gitignore 대상).
 
 어느 한쪽만으로는 부족합니다. ha-mcp는 값이 최신인지 말해 주지만, `configuration.yaml`의
 템플릿이 죽은 엔티티를 읽고 있는지, `.storage/lovelace.lovelace`가 어떤 엔티티를 참조하는지,
