@@ -1,18 +1,25 @@
-# rethink 엔티티 ID 개명 대응표
+# rethink entity id rename map
 
-2026년 8월 23일 새벽(KST)에 적용 완료. 되돌리려면 두 열을 뒤집어 `ha_set_entity(new_entity_id=...)`로
-다시 적용하면 됩니다.
+Applied in the early hours of 23 August 2026 (KST). To undo it, swap the two columns and
+apply them again with `ha_set_entity(new_entity_id=...)`.
 
-함께 이루어진 변경:
+Changes made alongside it:
 
-- 대시보드(`.storage/lovelace.lovelace`)의 참조 27종 38회를 같은 표로 갱신했습니다. 자동화·스크립트와
-  에너지 대시보드는 rethink 엔티티를 참조하지 않아 손대지 않았습니다.
-- `core.config_entries`를 전수 검사했습니다. Min/Max·Threshold 같은 헬퍼가 Config Entry 안에 들고 있는
-  entity_id는 레지스트리 개명으로 갱신되지 않는데, rethink 엔티티를 참조하는 항목은 **0건**이었습니다.
-- rethink의 11개 기기에 area를 배정했습니다. 값은 기존 `smartthinq_sensors_custom` 기기에서 가져왔고,
-  김치냉장고만 그쪽에 기기가 없어 `lg_thinq`의 값(`jubang`)을 썼습니다.
+- 38 references across 27 entities in the dashboard (`.storage/lovelace.lovelace`) were
+  updated from the same table. Automations, scripts and the energy dashboard reference no
+  rethink entities and were left alone.
+- `core.config_entries` was checked exhaustively. An entity_id that a helper such as Min/Max
+  or Threshold holds inside its config entry is not updated by a registry rename, but **none**
+  of them referenced a rethink entity.
+- Areas were assigned to rethink's eleven devices. The values came from the existing
+  `smartthinq_sensors_custom` devices; only the kimchi refrigerator has no device there, so it
+  took the value from `lg_thinq` (`jubang`).
 
-| 가전         | 기존                                                        | 변경                                                      |
+The first column keeps the Korean device names: they are what Home Assistant calls these
+appliances, and the entity ids romanise them, so translating the column would break the
+correspondence the table exists to record.
+
+| Appliance    | Was                                                         | Now                                                       |
 | ------------ | ----------------------------------------------------------- | --------------------------------------------------------- |
 | 거실에어컨   | `binary_sensor.geosileeokeon_siloegi_abcuggi`               | `binary_sensor.rethink_geosileeokeon_outdoor_compressor`  |
 | 거실에어컨   | `climate.lg_air_conditioner_2`                              | `climate.rethink_geosileeokeon`                           |
