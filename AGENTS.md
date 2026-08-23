@@ -66,51 +66,20 @@ Do not infer a system from one file when the change crosses multiple components.
 
 Preserve unrelated user changes.
 
-## 5. Execution loop
+## 5. Execution
 
 Use this loop for meaningful work:
 
 **Understand → Plan → Implement → Observe → Verify → Review → Repair**
 
-Repeat the final four stages until the acceptance criteria are met or a real decision gate is reached.
-
-For a small, obvious change, keep this lightweight.
-For a complex change, explicitly decompose the work.
-
 Never treat “code was written” as completion.
 
-## 6. Planning and task graph
+The full procedure — acceptance criteria, task graphs, parallelism, iterative
+verification, independent review, completion criteria, and the final report format —
+lives in `.claude/skills/autonomous-dev/SKILL.md`. Load it for any non-trivial change
+instead of restating it here.
 
-For work with three or more meaningful steps, cross-module dependencies, or substantial uncertainty:
-
-- create and maintain structured tasks,
-- identify prerequisites,
-- express dependency edges when they matter,
-- keep only one owner per task,
-- run independent work in parallel when safe,
-- keep dependent work sequential.
-
-Think in terms of a directed dependency graph, not a flat checklist, when ordering matters.
-
-Do not create process overhead for trivial changes.
-
-## 7. Parallelism
-
-Use parallel workers only when they provide real value.
-
-Good candidates:
-
-- independent repository research,
-- competing debugging hypotheses,
-- independent review,
-- clearly separated modules,
-- test analysis that does not edit the same files.
-
-Avoid parallel edits to the same files or tightly coupled sequential work.
-
-Prefer isolated worktrees when parallel workers may edit overlapping repository state.
-
-## 8. Change discipline
+## 6. Change discipline
 
 Prefer the smallest change that safely satisfies the requirement.
 
@@ -124,35 +93,7 @@ Avoid:
 
 Refactor when it directly reduces risk, enables the requested change, or removes the root cause.
 
-## 9. Verification
-
-Use the strongest verification available for the project.
-
-Possible evidence includes:
-
-- compiler/build,
-- type checking,
-- lint/static analysis,
-- unit tests,
-- integration tests,
-- end-to-end tests,
-- application execution,
-- API calls against a test environment,
-- logs and runtime inspection,
-- security checks.
-
-For bug fixes, prefer:
-
-1. reproduce,
-2. identify root cause,
-3. create or identify a failing check,
-4. fix,
-5. rerun the focused check,
-6. run appropriate regression checks.
-
-Do not assume a passing test suite proves the requested behavior. Confirm that the tests actually cover the acceptance criteria.
-
-## 10. Failure handling
+## 7. Failure handling
 
 Do not repeat the same failed action without learning from it.
 
@@ -166,24 +107,7 @@ When something fails:
 
 Prefer root-cause fixes over symptom masking.
 
-## 11. Review
-
-Before declaring completion, review the resulting diff and behavior for:
-
-- missing requirements,
-- logic errors,
-- edge cases,
-- error handling,
-- security concerns,
-- concurrency/state issues,
-- regression risk,
-- unnecessary complexity,
-- accidental unrelated changes,
-- missing tests.
-
-For medium or large changes, obtain an independent review when the environment supports it.
-
-## 12. Security and blast radius
+## 8. Security and blast radius
 
 Treat external input as untrusted.
 
@@ -198,7 +122,15 @@ Minimize blast radius:
 
 Prefer reversible, scoped operations.
 
-## 13. Project knowledge
+Also:
+
+- inspect `git status` before broad changes,
+- do not use destructive Git cleanup to make failures disappear,
+- prefer `.env.example` or documented variable names over reading or printing secret values,
+- avoid commands that make machine-wide changes when a project-local alternative exists,
+- require a concrete benefit for a new dependency; prefer existing project capabilities when sufficient.
+
+## 9. Project knowledge
 
 Keep durable project knowledge in the repository rather than only in chat history.
 
@@ -212,7 +144,7 @@ Record only information that future sessions genuinely need:
 
 Do not create documentation for trivial facts the code already makes obvious.
 
-## 14. User communication
+## 10. User communication
 
 Keep the user informed at meaningful milestones, not after every tool call.
 
@@ -227,46 +159,7 @@ Translate technical errors into their practical meaning first.
 
 If no decision is required, continue working after the update.
 
-## 15. Completion criteria
-
-Before reporting completion, confirm what is applicable:
-
-- requested behavior is implemented,
-- acceptance criteria are satisfied,
-- affected paths were inspected,
-- focused verification passes,
-- appropriate regression checks pass,
-- build/type/lint checks pass where available,
-- relevant tests were added or updated,
-- diff was reviewed,
-- no obvious secret/security issue was introduced,
-- debug artifacts were removed,
-- unverified areas are explicitly identified.
-
-If a check does not exist in the project, do not invent a tool solely to satisfy this list.
-
-## 16. Final report
-
-Keep the final report concise:
-
-### Completed
-
-1–3 sentences describing the delivered result.
-
-### Key results
-
-Only material implementation or design outcomes.
-
-### Verification
-
-Commands/checks and their high-level result.
-
-### Remaining
-
-State “None known” if appropriate.
-Otherwise list only real remaining risks, blockers, or unverified areas.
-
-## 17. Priority order
+## 11. Priority order
 
 Unless the project explicitly requires otherwise:
 

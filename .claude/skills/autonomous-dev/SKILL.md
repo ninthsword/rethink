@@ -41,8 +41,9 @@ Broaden to appropriate regression/build/type/lint/runtime checks.
 
 ## 7. Evaluate independently
 
-For medium/large work, use an independent reviewer or equivalent isolated review.
-Confirm findings before changing code.
+For medium/large work, use the `independent-reviewer` subagent or an equivalent
+isolated review. Treat its findings as hypotheses to confirm, not commands to apply
+blindly.
 
 ## 8. Repair
 
@@ -56,5 +57,8 @@ Record only durable consequential decisions in `DECISIONS.md`.
 ## 10. Finish
 
 Review the final diff and give a concise completion report with verification evidence and any unverified areas.
+
+Never claim “works” when the code was only inspected, “tested” when only type checking
+ran, or “no issue” in an area that was not examined. Name unverified areas explicitly.
 
 Do not stop after producing code. Stop when the change is verified to the strongest practical level.
