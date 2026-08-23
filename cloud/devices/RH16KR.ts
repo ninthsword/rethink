@@ -42,7 +42,7 @@ const COURSE: Record<number, string> = {
     20: 'SPORTWEAR',
     22: 'DOWNLOADED',
 }
-const DOWNLOADED_COURSE: Record<number, string> = { 0: 'NONE', 0x83: 'SELFCLEANING' }
+const DOWNLOADED_COURSE: Record<number, string> = { 0: 'NONE', 0x77: 'INTENSIVE_DRY', 0x83: 'SELFCLEANING' }
 // Exact RH16KR processState table from the installed model diagnostic.
 const PROCESS: Record<number, string> = {
     // The AABB wire record is one-based. The ThinQ model diagnostic uses

@@ -300,6 +300,7 @@ const KOREAN_VALUES: Record<string, string> = {
     PRESSED_TABLEWARE: '누르게 붙은 식기',
     FISH_DISH: '생선 요리',
     SELFCLEANING: '자가 세척',
+    INTENSIVE_DRY: '강력 건조',
     NOT_SELECTED: '선택 안 함',
     SMALL_LOAD: '소량 세탁',
     SPEEDWASH: '스피드 워시',
