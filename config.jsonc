@@ -91,10 +91,11 @@
   // specify anything you like. Removing this parameter disables the management interface
   "management_port": 44401,
 
-  // The management interface has no authentication. It binds to 127.0.0.1 unless you say
-  // otherwise, so reaching it means being on this host or forwarding a port over SSH:
-  //   ssh -N -L 44401:127.0.0.1:44401 <this host>
-  // Set "0.0.0.0" to open it to the whole LAN, or a single interface address to narrow that.
+  // The management interface has no authentication, so it binds to 127.0.0.1 and is reachable
+  // only from this host. To open it to the LAN for the life of the container, deploy with
+  //   RETHINK_MGMT_HOST=0.0.0.0 scripts/deploy.sh
+  // which needs no edit here. Uncomment below instead to make it the standing default; the
+  // environment variable wins when both are set.
   // "management_host": "0.0.0.0",
 
   "bridge": {

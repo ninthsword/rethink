@@ -15,7 +15,7 @@ import { DeviceAcceptor as T1Acceptor } from './cloud/thinq1/device'
 import { DeviceAcceptor as T2Acceptor } from './cloud/thinq2/device'
 import { Connection as HA_connection } from './cloud/homeassistant'
 import HA_bridge from './cloud/ha_bridge'
-import { normalize as normalizeConfig, RawConfig, CA } from './util/config'
+import { managementHost, normalize as normalizeConfig, RawConfig, CA } from './util/config'
 import * as Management from './management'
 
 import log, { setFilter as setLogFilter } from './util/logging'
@@ -287,7 +287,7 @@ if (config.bridge) {
 if (config.management_port)
     Management.app(ha, manager, bridge, resolve(configDir, 'router-dnat.json')).listen(
         config.management_port.bind,
-        config.management_host,
+        managementHost(config),
     )
 
 console.log('Rethink cloud ready')

@@ -1,6 +1,6 @@
 import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
-import { normalize, type RawConfig } from '@/util/config'
+import { managementHost, normalize, type RawConfig } from '@/util/config'
 
 /** The least a configuration can say and still describe a working rethink. */
 function minimal(): RawConfig {
@@ -76,6 +76,27 @@ describe('reading config.json', () => {
     test('a management host written in the configuration is kept as given', () => {
         const config = normalize({ ...minimal(), management_host: '0.0.0.0' } as RawConfig)
         assert.equal(config.management_host, '0.0.0.0')
+    })
+
+    test('RETHINK_MGMT_HOST opens the management interface without editing the file', () => {
+        // The deployed configuration lives in the data directory, not in this repository, so
+        // opening the interface used to mean editing a file the operator does not otherwise
+        // touch. The variable makes it an argument to scripts/deploy.sh instead.
+        const config = normalize(minimal())
+        assert.equal(managementHost(config, { RETHINK_MGMT_HOST: '0.0.0.0' }), '0.0.0.0')
+    })
+
+    test('without the variable the configured host wins', () => {
+        const config = normalize({ ...minimal(), management_host: '10.0.0.5' } as RawConfig)
+        assert.equal(managementHost(config, {}), '10.0.0.5')
+        assert.equal(managementHost(normalize(minimal()), {}), '127.0.0.1')
+    })
+
+    test('an empty variable is treated as unset rather than as every interface', () => {
+        // Docker passes `-e RETHINK_MGMT_HOST` through as an empty string when the variable is
+        // unset on the host, and Node would hand that straight to listen(), which reads it as
+        // 0.0.0.0 -- the one value this setting exists to avoid choosing by accident.
+        assert.equal(managementHost(normalize(minimal()), { RETHINK_MGMT_HOST: '' }), '127.0.0.1')
     })
 
     test('the optional settings stay optional', () => {

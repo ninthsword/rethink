@@ -109,6 +109,19 @@ function required<T>(value: T | undefined, name: string): T {
     return value
 }
 
+/**
+ * Where the management interface listens, with an environment override.
+ *
+ * The configuration rethink actually runs from lives in the data directory, not in this
+ * repository, so opening the interface to the LAN otherwise means editing a file the operator
+ * never touches for anything else. `RETHINK_MGMT_HOST=0.0.0.0 scripts/deploy.sh` says the same
+ * thing in one command. An empty value counts as unset: Docker turns a `-e VAR` with nothing
+ * behind it into an empty string, and listen('') means every interface.
+ */
+export function managementHost(config: Config, env: NodeJS.ProcessEnv = process.env): string {
+    return env.RETHINK_MGMT_HOST || config.management_host
+}
+
 export function normalize(config: RawConfig): Config {
     const homeassistant = {
         language: 'english' as const,

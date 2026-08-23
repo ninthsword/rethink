@@ -41,8 +41,17 @@ docker rm rethink > /dev/null
 # of fifty megabytes caps it at 250 MB, which is several days of history: long enough for
 # scripts/check-home-assistant.mts to tell an appliance that never finished starting up
 # from one that is merely quiet, and for a fault to still be readable the next morning.
+# The management interface has no login, so it stays on loopback unless this says otherwise.
+# `RETHINK_MGMT_HOST=0.0.0.0 scripts/deploy.sh` opens it to the LAN for as long as the
+# container lives, without touching the configuration file in the data directory.
+MGMT_HOST_ARG=()
+if [ -n "${RETHINK_MGMT_HOST:-}" ]; then
+    MGMT_HOST_ARG=(-e "RETHINK_MGMT_HOST=$RETHINK_MGMT_HOST")
+fi
+
 docker run -d --name rethink --network host --restart unless-stopped \
     --log-opt max-size=50m --log-opt max-file=5 \
+    "${MGMT_HOST_ARG[@]}" \
     -v "$DATA:/app/data" "rethink-lg-bridge:$IMAGE_TAG" \
     sh -c '[ -f /app/data/config.json ] || cp /app/config.json /app/data/config.json; exec node dist/rethink-cloud.js /app/data/config.json' \
     > /dev/null
