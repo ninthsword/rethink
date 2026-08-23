@@ -67,6 +67,17 @@ describe('reading config.json', () => {
         )
     })
 
+    test('the management API binds to loopback unless the owner opens it', () => {
+        // It has no authentication, so reaching it must take either being on this host or a
+        // deliberate edit. Defaulting to every interface would publish it to the whole LAN.
+        assert.equal(normalize(minimal()).management_host, '127.0.0.1')
+    })
+
+    test('a management host written in the configuration is kept as given', () => {
+        const config = normalize({ ...minimal(), management_host: '0.0.0.0' } as RawConfig)
+        assert.equal(config.management_host, '0.0.0.0')
+    })
+
     test('the optional settings stay optional', () => {
         const config = normalize(minimal())
         assert.equal(config.management_port, undefined)

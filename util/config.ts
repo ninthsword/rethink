@@ -7,6 +7,7 @@ export type RawConfig = {
     mqtts_port: Port | number
     mqtt_port: Port | number
     management_port?: Port | number
+    management_host?: string
     thinq1_https_port?: Port | number
     thinq1_port?: Port | number
     mqtt?: boolean
@@ -44,6 +45,7 @@ export type Config = {
     mqtts_port: Port
     mqtt_port: Port
     management_port?: Port
+    management_host: string
     thinq1_https_port: Port
     thinq1_port: Port
     mqtt: boolean
@@ -128,6 +130,12 @@ export function normalize(config: RawConfig): Config {
          */
         passthrough_hostnames: [],
         stall_hostnames: [],
+        /*
+         * The management API has no authentication: anything that can reach it can
+         * release DNAT, edit the router credentials, or turn a bridge off. Loopback keeps
+         * that behind SSH to this host. Widen it only onto a network you trust.
+         */
+        management_host: '127.0.0.1',
         ...config,
         homeassistant,
         bridge: config.bridge

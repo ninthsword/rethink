@@ -285,6 +285,9 @@ if (config.bridge) {
 }
 
 if (config.management_port)
-    Management.app(ha, manager, bridge, resolve(configDir, 'router-dnat.json')).listen(config.management_port.bind)
+    Management.app(ha, manager, bridge, resolve(configDir, 'router-dnat.json')).listen(
+        config.management_port.bind,
+        config.management_host,
+    )
 
 console.log('Rethink cloud ready')
