@@ -9,10 +9,11 @@ dist
 oauth.json
 state
 # 'state' above protects bridge.storage_path, whose device certificates cannot be
-# rebuilt without the appliance. It also matched .claude/state/, which is project
-# knowledge meant to be committed.
-!.claude/state/
+# rebuilt without the appliance.
 captures/
-.claude/worktrees/
 
+# 작업 지시서와 로컬 AI 도구 상태 (개인 정보 포함)
+CLAUDE.md
 CLAUDE.local.md
+AGENTS.md
+.claude/
