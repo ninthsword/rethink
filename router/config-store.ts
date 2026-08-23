@@ -52,7 +52,19 @@ export class RouterConfigStore {
             const parsed = JSON.parse(readFileSync(this.filename, 'utf-8')) as Partial<RouterConfig>
             return {
                 router: { ...emptyConfig().router, ...parsed.router },
-                devices: Array.isArray(parsed.devices) ? parsed.devices : [],
+                /*
+                 * These addresses are interpolated into an iptables command that runs on the
+                 * router as root. Everything arriving through the API is checked; the file
+                 * was trusted, which put the boundary in the wrong place — a hand-edited or
+                 * truncated file would have carried whatever it said straight to that
+                 * command line. Anything that is not an IPv4 address is dropped.
+                 */
+                devices: Array.isArray(parsed.devices)
+                    ? parsed.devices.filter(
+                          (entry): entry is RouterDeviceEntry =>
+                              !!entry && typeof entry === 'object' && validIPv4(`${(entry as RouterDeviceEntry).ip}`),
+                      )
+                    : [],
             }
         } catch {
             return emptyConfig()

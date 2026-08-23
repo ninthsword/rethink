@@ -97,7 +97,25 @@ function parsePort(port: Port | number | undefined): Port | undefined {
     return typeof port === 'number' ? { bind: port, advertise: port } : port
 }
 
+/**
+ * Every setting named here is dereferenced during startup, so leaving one out used to end
+ * the process with "Cannot read properties of undefined (reading 'bind')" from a line that
+ * says nothing about which setting was missing. Saying the name costs one check.
+ */
+function required<T>(value: T | undefined, name: string): T {
+    if (value === undefined || value === null || value === '') throw new Error(`config.json: ${name} is required`)
+    return value
+}
+
 export function normalize(config: RawConfig): Config {
+    const homeassistant = {
+        language: 'english' as const,
+        offline_grace_seconds: 1800,
+        ...config.homeassistant,
+    }
+    for (const key of ['mqtt_url', 'discovery_prefix', 'rethink_prefix'] as const)
+        required(homeassistant[key], `homeassistant.${key}`)
+
     return {
         log: ['status', 'incoming', 'HTTPS'],
         mqtt: true,
@@ -111,22 +129,21 @@ export function normalize(config: RawConfig): Config {
         passthrough_hostnames: [],
         stall_hostnames: [],
         ...config,
-        homeassistant: {
-            language: 'english',
-            offline_grace_seconds: 1800,
-            ...config.homeassistant,
-        },
+        homeassistant,
         bridge: config.bridge
             ? {
                   preserve_existing_devices: false,
                   ...config.bridge,
               }
             : undefined,
-        https_port: parsePort(config.https_port),
-        mqtts_port: parsePort(config.mqtts_port),
-        mqtt_port: parsePort(config.mqtt_port),
+        hostname: required(config.hostname, 'hostname'),
+        ca_key_file: required(config.ca_key_file, 'ca_key_file'),
+        ca_cert_file: required(config.ca_cert_file, 'ca_cert_file'),
+        https_port: required(parsePort(config.https_port), 'https_port'),
+        mqtts_port: required(parsePort(config.mqtts_port), 'mqtts_port'),
+        mqtt_port: required(parsePort(config.mqtt_port), 'mqtt_port'),
         management_port: parsePort(config.management_port),
-        thinq1_https_port: parsePort(config.thinq1_https_port ?? 46030),
-        thinq1_port: parsePort(config.thinq1_port ?? 47878),
+        thinq1_https_port: parsePort(config.thinq1_https_port ?? 46030)!,
+        thinq1_port: parsePort(config.thinq1_port ?? 47878)!,
     }
 }

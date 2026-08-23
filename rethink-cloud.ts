@@ -24,12 +24,16 @@ import { DeviceManager } from './cloud/devmgr'
 import { Bridge } from './bridge'
 import { JSONStorage } from './bridge/state'
 import { SNICertificateProvider } from './util/sni-certificates'
+import { setEnergyDataDirectory } from './cloud/devices/energy_meter'
 import { collapseRepeats, withoutErrorTag } from './util/repeated_log'
 
 const configPath = resolve(process.argv[2] ?? './config.json')
 const configDir = dirname(configPath)
 const config = normalizeConfig(JSON.parse(stripJsonComments(readFileSync(configPath).toString('utf-8'))) as RawConfig)
 
+// The energy totals live beside the configuration; say so once rather than having the
+// meter guess from the command line.
+setEnergyDataDirectory(configDir)
 config.ca_key_file = resolve(configDir, config.ca_key_file)
 config.ca_cert_file = resolve(configDir, config.ca_cert_file)
 if (config.bridge) config.bridge.storage_path = resolve(configDir, config.bridge.storage_path)

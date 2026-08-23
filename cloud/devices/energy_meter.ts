@@ -1,14 +1,21 @@
 import { readFileSync, renameSync, writeFileSync } from 'node:fs'
-import { dirname, join, resolve } from 'node:path'
+import { join } from 'node:path'
 import log from '@/util/logging'
 
 /**
- * Only rethink-cloud has a data directory to keep this in; under the test runner or the
- * tools there is nowhere to write and the total simply lives for the process.
+ * Where the running totals are kept.
+ *
+ * Only rethink-cloud has a data directory; under the test runner or the tools there is
+ * nowhere to write and the total simply lives for the process. This used to be worked out
+ * by looking for "rethink-cloud" in process.argv[1], which was one rename or one wrapper
+ * script away from silently keeping nothing — and a total that silently restarts at zero is
+ * read by Home Assistant as a meter being replaced.
  */
-function dataDirectory() {
-    if (!process.argv[1]?.includes('rethink-cloud')) return
-    return dirname(resolve(process.argv[2] ?? './config.json'))
+let dataDir: string | undefined
+
+/** Called once at startup. Anything constructed before this keeps its total in memory. */
+export function setEnergyDataDirectory(directory: string) {
+    dataDir = directory
 }
 
 /**
@@ -71,8 +78,7 @@ export class EnergyMeter {
     }
 
     private path() {
-        const dir = dataDirectory()
-        return dir ? join(dir, `air-conditioner-energy-${this.deviceId}.json`) : undefined
+        return dataDir ? join(dataDir, `air-conditioner-energy-${this.deviceId}.json`) : undefined
     }
 
     private load(): EnergyMeterState {
@@ -100,7 +106,7 @@ export class EnergyMeter {
         if (!path) return
         const temporary = `${path}.tmp`
         try {
-            writeFileSync(temporary, JSON.stringify(this.state))
+            writeFileSync(temporary, JSON.stringify(this.state), { mode: 0o600 })
             renameSync(temporary, path)
         } catch (err) {
             log('status', this.deviceId, `unable to save the energy total: ${err}`)

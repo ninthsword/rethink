@@ -83,13 +83,30 @@ describe('HA bridge device replacement', () => {
 })
 
 describe('offline grace configuration', () => {
+    // normalize() now insists on a configuration that would actually start, so these carry
+    // the settings it checks rather than the two fields the assertion is about.
+    const base = {
+        hostname: 'rethink.lan',
+        ca_key_file: 'ca.key',
+        ca_cert_file: 'ca.cert',
+        https_port: 4433,
+        mqtts_port: 8883,
+        mqtt_port: 1884,
+        homeassistant: {
+            mqtt_url: 'mqtt://127.0.0.1:1883',
+            discovery_prefix: 'homeassistant',
+            rethink_prefix: 'rethink',
+            mqtt_user: 'user',
+            mqtt_pass: 'pass',
+        },
+    } as unknown as RawConfig
+
     test('defaults to half an hour and is overridable', () => {
-        const base = { hostname: 'rethink.lan', homeassistant: {} } as unknown as RawConfig
         assert.equal(normalize(base).homeassistant.offline_grace_seconds, 1800)
 
         const overridden = {
-            hostname: 'rethink.lan',
-            homeassistant: { offline_grace_seconds: 60 },
+            ...base,
+            homeassistant: { ...base.homeassistant, offline_grace_seconds: 60 },
         } as unknown as RawConfig
         assert.equal(normalize(overridden).homeassistant.offline_grace_seconds, 60)
     })

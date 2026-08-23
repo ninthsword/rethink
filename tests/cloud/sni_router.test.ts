@@ -66,7 +66,7 @@ describe('routing a live connection', () => {
      * the ClientHello and then handing the socket on is only correct if the bytes are still
      * there, and a listener that merely counts them cannot tell the difference.
      */
-    async function withRouter(passThrough: string[], stall: string[] = [], stallMs?: number) {
+    async function withRouter(passThrough: string[], stall: string[] = [], stallMs?: number, upstreamPort = 1) {
         const [net, tls, { execFileSync }, { mkdtempSync, readFileSync, rmSync }, { tmpdir }, { join }] =
             await Promise.all([
                 import('node:net'),
@@ -112,7 +112,7 @@ describe('routing a live connection', () => {
             passThrough,
             stall,
             stallMs,
-            upstreamPort: 1,
+            upstreamPort,
             handleLocally: (socket) => tlsServer.emit('connection', socket),
         })
         await new Promise<void>((resolve) => router.listen(0, '127.0.0.1', resolve))
@@ -139,19 +139,34 @@ describe('routing a live connection', () => {
         close()
     })
 
-    test('a host it cannot serve never reaches the local server', async () => {
-        const { port, served, close, tls } = await withRouter(['*mclip*'])
-        const result = await new Promise<string>((resolve) => {
-            const socket = tls.connect(
-                { port, host: '127.0.0.1', servername: 'kic-mclip.lgthinq.com', rejectUnauthorized: false },
-                () => resolve('connected'),
-            )
-            socket.on('error', () => resolve('refused'))
-            setTimeout(() => resolve('nothing'), 1500)
-        })
+    test('a host rethink cannot serve is spliced upstream instead', async () => {
+        const net = await import('node:net')
 
-        assert.notEqual(result, 'connected', 'no certificate of ours is offered for it')
+        /*
+         * The upstream is a listener on loopback and the name asked for is localhost, so the
+         * splice is exercised end to end without leaving the machine. Dialling the real
+         * kic-mclip.lgthinq.com — which this test used to do — made the suite depend on DNS
+         * and on LG answering, and cost three and a half seconds a run.
+         */
+        const upstream = net.createServer()
+        const received: Buffer[] = []
+        upstream.on('connection', (socket) => {
+            socket.on('data', (chunk) => received.push(chunk))
+        })
+        await new Promise<void>((resolve) => upstream.listen(0, '127.0.0.1', resolve))
+        const upstreamPort = (upstream.address() as { port: number }).port
+
+        const { port, served, close, tls } = await withRouter(['localhost'], [], undefined, upstreamPort)
+        const client = tls.connect({ port, host: '127.0.0.1', servername: 'localhost', rejectUnauthorized: false })
+        client.on('error', () => {})
+        await new Promise((resolve) => setTimeout(resolve, 500))
+
+        assert.ok(received.length > 0, 'the ClientHello should have been passed upstream')
+        assert.equal(received[0][0], 0x16, 'and passed on unchanged, starting with the handshake record')
         assert.deepEqual(served, [], 'the local server is never involved')
+
+        client.destroy()
+        upstream.close()
         close()
     })
 
