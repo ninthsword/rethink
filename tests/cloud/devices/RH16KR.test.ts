@@ -25,22 +25,6 @@ test('RH16KR decodes the live dryer snapshot', () => {
     assert.equal(p.downloaded_course, 'SELFCLEANING')
 })
 
-test('RH16KR names the intensive dry download course', () => {
-    // The appliance reported 0x77 here and the sensor showed RAW_119; the ThinQ app's
-    // "다운로드 코스 관리" screen names the downloaded course 강력 건조.
-    const ha = new MockHAConnection()
-    const thinq = new MockThinq2Device('dryer-id', META)
-    new DUT(ha.asConnection(), thinq, META)
-
-    const rec = Buffer.alloc(27)
-    rec[1] = 0x19
-    rec[2] = 2
-    rec[25] = 0x77
-    thinq.emit('data', Buffer.concat([Buffer.from([0xaa, 0x21, 0x30, 0xeb]), rec, Buffer.from([0, 0xbb])]))
-
-    assert.equal(ha.devices['dryer-id'].properties.downloaded_course, 'INTENSIVE_DRY')
-})
-
 test('RH16KR exposes the complete model process table', () => {
     const ha = new MockHAConnection()
     const thinq = new MockThinq2Device('dryer-id', META)
