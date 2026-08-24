@@ -16,9 +16,33 @@ const STATUS: Record<number, string> = {
     7: 'SPINNING',
     8: 'END',
     9: 'RESERVED',
+    10: 'FIRMWARE',
+    11: 'DIAGNOSIS',
 }
 const PREVIOUS_STATUS: Record<number, string> = STATUS
-const ERROR: Record<number, string> = { 0: 'NO_ERROR' }
+/*
+ * From the error table in LG's model JSON for this appliance. Its keys are the numbers the
+ * appliance puts on the wire, unlike the course tables, so nothing had to be captured to
+ * pair them. The gaps are real: the model skips 6, 7, 13-15 and everything between 17 and 26.
+ * 0 keeps the NO_ERROR it has always published rather than the model's ERROR_NO, because that
+ * value is already on screen and already translated.
+ */
+const ERROR: Record<number, string> = {
+    0: 'NO_ERROR',
+    1: 'ERROR_IE',
+    2: 'ERROR_OE',
+    3: 'ERROR_UE',
+    4: 'ERROR_DE1',
+    5: 'ERROR_PE',
+    8: 'ERROR_DO',
+    9: 'ERROR_LE',
+    10: 'ERROR_AE',
+    11: 'ERROR_TE',
+    12: 'ERROR_FE',
+    16: 'ERROR_DE2',
+    27: 'ERROR_FF',
+    36: 'ERROR_E7',
+}
 
 function sensor(name: string, icon: string, extra: object = {}) {
     return {
