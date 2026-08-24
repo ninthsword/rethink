@@ -300,6 +300,18 @@ const KOREAN_VALUES: Record<string, string> = {
     PRESSED_TABLEWARE: '누르게 붙은 식기',
     FISH_DISH: '생선 요리',
     SELFCLEANING: '자가 세척',
+    // Dryer download courses, named as LG's model JSON keys them and translated with the
+    // Korean language pack the ThinQ app itself displays.
+    POWER: '강력 건조',
+    MINIMIZEWRINKLES: '구김 완화 건조',
+    FULLSIZELOAD: '다량 건조',
+    DEODORIZATION: '리프레쉬',
+    SMALLLOAD: '소량 건조',
+    GYMCLOTHES: '운동복',
+    RAINYSEASON: '장마철',
+    ECONOMICDRY: '절약건조',
+    EASYIRON: '촉촉 건조',
+    BIGSIZEITEM: '큰 빨래 건조',
     NOT_SELECTED: '선택 안 함',
     SMALL_LOAD: '소량 세탁',
     SPEEDWASH: '스피드 워시',

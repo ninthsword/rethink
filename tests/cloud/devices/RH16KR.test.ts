@@ -25,6 +25,53 @@ test('RH16KR decodes the live dryer snapshot', () => {
     assert.equal(p.downloaded_course, 'SELFCLEANING')
 })
 
+test('RH16KR reads the newer of the two records a 0xEC packet carries', () => {
+    // Captured from the appliance one second after the ThinQ app downloaded 구김 완화 건조:
+    // the download command carried 0x72, and only the second record had taken it. Reading
+    // the first showed the previous course, so a downloaded course appeared to flip back and
+    // forth on its own for as long as it took the next report to catch up. The washer,
+    // dishwasher and Hd0C_F siblings all read the second record; this one did not.
+    const ha = new MockHAConnection()
+    const thinq = new MockThinq2Device('dryer-id', META)
+    new DUT(ha.asConnection(), thinq, META)
+
+    thinq.emit(
+        'data',
+        buf(
+            'AA3C30EC00190000000000000000000000000000000800000004000000770000190000000000000000000000000000080800000004000000720068BB',
+        ),
+    )
+
+    assert.equal(ha.devices['dryer-id'].properties.downloaded_course, 'MINIMIZEWRINKLES')
+})
+
+test('RH16KR names the courses whose codes the download command revealed', () => {
+    // Each byte here came from a `f0 25` download command captured on the wire while the
+    // owner picked that course in the app, so the pairing is the appliance's own, not a guess.
+    const ha = new MockHAConnection()
+    const thinq = new MockThinq2Device('dryer-id', META)
+    new DUT(ha.asConnection(), thinq, META)
+
+    for (const [code, course] of [
+        [0x66, 'GYMCLOTHES'],
+        [0x69, 'RAINYSEASON'],
+        [0x6b, 'DEODORIZATION'],
+        [0x6c, 'SMALLLOAD'],
+        [0x6e, 'EASYIRON'],
+        [0x70, 'ECONOMICDRY'],
+        [0x71, 'BIGSIZEITEM'],
+        [0x72, 'MINIMIZEWRINKLES'],
+        [0x74, 'FULLSIZELOAD'],
+        [0x77, 'POWER'],
+    ] as const) {
+        const rec = Buffer.alloc(27)
+        rec[1] = 0x19
+        rec[25] = code
+        thinq.emit('data', Buffer.concat([Buffer.from([0xaa, 0x21, 0x30, 0xeb]), rec, Buffer.from([0, 0xbb])]))
+        assert.equal(ha.devices['dryer-id'].properties.downloaded_course, course)
+    }
+})
+
 test('RH16KR exposes the complete model process table', () => {
     const ha = new MockHAConnection()
     const thinq = new MockThinq2Device('dryer-id', META)

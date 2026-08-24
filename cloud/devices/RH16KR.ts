@@ -42,7 +42,26 @@ const COURSE: Record<number, string> = {
     20: 'SPORTWEAR',
     22: 'DOWNLOADED',
 }
-const DOWNLOADED_COURSE: Record<number, string> = { 0: 'NONE', 0x83: 'SELFCLEANING' }
+/*
+ * Codes read straight off `f0 25` download commands captured while the owner picked each
+ * course in the ThinQ app. The names are the cloud's own keys for this model, so they line
+ * up with the SmartCourse table in LG's model JSON; util/ha_locale.ts carries the Korean.
+ * All ten the model offers are here, so an unmapped code now means the model gained one.
+ */
+const DOWNLOADED_COURSE: Record<number, string> = {
+    0: 'NONE',
+    0x66: 'GYMCLOTHES',
+    0x69: 'RAINYSEASON',
+    0x6b: 'DEODORIZATION',
+    0x6c: 'SMALLLOAD',
+    0x6e: 'EASYIRON',
+    0x70: 'ECONOMICDRY',
+    0x71: 'BIGSIZEITEM',
+    0x72: 'MINIMIZEWRINKLES',
+    0x74: 'FULLSIZELOAD',
+    0x77: 'POWER',
+    0x83: 'SELFCLEANING',
+}
 // Exact RH16KR processState table from the installed model diagnostic.
 const PROCESS: Record<number, string> = {
     // The AABB wire record is one-based. The ThinQ model diagnostic uses
@@ -145,8 +164,9 @@ export default class Device extends AABBDevice {
     processAABB(buf: Buffer) {
         if (buf[0] !== 0x30) return
         if (buf[1] === 0xeb && buf.length === 29) this.processRecord(buf.subarray(2, 29))
-        // This dryer family sends current then previous in 0xEC, unlike the
-        // washer/dishwasher variants whose newest record is second.
-        else if (buf[1] === 0xec && buf.length === 56) this.processRecord(buf.subarray(2, 29))
+        // The newest record is the second one, as it is for the washer, the dishwasher and
+        // Hd0C_F. Reading the first meant a downloaded course only arrived a report late,
+        // and appeared to flip back to the previous one in between.
+        else if (buf[1] === 0xec && buf.length === 56) this.processRecord(buf.subarray(29, 56))
     }
 }
