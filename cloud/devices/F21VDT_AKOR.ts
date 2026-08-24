@@ -80,6 +80,39 @@ const COURSE: Record<number, string> = {
  * among the ones downloaded. The codes run consecutively for the first ten and then skip,
  * so guessing where it landed is exactly the mistake this table was built to avoid.
  */
+/*
+ * From the error table in LG's model JSON for this appliance, whose keys are the numbers it
+ * puts on the wire, and titled from LG's Korean language pack.
+ *
+ * The byte is rec[8]. anszom/rethink contributor martijndhondt placed the same field at
+ * buf[10] on F_C__Y___W.A__QEUK by capturing an actual dE2 fault, and seven of that
+ * handler's fields — status, both times, spin and temperature — sit exactly two positions
+ * ahead of ours, so buf[10] lands on rec[8] here. This handler does not otherwise read it
+ * and it was zero in every record captured while the washer was healthy. Confirm against
+ * the ThinQ app the first time this washer actually faults.
+ */
+const ERROR: Record<number, string> = {
+    0: 'NO_ERROR',
+    1: 'ERROR_DE2',
+    2: 'ERROR_IE',
+    3: 'ERROR_OE',
+    4: 'ERROR_UE',
+    5: 'ERROR_FE',
+    6: 'ERROR_PE',
+    7: 'ERROR_TE',
+    8: 'ERROR_LE',
+    9: 'ERROR_CE',
+    10: 'ERROR_DHE',
+    11: 'ERROR_PF',
+    12: 'ERROR_FF',
+    13: 'ERROR_DCE',
+    15: 'ERROR_EE',
+    16: 'ERROR_PS',
+    17: 'ERROR_DE1',
+    18: 'ERROR_LOE',
+    19: 'ERROR_DE4',
+}
+
 const DOWNLOADED_COURSE: Record<number, string> = {
     0: 'NONE',
     0x33: 'COLD_WASH',
@@ -157,6 +190,15 @@ export default class Device extends AABBDevice {
                     water_temp: sensor('water_temp', 'mdi:thermometer-lines'),
                     rinse: sensor('rinse', 'mdi:waves-arrow-right'),
                     dry_level: sensor('dry_level', 'mdi:tumble-dryer'),
+                    error: {
+                        platform: 'binary_sensor',
+                        unique_id: '$deviceid-error',
+                        state_topic: '$this/error',
+                        name: 'error',
+                        icon: 'mdi:alert-circle-outline',
+                        device_class: 'problem',
+                    },
+                    error_message: sensor('error_message', 'mdi:alert-circle-outline'),
                     tub_clean_count: sensor('tub_clean_count', 'mdi:washing-machine', {
                         state_class: 'total',
                         suggested_display_precision: 0,
@@ -180,6 +222,8 @@ export default class Device extends AABBDevice {
         this.publishProperty('course', value(COURSE, rec[7]))
         this.publishProperty('downloaded_course', value(DOWNLOADED_COURSE, rec[22]))
         this.publishProperty('operation_course', value(OPERATION_COURSE, rec[24]))
+        this.publishProperty('error', rec[8] === 0 ? 'OFF' : 'ON')
+        this.publishProperty('error_message', ERROR[rec[8]] ?? `RAW_${rec[8]}`)
         this.publishProperty('soil', SOIL[rec[9]] ?? `RAW_${rec[9]}`)
         this.publishProperty('spin', SPIN[rec[10]] ?? `RAW_${rec[10]}`)
         this.publishProperty('water_temp', TEMP[rec[11]] ?? `RAW_${rec[11]}`)

@@ -39,6 +39,35 @@ describe('F21VDT_AKOR', () => {
     })
 })
 
+test('F21VDT_AKOR reports the errors its model defines', () => {
+    const ha = new MockHAConnection()
+    const thinq = new MockThinq2Device('washer-id', META)
+    new DUT(ha.asConnection(), thinq, META)
+
+    const report = (code: number) => {
+        const rec = Buffer.alloc(28)
+        rec[1] = 0x1a
+        rec[8] = code
+        thinq.emit('data', Buffer.concat([Buffer.from([0xaa, 0x22, 0x20, 0xeb]), rec, Buffer.from([0, 0xbb])]))
+        return ha.devices['washer-id'].properties
+    }
+
+    assert.equal(report(0).error, 'OFF')
+    assert.equal(report(0).error_message, 'NO_ERROR')
+    for (const [code, name] of [
+        [1, 'ERROR_DE2'],
+        [2, 'ERROR_IE'],
+        [8, 'ERROR_LE'],
+        [12, 'ERROR_FF'],
+        [18, 'ERROR_LOE'],
+        [19, 'ERROR_DE4'],
+    ] as const) {
+        const p = report(code)
+        assert.equal(p.error_message, name)
+        assert.equal(p.error, 'ON')
+    }
+})
+
 test('F21VDT_AKOR names every download course the app offered', () => {
     // Each byte came from a `f0 25` download command captured on the wire while the owner
     // picked that course in the ThinQ app, fourteen in one sitting. index 17 was the only
