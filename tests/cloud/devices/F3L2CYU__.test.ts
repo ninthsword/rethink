@@ -1,8 +1,8 @@
-import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
+import { describe, test } from 'node:test'
 import DUT from '@/cloud/devices/F3L2CYU__'
 import type { Metadata } from '@/cloud/thinq'
-import { MockHAConnection, MockThinq2Device, buf } from '@/tests/helpers/mocks'
+import { buf, MockHAConnection, MockThinq2Device } from '@/tests/helpers/mocks'
 
 const DEVICE_ID = 'test-id'
 const MODEL_ID = 'F3L2CYU__'

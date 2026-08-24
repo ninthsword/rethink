@@ -1,9 +1,9 @@
-import HADevice from './base'
-import { Device as Thinq2Device } from '../thinq2/device'
-import { DeviceDiscovery, type Connection } from '../homeassistant'
-import { type Metadata } from '../thinq'
 import { allowExtendedType } from '@/util/casting'
+import type { Connection, DeviceDiscovery } from '../homeassistant'
+import type { Metadata } from '../thinq'
+import type { Device as Thinq2Device } from '../thinq2/device'
 import AABBDevice from './aabb_device'
+import HADevice from './base'
 
 const STATUS_LENGTH = 18
 const COMMAND_LENGTH = 41

@@ -1,6 +1,6 @@
-import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { encodePacket, decodePacket } from '@/util/packet-codec'
+import { test } from 'node:test'
+import { decodePacket, encodePacket } from '@/util/packet-codec'
 
 // Real captured packets from the wiki (Thinq2CloudProtocol / TLVProtocol / AABBProtocol).
 
@@ -42,7 +42,7 @@ test('decode: AABB frame, checksum valid', () => {
 })
 
 test('decode: corrupted CRC is reported, not thrown', () => {
-    const bad = FROM_DEVICE.slice(0, -2) + '00'
+    const bad = `${FROM_DEVICE.slice(0, -2)}00`
     const d = decodePacket(bad)
     assert.equal(d.protocol, 'tlv')
     if (d.protocol !== 'tlv') return

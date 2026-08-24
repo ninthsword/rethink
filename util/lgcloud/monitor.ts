@@ -18,8 +18,15 @@
 import readline from 'node:readline'
 import mqtt from 'mqtt'
 import * as OAuth2 from '@/bridge/oauth2'
+import {
+    apiFetch,
+    Client,
+    IOT_BASE_URL,
+    type RouteCertResponse,
+    type RouteResponse,
+    signInUrl,
+} from '@/bridge/thinqApi'
 import { subprocess } from '@/bridge/util'
-import { Client, IOT_BASE_URL, RouteCertResponse, RouteResponse, apiFetch, signInUrl } from '@/bridge/thinqApi'
 
 type Subscription = { key: string; cert: string; subscriptions: string[] }
 export type State = { countryCode: string; refreshToken: string }

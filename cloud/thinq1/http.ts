@@ -1,9 +1,9 @@
-import { Request, Response, Router } from 'express'
-import { Config } from '@/util/config'
-import { XMLParser, XMLBuilder, XMLValidator } from 'fast-xml-parser'
-import { Metadata } from '../thinq'
-import { dirname, resolve } from 'node:path'
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { dirname, resolve } from 'node:path'
+import { type Request, type Response, Router } from 'express'
+import { XMLBuilder, XMLParser } from 'fast-xml-parser'
+import type { Config } from '@/util/config'
+import type { Metadata } from '../thinq'
 
 const XML_HEADER = '<?xml version="1.0" encoding="utf-8" standalone="yes"?>'
 
@@ -68,7 +68,7 @@ export function routes(config: Config) {
     router.use(xmlParser)
 
     router.post('/lgehadm/api/Device/TotalDeviceInfoSvc', (req, res) => {
-        const response: any = {
+        const response: { returnCd: string; returnMsg: string; itemList?: object } = {
             returnCd: '0000',
             returnMsg: 'OK',
         }
@@ -123,17 +123,17 @@ export function routes(config: Config) {
         res.end(XML_HEADER + new XMLBuilder().build({ lgedmRoot: response }))
     })
 
-    router.post('/lgehadm/api/Grid/PowerSavingInfoSvc', (req, res) => {
+    router.post('/lgehadm/api/Grid/PowerSavingInfoSvc', (_req, res) => {
         res.header('Content-type: text/xml;charset=utf-8')
         res.end(XML_HEADER + new XMLBuilder().build({ lgedmRoot: { returnCd: '0108', returnMsg: 'No Saving Data.' } }))
     })
 
-    router.post('/lgehadm/api/Rtos/FWInfoSettingSvc', (req, res) => {
+    router.post('/lgehadm/api/Rtos/FWInfoSettingSvc', (_req, res) => {
         res.header('Content-type: text/xml;charset=utf-8')
         res.end(XML_HEADER + new XMLBuilder().build({ lgedmRoot: { returnCd: '0000', returnMsg: 'OK' } }))
     })
 
-    router.post('/lgehadm/report/diagmon', (req, res) => {
+    router.post('/lgehadm/report/diagmon', (_req, res) => {
         res.end()
     })
 

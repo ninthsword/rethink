@@ -19,9 +19,9 @@ const messagestr = JSON.stringify({
 })
 console.log(messagestr)
 
-const client = mqtt.connect('mqtt://' + mqttHostname)
+const client = mqtt.connect(`mqtt://${mqttHostname}`)
 
 client.on('connect', () => {
-    client.publish('lime/devices/' + deviceId, messagestr + ' ')
+    client.publish(`lime/devices/${deviceId}`, `${messagestr} `)
     client.end()
 })

@@ -1,9 +1,9 @@
-import HADevice from './base'
-import { Device as Thinq2Device } from '../thinq2/device'
-import { type Connection } from '../homeassistant'
-import { type Metadata } from '../thinq'
 import { allowExtendedType } from '@/util/casting'
+import type { Connection } from '../homeassistant'
+import type { Metadata } from '../thinq'
+import type { Device as Thinq2Device } from '../thinq2/device'
 import AABBDevice from './aabb_device'
+import HADevice from './base'
 
 // LG front-load washer — matched on modelId "F3L2CYU__". AABB frames (buf = the AABB body, AA+len and
 // checksum+BB already stripped, buf[0]==0x20 on every frame) are discriminated by buf[1] (NOT buf[3],
@@ -76,34 +76,34 @@ const PHASE_OFF = 0x00
 // Speed Wash runs went straight 0x05->0x17 without an observed Sensing step, so it's unconfirmed but
 // harmless to include (anything genuinely unmapped falls back to 'Running').
 const STATUS: Record<number, string> = {
-    0x00: 'Off',
-    0x05: 'Selecting',
-    0x06: 'Paused',
-    0x0a: 'Delay Wash',
-    0x14: 'Sensing',
-    0x17: 'Washing',
-    0x1e: 'Rinsing',
-    0x28: 'Spinning',
-    0x3c: 'Complete',
+    0: 'Off',
+    5: 'Selecting',
+    6: 'Paused',
+    10: 'Delay Wash',
+    20: 'Sensing',
+    23: 'Washing',
+    30: 'Rinsing',
+    40: 'Spinning',
+    60: 'Complete',
 }
 
 // Course/dial-position identifier -> name. Live-confirmed by turning the dial through every position and
 // reading the LG cloud's own apCourseFLUpper25inchBaseUS at each stop.
 const COURSE: Record<number, string> = {
-    0x01: 'Tub Clean',
-    0x02: 'Bright Whites',
-    0x03: 'Allergiene',
-    0x04: 'Sanitary',
-    0x05: 'Bedding',
-    0x06: 'Heavy Duty',
-    0x07: 'Normal',
-    0x08: 'Sportswear',
-    0x09: 'Perm Press',
-    0x0a: 'Delicates',
-    0x0b: 'Towels',
-    0x0c: 'Speed Wash',
-    0x0d: 'Rinse+Spin',
-    0x0e: 'Small Load',
+    1: 'Tub Clean',
+    2: 'Bright Whites',
+    3: 'Allergiene',
+    4: 'Sanitary',
+    5: 'Bedding',
+    6: 'Heavy Duty',
+    7: 'Normal',
+    8: 'Sportswear',
+    9: 'Perm Press',
+    10: 'Delicates',
+    11: 'Towels',
+    12: 'Speed Wash',
+    13: 'Rinse+Spin',
+    14: 'Small Load',
 }
 
 // Soil level 1-5, clean sequential mapping confirmed by single-step toggling against the cloud's

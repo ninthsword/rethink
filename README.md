@@ -114,6 +114,21 @@ LG 기기 ← rethink ← LG 클라우드
 
 냉장고 전력 센서는 기기가 15분마다 보내는 `10AF` 구간 사용량(Wh)을 한국 시간 기준으로 합산합니다. 실제 기기에서 확인된 구분 바이트 `0F`와 `10` 형식을 모두 처리합니다. 같은 15분 슬롯에서 재전송된 패킷은 한 번만 반영하며, 누적값은 `/app/data`에 저장됩니다. 시간·일·월 센서는 각 기간 경계에서 초기화되고, 최초 설치 전에 사용한 과거 전력량은 자동으로 복원하지 않습니다.
 
+## 개발 환경
+
+최소 지원 Node.js 버전은 20이며, `.nvmrc`는 재현 가능한 기본 개발 버전으로 Node 24를 지정합니다. CI는 Node 20과 24를 모두 검증합니다.
+
+```sh
+nvm use
+npm ci
+npm run check
+npm run typecheck
+npm run build
+npm test
+```
+
+Biome이 포맷과 lint를 모두 담당합니다. `npm run format`은 전체 대상 파일을 수정하고, `npm run format:check`, `npm run lint`, `npm run check`는 각각 포맷, lint, 통합 검사를 수정 없이 수행합니다. pre-commit 훅도 staged 파일에 같은 통합 검사를 적용합니다.
+
 ## 전체 설치 순서
 
 권장 작업 순서는 다음과 같습니다.

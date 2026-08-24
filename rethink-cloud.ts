@@ -1,31 +1,30 @@
-import express from 'express'
-import stripJsonComments from 'strip-json-comments'
+import { spawnSync } from 'node:child_process'
+import { X509Certificate } from 'node:crypto'
 import { mkdirSync, readFileSync } from 'node:fs'
 import * as https from 'node:https'
-import { spawnSync } from 'node:child_process'
-import { dirname, resolve } from 'node:path'
-import { Broker } from './cloud/mqtt-broker'
-import * as tls from 'node:tls'
-import type { TLSSocket } from 'node:tls'
 import * as net from 'node:net'
-import { X509Certificate } from 'node:crypto'
-import { routes as thinq1Routes } from './cloud/thinq1/http'
-import { routes as thinq2Routes } from './cloud/thinq2/provisioning'
-import { DeviceAcceptor as T1Acceptor } from './cloud/thinq1/device'
-import { DeviceAcceptor as T2Acceptor } from './cloud/thinq2/device'
-import { Connection as HA_connection } from './cloud/homeassistant'
-import HA_bridge from './cloud/ha_bridge'
-import { managementHost, normalize as normalizeConfig, RawConfig, CA } from './util/config'
-import * as Management from './management'
-
-import log, { setFilter as setLogFilter } from './util/logging'
-import { createSNIRouter } from './cloud/sni_router'
-import { DeviceManager } from './cloud/devmgr'
+import { dirname, resolve } from 'node:path'
+import type { TLSSocket } from 'node:tls'
+import * as tls from 'node:tls'
+import express from 'express'
+import stripJsonComments from 'strip-json-comments'
 import { Bridge } from './bridge'
 import { JSONStorage } from './bridge/state'
-import { SNICertificateProvider } from './util/sni-certificates'
 import { setEnergyDataDirectory } from './cloud/devices/energy_meter'
+import { DeviceManager } from './cloud/devmgr'
+import HA_bridge from './cloud/ha_bridge'
+import { Connection as HA_connection } from './cloud/homeassistant'
+import { Broker } from './cloud/mqtt-broker'
+import { createSNIRouter } from './cloud/sni_router'
+import { DeviceAcceptor as T1Acceptor } from './cloud/thinq1/device'
+import { routes as thinq1Routes } from './cloud/thinq1/http'
+import { DeviceAcceptor as T2Acceptor } from './cloud/thinq2/device'
+import { routes as thinq2Routes } from './cloud/thinq2/provisioning'
+import * as Management from './management'
+import { type CA, managementHost, normalize as normalizeConfig, type RawConfig } from './util/config'
+import log, { setFilter as setLogFilter } from './util/logging'
 import { collapseRepeats, withoutErrorTag } from './util/repeated_log'
+import { SNICertificateProvider } from './util/sni-certificates'
 
 const configPath = resolve(process.argv[2] ?? './config.json')
 const configDir = dirname(configPath)
@@ -42,7 +41,7 @@ if (!config.log) config.log = ['status', 'incoming', 'HTTPS']
 
 const enabled = Object.fromEntries(config.log.map((key) => [key, true]))
 setLogFilter((topic) => {
-    return enabled[topic] || enabled['all']
+    return enabled[topic] || enabled.all
 })
 
 // if you add spaces here, you will have to fix quoting in the code below
@@ -55,7 +54,7 @@ function loadOrCreateCert(): CA {
 
         if (!new X509Certificate(certpem).checkHost(config.hostname))
             throw new Error('invalid subject, creating new certificate')
-    } catch (err) {
+    } catch (_err) {
         log('status', 'Creating a new key/certificate for the CA')
         spawnSync('openssl', [
             'req',
@@ -71,7 +70,7 @@ function loadOrCreateCert(): CA {
             '3650',
             '-nodes',
             '-subj',
-            '/CN=' + config.hostname,
+            `/CN=${config.hostname}`,
         ])
         keypem = readFileSync(config.ca_key_file).toString('utf-8')
         certpem = readFileSync(config.ca_cert_file).toString('utf-8')
@@ -99,7 +98,7 @@ const tlsServerOptions: tls.TlsOptions = {
 function t1setup(manager: DeviceManager) {
     // Thinq1 HTTPS server
     const app = express()
-    app.use(function (req, res, next) {
+    app.use((req, _res, next) => {
         log('HTTPS', req.hostname, req.url)
         next()
     })
@@ -175,7 +174,7 @@ function t2setup(manager: DeviceManager) {
     const app = express()
     app.use(express.json())
 
-    app.use(function (req, res, next) {
+    app.use((req, _res, next) => {
         log('HTTPS', req.hostname, req.url)
         next()
     })

@@ -1,8 +1,8 @@
-import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
+import { describe, test } from 'node:test'
 import DUT from '@/cloud/devices/2REF11EBIVPC4'
 import type { Metadata } from '@/cloud/thinq'
-import { MockHAConnection, MockThinq2Device, buf } from '@/tests/helpers/mocks'
+import { buf, MockHAConnection, MockThinq2Device } from '@/tests/helpers/mocks'
 
 const DEVICE_ID = 'test-id'
 const MODEL_ID = '2REF11EBIVPC4'
@@ -22,35 +22,25 @@ const META: Metadata = { modelId: MODEL_ID, modelName: '2REF11EBIVPC4', swVersio
 
 // Baseline 43-byte status block:
 //   fridge=3°C (raw=7), freezer=-18°C (raw=7), express=OFF, door=closed, shabbat=OFF
-const STATUS_BASELINE = '02070701FFFFFF00FFFFFFFFFFFF00' + 'FF'.repeat(28)
+const STATUS_BASELINE = `02070701FFFFFF00FFFFFFFFFFFF00${'FF'.repeat(28)}`
 
 // 10EB: initial-status packet (AA <31=45+4> 10 EB <43 status bytes> <cksum=00> BB)
-const SAMPLE_INITIAL = buf('AA3110EB' + STATUS_BASELINE + '00BB')
+const SAMPLE_INITIAL = buf(`AA3110EB${STATUS_BASELINE}00BB`)
 
 // 10EC delta — cur[7]=0x01 (door OPEN)
-const SAMPLE_DELTA_DOOR_OPEN = buf(
-    'AA5C10EC' + STATUS_BASELINE + '02070701FFFFFF01FFFFFFFFFFFF00' + 'FF'.repeat(28) + '00BB',
-)
+const SAMPLE_DELTA_DOOR_OPEN = buf(`AA5C10EC${STATUS_BASELINE}02070701FFFFFF01FFFFFFFFFFFF00${'FF'.repeat(28)}00BB`)
 
 // 10EC delta — cur[1]=0x05 (fridge 4°C: raw=5 → (13-5)/2=4)
-const SAMPLE_DELTA_FRIDGE_4C = buf(
-    'AA5C10EC' + STATUS_BASELINE + '02050701FFFFFF00FFFFFFFFFFFF00' + 'FF'.repeat(28) + '00BB',
-)
+const SAMPLE_DELTA_FRIDGE_4C = buf(`AA5C10EC${STATUS_BASELINE}02050701FFFFFF00FFFFFFFFFFFF00${'FF'.repeat(28)}00BB`)
 
 // 10EC delta — cur[2]=0x05 (freezer -17°C: raw=5 → -(5+29)/2=-17)
-const SAMPLE_DELTA_FREEZER_17C = buf(
-    'AA5C10EC' + STATUS_BASELINE + '02070501FFFFFF00FFFFFFFFFFFF00' + 'FF'.repeat(28) + '00BB',
-)
+const SAMPLE_DELTA_FREEZER_17C = buf(`AA5C10EC${STATUS_BASELINE}02070501FFFFFF00FFFFFFFFFFFF00${'FF'.repeat(28)}00BB`)
 
 // 10EC delta — cur[3]=0x02 (express freeze ON)
-const SAMPLE_DELTA_EXPRESS_ON = buf(
-    'AA5C10EC' + STATUS_BASELINE + '02070702FFFFFF00FFFFFFFFFFFF00' + 'FF'.repeat(28) + '00BB',
-)
+const SAMPLE_DELTA_EXPRESS_ON = buf(`AA5C10EC${STATUS_BASELINE}02070702FFFFFF00FFFFFFFFFFFF00${'FF'.repeat(28)}00BB`)
 
 // 10EC delta — cur[14]=0x01 (shabbat ON)
-const SAMPLE_DELTA_SHABBAT_ON = buf(
-    'AA5C10EC' + STATUS_BASELINE + '02070701FFFFFF00FFFFFFFFFFFF01' + 'FF'.repeat(28) + '00BB',
-)
+const SAMPLE_DELTA_SHABBAT_ON = buf(`AA5C10EC${STATUS_BASELINE}02070701FFFFFF00FFFFFFFFFFFF01${'FF'.repeat(28)}00BB`)
 
 function makeDevice() {
     const ha = new MockHAConnection()
@@ -66,7 +56,7 @@ describe(MODEL_ID, () => {
         assert.ok(dev, 'device entry created at construction')
         assert.ok(dev.config, 'config published without a status packet')
 
-        const components = dev.config!.components as Record<string, Record<string, unknown>>
+        const components = dev.config?.components as Record<string, Record<string, unknown>>
         assert.equal(components.fridge_setpoint.unit_of_measurement, '°C')
         assert.equal(components.fridge_setpoint.min, 1)
         assert.equal(components.fridge_setpoint.max, 7)

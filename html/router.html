@@ -1,5 +1,5 @@
 <!doctype html>
-<html>
+<html lang="en">
     <head>
         <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet" />
         <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0/css/materialize.min.css" />
@@ -59,7 +59,7 @@
         </style>
     </head>
     <body>
-        <nav class="light-blue lighten-1" role="navigation">
+        <nav class="light-blue lighten-1" >
             <div class="nav-wrapper container">
                 <a href="./" class="brand-logo">
                     <span class="material-icons">router</span>
@@ -92,8 +92,8 @@
                     </div>
                     <div class="input-field"><input id="rethink_ip" type="text" /><label for="rethink_ip">Rethink IP</label></div>
                 </div>
-                <button id="test_router" class="btn waves-effect waves-light">Test connection</button>
-                <button id="save_router" class="btn waves-effect waves-light">Save</button>
+                <button type="button" id="test_router" class="btn waves-effect waves-light">Test connection</button>
+                <button type="button" id="save_router" class="btn waves-effect waves-light">Save</button>
             </div>
 
             <div class="divider"></div>
@@ -107,7 +107,7 @@
                         <span id="router_error" class="red-text"></span>
                     </div>
                     <div class="col s12 m3 right-align">
-                        <button id="refresh" class="btn waves-effect waves-light">
+                        <button type="button" id="refresh" class="btn waves-effect waves-light">
                             Refresh <i class="material-icons right">refresh</i>
                         </button>
                     </div>
@@ -118,7 +118,7 @@
                     <tbody id="device_rows"></tbody>
                 </table>
                 <p id="empty_devices" class="subtle">No devices registered. Add an IP address first.</p>
-                <button id="add_device" class="btn waves-effect waves-light modal-trigger" data-target="device_modal">
+                <button type="button" id="add_device" class="btn waves-effect waves-light modal-trigger" data-target="device_modal">
                     Add device <i class="material-icons right">add</i>
                 </button>
             </div>
@@ -137,7 +137,7 @@
             </div>
             <div class="modal-footer">
                 <a href="#!" class="modal-close btn-flat">Cancel</a>
-                <button id="save_device" class="btn waves-effect waves-light">Add</button>
+                <button type="button" id="save_device" class="btn waves-effect waves-light">Add</button>
             </div>
         </div>
 

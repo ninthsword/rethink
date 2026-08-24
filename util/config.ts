@@ -164,7 +164,7 @@ export function normalize(config: RawConfig): Config {
         mqtts_port: required(parsePort(config.mqtts_port), 'mqtts_port'),
         mqtt_port: required(parsePort(config.mqtt_port), 'mqtt_port'),
         management_port: parsePort(config.management_port),
-        thinq1_https_port: parsePort(config.thinq1_https_port ?? 46030)!,
-        thinq1_port: parsePort(config.thinq1_port ?? 47878)!,
+        thinq1_https_port: required(parsePort(config.thinq1_https_port ?? 46030), 'thinq1_https_port'),
+        thinq1_port: required(parsePort(config.thinq1_port ?? 47878), 'thinq1_port'),
     }
 }

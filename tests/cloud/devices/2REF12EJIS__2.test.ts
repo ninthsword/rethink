@@ -1,8 +1,8 @@
-import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
+import { describe, test } from 'node:test'
 import DUT from '@/cloud/devices/2REF12EJIS__2'
 import type { Metadata } from '@/cloud/thinq'
-import { MockHAConnection, MockThinq2Device, buf, hex } from '@/tests/helpers/mocks'
+import { buf, hex, MockHAConnection, MockThinq2Device } from '@/tests/helpers/mocks'
 
 const DEVICE_ID = 'test-id'
 const META: Metadata = { modelId: '2REF12EJIS__2', modelName: '2REF12EJIS__2', swVersion: '1.0' }
@@ -27,7 +27,7 @@ describe('2REF12EJIS__2', () => {
         const { ha, thinq } = makeDevice()
         thinq.emit('data', STATUS_CLOSED)
         const device = ha.devices[DEVICE_ID]
-        const components = device.config!.components as Record<string, Record<string, unknown>>
+        const components = device.config?.components as Record<string, Record<string, unknown>>
         assert.deepEqual(Object.keys(components), [
             'fridge_setpoint',
             'freezer_setpoint',
@@ -81,14 +81,16 @@ describe('2REF12EJIS__2', () => {
         thinq.resetRecorder()
 
         dev.setProperty('fridge_setpoint', '2')
+        const packet = thinq.outbox.pop()
+        assert.ok(packet)
         assert.equal(
-            hex(thinq.outbox.pop()!),
+            hex(packet),
             'AA2FF017020605010702FF0001000100FFFFFFFFFF01FFFFFF000000FFFF00FFFFFFFF00FFFFFFFFFFFFFFFFFFB7BB',
         )
         dev.setProperty('freezer_setpoint', '-20')
-        assert.equal(thinq.outbox.pop()![4 + 2], 6)
+        assert.equal(thinq.outbox.pop()?.[4 + 2], 6)
         dev.setProperty('express_freeze', 'ON')
-        assert.equal(thinq.outbox.pop()![4 + 3], 2)
+        assert.equal(thinq.outbox.pop()?.[4 + 3], 2)
     })
 
     test('does not write before status or accept out-of-range values', () => {

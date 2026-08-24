@@ -1,5 +1,5 @@
-import { type Metadata } from '../thinq'
 import type { Connection, DeviceDiscovery } from '../homeassistant'
+import type { Metadata } from '../thinq'
 
 export default class HADevice {
     config: DeviceDiscovery | undefined
@@ -67,7 +67,7 @@ export default class HADevice {
         }
     }
 
-    setProperty(prop: string, mqttValue: string) {
+    setProperty(_prop: string, _mqttValue: string) {
         throw new Error('To be overriden')
     }
 }

@@ -1,8 +1,8 @@
-import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
+import { describe, test } from 'node:test'
 import DUT from '@/cloud/devices/Y_V8_Y___W.B32QEUK'
 import type { Metadata } from '@/cloud/thinq'
-import { MockHAConnection, MockThinq2Device, buf, hex } from '@/tests/helpers/mocks'
+import { buf, hex, MockHAConnection, MockThinq2Device } from '@/tests/helpers/mocks'
 
 const DEVICE_ID = 'test-id'
 const MODEL_ID = 'Y_V8_Y___W.B32QEUK'
@@ -49,7 +49,7 @@ describe(MODEL_ID, () => {
         const { ha } = makeDevice()
         const cfg = ha.devices[DEVICE_ID].config
         assert.ok(cfg, 'config published')
-        const components = cfg!.components as Record<string, Record<string, unknown>>
+        const components = cfg?.components as Record<string, Record<string, unknown>>
         for (const c of [
             'power',
             'start',

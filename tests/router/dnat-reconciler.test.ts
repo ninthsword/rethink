@@ -1,11 +1,11 @@
-import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import { describe, test } from 'node:test'
 import { RouterConfigStore, type RouterDeviceEntry } from '@/router/config-store'
-import { DNATReconciler, type DNATActuator } from '@/router/dnat-reconciler'
 import type { DNATState } from '@/router/dnat-manager'
+import { type DNATActuator, DNATReconciler } from '@/router/dnat-reconciler'
 
 function makeStore() {
     const dir = mkdtempSync(path.join(tmpdir(), 'rethink-router-'))

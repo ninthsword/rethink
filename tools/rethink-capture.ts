@@ -19,12 +19,12 @@
 // stdin is taken over for notes. If the cloud login/connect fails, the recorder exits
 // with an error rather than continuing a degraded capture.
 
-import WebSocket from 'ws'
 import * as fs from 'node:fs'
 import readline from 'node:readline'
-import { decodePacket } from '@/util/packet-codec'
+import WebSocket from 'ws'
 import { connect as connectCloud, login } from '@/util/lgcloud/monitor'
 import { loadState, saveState } from '@/util/lgcloud/state'
+import { decodePacket } from '@/util/packet-codec'
 
 // minimal flag parse; the rest are positional
 //   --cloud         enable cloud correlation (logs in interactively if not already)
@@ -54,7 +54,7 @@ const stream = fs.createWriteStream(out, { flags: 'a' })
 
 const SCHEMA_VERSION = 1
 function emit(event: object) {
-    stream.write(JSON.stringify({ ts: Date.now(), ...event }) + '\n')
+    stream.write(`${JSON.stringify({ ts: Date.now(), ...event })}\n`)
 }
 
 emit({ k: 'session', v: SCHEMA_VERSION, deviceId, tool: 'rethink-capture/0.1' })
@@ -101,15 +101,17 @@ const ws = new WebSocket(url)
 ws.on('open', () => emit({ k: 'marker', phase: 'connected' }))
 
 ws.on('message', (data: WebSocket.RawData) => {
-    let msg: any
+    let msg: Record<string, unknown>
     try {
-        msg = JSON.parse(data.toString())
+        const parsed: unknown = JSON.parse(data.toString())
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return
+        msg = parsed as Record<string, unknown>
     } catch {
         return
     }
     if (typeof msg.rx === 'string') recordWire('fromDevice', msg.rx, !!msg.injected)
     else if (typeof msg.tx === 'string') recordWire('toDevice', msg.tx, !!msg.injected)
-    else if (msg.status) emit({ k: 'marker', phase: msg.status, meta: msg.meta })
+    else if (typeof msg.status === 'string') emit({ k: 'marker', phase: msg.status, meta: msg.meta })
 })
 
 ws.on('close', () => {

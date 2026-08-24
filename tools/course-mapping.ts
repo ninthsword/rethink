@@ -20,8 +20,9 @@
  * Reading only. It refreshes the bridge's token and fetches the device list, model JSON and
  * language pack, exactly as the bridge does when it refreshes appliance names.
  */
-import mqtt from 'mqtt'
+
 import { readFileSync } from 'node:fs'
+import mqtt from 'mqtt'
 import { Client } from '@/bridge/thinqApi'
 
 const CONFIG = process.env.RETHINK_CONFIG ?? `${process.env.HOME}/docker/rethink-data/config.json`
@@ -72,7 +73,7 @@ async function fromCloud(): Promise<CloudCourses[]> {
         const named = (value: unknown) => {
             const key = String(value)
             for (const section of ['SmartCourse', 'Course'] as const) {
-                const entry = (model[section] ?? {})[key]
+                const entry = model[section]?.[key]
                 if (entry) return `${key}  ${pack[entry.name] ?? entry._comment ?? ''}`.trim()
             }
             return key
@@ -82,7 +83,7 @@ async function fromCloud(): Promise<CloudCourses[]> {
             deviceId: device.deviceId as unknown as string,
             alias: device.alias as unknown as string,
             modelName: device.modelName as unknown as string,
-            courses: Object.fromEntries(fields.map((f) => [f, named(snapshot![f])])),
+            courses: Object.fromEntries(fields.map((f) => [f, named(snapshot?.[f])])),
         })
     }
     return out
@@ -91,7 +92,9 @@ async function fromCloud(): Promise<CloudCourses[]> {
 /** The byte rethink decoded, per appliance, from its retained topics. */
 async function fromRethink(): Promise<Map<string, Record<string, string>>> {
     const prefix = setting('rethink_prefix') ?? 'rethink'
-    const client = mqtt.connect(setting('mqtt_url')!, {
+    const mqttUrl = setting('mqtt_url')
+    if (!mqttUrl) throw new Error('mqtt_url is missing from the rethink config')
+    const client = mqtt.connect(mqttUrl, {
         clientId: 'rethink-course-mapping',
         username: setting('mqtt_user'),
         password: setting('mqtt_pass'),

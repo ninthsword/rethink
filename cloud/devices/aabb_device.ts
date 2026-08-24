@@ -1,7 +1,8 @@
 // base implementation for devices with a AA...BB payload format
+
+import type { Connection } from '../homeassistant'
+import type { Device as Thinq2Device } from '../thinq2/device'
 import HADevice from './base'
-import { Device as Thinq2Device } from '../thinq2/device'
-import { type Connection } from '../homeassistant'
 
 export default class AABBDevice extends HADevice {
     publishCache: Record<string, string | number> = {}
@@ -25,12 +26,12 @@ export default class AABBDevice extends HADevice {
     }
 
     processData(buf: Buffer) {
-        if (buf.length >= 4 && buf[0] == 0xaa && buf[buf.length - 1] == 0xbb) {
+        if (buf.length >= 4 && buf[0] === 0xaa && buf[buf.length - 1] === 0xbb) {
             this.processAABB(buf.subarray(2, buf.length - 2))
         }
     }
 
-    processAABB(buf: Buffer) {
+    processAABB(_buf: Buffer) {
         throw new Error('To be overriden')
     }
 

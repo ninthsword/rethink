@@ -13,14 +13,13 @@
     "ws": "^8.19.0"
   },
   "engines": {
-    "node": ">=16.0.0 <18.0.0 || >=20.0.0"
+    "node": ">=20.0.0"
   },
   "devDependencies": {
+    "@biomejs/biome": "2.5.10",
     "@types/express": "^5.0.6",
     "@types/node": "^24.10.1",
     "@types/ws": "^8.18.1",
-    "prettier": "^3.8.3",
-    "pretty-quick": "^4.2.2",
     "tsc-alias": "^1.8.16",
     "tsx": "^4.23.12",
     "typescript": "^5.9.3"
@@ -29,12 +28,16 @@
     "build": "tsc -p tsconfig.build.json && tsc-alias -p tsconfig.build.json && cp -r html dist/",
     "dev": "tsx rethink-cloud.ts",
     "start": "node dist/rethink-cloud.js",
-    "format": "npx prettier . --write",
+    "format": "biome format --write .",
+    "format:check": "biome format .",
+    "lint": "biome lint .",
+    "check": "biome check .",
+    "check:write": "biome check --write .",
     "postinstall": "node scripts/install-git-hooks.mjs",
     "test": "node scripts/run-tests.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "simple-git-hooks": {
-    "pre-commit": "npx pretty-quick --staged"
+    "pre-commit": "npm run check -- --staged"
   }
 }

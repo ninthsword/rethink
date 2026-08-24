@@ -1,5 +1,5 @@
-import { Environment, Thinq1DeviceState, Thinq2DeviceState } from './thinqApi'
 import { existsSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
+import type { Environment, Thinq1DeviceState, Thinq2DeviceState } from './thinqApi'
 
 export type Credentials = {
     refreshToken: string
@@ -63,7 +63,7 @@ export class JSONStorage implements BridgeState {
     getCredentials() {
         try {
             return JSON.parse(readFileSync(this.oauth2Path()).toString('utf-8')) as Credentials
-        } catch (err) {
+        } catch (_err) {
             return undefined
         }
     }
@@ -78,7 +78,7 @@ export class JSONStorage implements BridgeState {
             return JSON.parse(readFileSync(this.devicePath(id)).toString('utf-8')) as
                 | Thinq1DeviceState
                 | Thinq2DeviceState
-        } catch (err) {
+        } catch (_err) {
             return undefined
         }
     }

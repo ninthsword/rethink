@@ -1,7 +1,7 @@
-import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { DeviceAcceptor } from '@/cloud/thinq2/device'
+import { test } from 'node:test'
 import { Broker } from '@/cloud/mqtt-broker'
+import { DeviceAcceptor } from '@/cloud/thinq2/device'
 
 const DEVICE_ID = 'dryer-id'
 

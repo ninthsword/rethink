@@ -1,13 +1,12 @@
 // This class handles the devices connecting to the internal MQTT broker. This includes both device provisioning
 // and minimal wrappers for actual data exchange. The device class is responsible for generating/parsing the payload.
 
-import { generateDeployResponse } from './provisioning'
 import { TypedEmitter } from 'tiny-typed-emitter'
-import { Client, PublishPacket, type Broker } from '../mqtt-broker'
-import { ClipDeployMessage, ClipMessage } from './clip'
-
 import log from '@/util/logging'
-import { Metadata } from '../thinq'
+import type { Broker, Client, PublishPacket } from '../mqtt-broker'
+import type { Metadata } from '../thinq'
+import type { ClipDeployMessage, ClipMessage } from './clip'
+import { generateDeployResponse } from './provisioning'
 
 type DeviceEvents = {
     data: (packet: Buffer) => void
@@ -98,7 +97,7 @@ export class Device extends TypedEmitter<DeviceEvents> {
 }
 
 function trimNull(buf: Buffer) {
-    if (!buf || !buf.length || buf[buf.length - 1]) return buf
+    if (!buf?.length || buf[buf.length - 1]) return buf
     return buf.subarray(0, buf.length - 1)
 }
 
@@ -140,7 +139,7 @@ export class DeviceAcceptor extends TypedEmitter<DeviceAcceptorEvents> {
         // experiment: try to support devices which use other topic formats
         topic = topic.replace(/^.*\/clip/, 'clip')
 
-        if (topic === 'clip/message/devices/' + payload.did) {
+        if (topic === `clip/message/devices/${payload.did}`) {
             if (payload.cmd === 'completeProvisioning_ack') {
                 this.completeProvisioning(payload.did, payload, client)
                 return
@@ -163,7 +162,7 @@ export class DeviceAcceptor extends TypedEmitter<DeviceAcceptorEvents> {
             }
         }
 
-        if (topic === 'clip/provisioning/devices/' + payload.did) {
+        if (topic === `clip/provisioning/devices/${payload.did}`) {
             if (payload.cmd === 'undeploy') {
                 // The appliance is dropping its provisioning with us. Everything tied to it
                 // has to go: completeProvisioning refuses a second registration while the
@@ -183,7 +182,7 @@ export class DeviceAcceptor extends TypedEmitter<DeviceAcceptorEvents> {
                 // bridge that connects later describes the appliance as it is now.
                 if (client.deviceObj) client.deviceObj.deployProfile = payload as ClipDeployMessage
                 const packet = {
-                    topic: 'lime/devices/' + payload.did,
+                    topic: `lime/devices/${payload.did}`,
                     retain: false,
                     qos: 0 as const,
                     dup: false,
@@ -195,7 +194,7 @@ export class DeviceAcceptor extends TypedEmitter<DeviceAcceptorEvents> {
         }
     }
 
-    completeProvisioning(deviceId: string, payload: ClipMessage, client: ClientWithExtra) {
+    completeProvisioning(deviceId: string, _payload: ClipMessage, client: ClientWithExtra) {
         if (!client.deployMsg) {
             log('status', `${deviceId} acknowledged provisioning it never started; it will not be registered`)
             return
@@ -220,7 +219,7 @@ export class DeviceAcceptor extends TypedEmitter<DeviceAcceptorEvents> {
             deviceType: client.deployMsg.data?.appInfo?.DeviceType,
         }
 
-        const dev = new Device(this.broker, 'lime/devices/' + deviceId, deviceId, meta, client.remoteAddress)
+        const dev = new Device(this.broker, `lime/devices/${deviceId}`, deviceId, meta, client.remoteAddress)
         dev.deployProfile = client.deployMsg
         client.deviceObj = dev
         this.emit('newDevice', dev)
@@ -241,7 +240,7 @@ export class DeviceAcceptor extends TypedEmitter<DeviceAcceptorEvents> {
     }
 
     disconnected(_client: Client) {
-        let client = _client as ClientWithExtra
+        const client = _client as ClientWithExtra
         if (client.deviceObj) {
             // A replacement connection may already have claimed this id before the old
             // socket's close event arrives. Do not let the old close delete the new index.

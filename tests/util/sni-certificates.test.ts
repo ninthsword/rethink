@@ -1,10 +1,10 @@
-import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
+import { X509Certificate } from 'node:crypto'
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { X509Certificate } from 'node:crypto'
+import { describe, test } from 'node:test'
 import { SNICertificateProvider } from '@/util/sni-certificates'
 
 /** A throwaway CA, made the way rethink's own is. */
@@ -14,7 +14,19 @@ function makeCA() {
         const key = join(dir, 'ca.key')
         const cert = join(dir, 'ca.cert')
         execFileSync('openssl', ['genrsa', '-out', key, '2048'])
-        execFileSync('openssl', ['req', '-new', '-x509', '-key', key, '-out', cert, '-days', '30', '-subj', '/CN=rethink.test'])
+        execFileSync('openssl', [
+            'req',
+            '-new',
+            '-x509',
+            '-key',
+            key,
+            '-out',
+            cert,
+            '-days',
+            '30',
+            '-subj',
+            '/CN=rethink.test',
+        ])
         return { key: readFileSync(key, 'utf-8'), cert: readFileSync(cert, 'utf-8') }
     } finally {
         rmSync(dir, { recursive: true, force: true })

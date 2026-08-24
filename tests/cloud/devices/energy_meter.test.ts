@@ -1,8 +1,8 @@
-import { describe, test, beforeEach, afterEach } from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { afterEach, beforeEach, describe, test } from 'node:test'
 import { EnergyMeter, setEnergyDataDirectory } from '@/cloud/devices/energy_meter'
 
 let dir: string

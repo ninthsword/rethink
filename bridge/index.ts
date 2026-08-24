@@ -1,21 +1,22 @@
+import { TypedEmitter } from 'tiny-typed-emitter'
+import { Device as T1Downstream } from '@/cloud/thinq1/device'
+import type { ClipMessage } from '@/cloud/thinq2/clip'
+import { Device as T2Downstream } from '@/cloud/thinq2/device'
+import log from '@/util/logging'
+import type { AnyDevice, DeviceManager } from '../cloud/devmgr'
+import * as OAuth2 from './oauth2'
+import type { BridgeState } from './state'
+import { Connection as Thinq1Connection } from './thinq1connection'
+import { Connection as Thinq2Connection } from './thinq2connection'
 import {
-    Client as ThinqClient,
-    Device as ClientDevice,
-    Environment,
+    type Device as ClientDevice,
+    type Environment,
+    type HomeDevice,
     signInUrl,
     Thinq1Device,
     Thinq2Device,
+    Client as ThinqClient,
 } from './thinqApi'
-import { AnyDevice, DeviceManager } from '../cloud/devmgr'
-import * as OAuth2 from './oauth2'
-import { BridgeState } from './state'
-import { Connection as Thinq1Connection } from './thinq1connection'
-import { Connection as Thinq2Connection } from './thinq2connection'
-import { Device as T1Downstream } from '@/cloud/thinq1/device'
-import { Device as T2Downstream } from '@/cloud/thinq2/device'
-import type { ClipMessage } from '@/cloud/thinq2/clip'
-import { TypedEmitter } from 'tiny-typed-emitter'
-import log from '@/util/logging'
 
 type StatusCallback = (status: string) => void
 type BridgeOptions = {
@@ -244,7 +245,7 @@ export class Bridge extends TypedEmitter<BridgeEvents> {
             await this.refreshDeviceNames()
             this.emit('loggedIn')
             return true
-        } catch (err) {
+        } catch (_err) {
             return false
         }
     }
@@ -270,7 +271,7 @@ export class Bridge extends TypedEmitter<BridgeEvents> {
         const client = new ThinqClient(creds.env)
         await client.auth(creds.refreshToken)
 
-        let existingDevice
+        let existingDevice: HomeDevice | undefined
         if (this.options.preserveExistingDevices) {
             statusCallback('Checking existing device registration')
             existingDevice = (await client.listDevices()).find((item) => item.deviceId === device.id)
@@ -314,7 +315,7 @@ export class Bridge extends TypedEmitter<BridgeEvents> {
             clientDevice = t2
 
             statusCallback('Registering new device')
-            let ciphertext
+            let ciphertext: Buffer
             try {
                 ciphertext = await t2.pair(client.env, otp)
             } catch (err) {

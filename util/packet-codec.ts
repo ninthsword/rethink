@@ -11,8 +11,8 @@
 //   fromDevice = a packet the appliance emits   (safe to fake: inject as sendFromDevice)
 //   toDevice   = a packet the cloud sends down   (actuates hardware: inject as sendToDevice)
 
-import * as TLV from './tlv'
 import crc16 from './crc16'
+import * as TLV from './tlv'
 
 export type Protocol = 'tlv' | 'aabb'
 export type Direction = 'fromDevice' | 'toDevice'

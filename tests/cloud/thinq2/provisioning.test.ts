@@ -1,5 +1,5 @@
-import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
+import { describe, test } from 'node:test'
 import express from 'express'
 import { routes } from '@/cloud/thinq2/provisioning'
 import type { CA, Config } from '@/util/config'

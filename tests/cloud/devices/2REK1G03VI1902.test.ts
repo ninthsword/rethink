@@ -1,8 +1,8 @@
-import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { test } from 'node:test'
 import DUT from '@/cloud/devices/2REK1G03VI1902'
 import type { Metadata } from '@/cloud/thinq'
-import { MockHAConnection, MockThinq2Device, buf } from '@/tests/helpers/mocks'
+import { buf, MockHAConnection, MockThinq2Device } from '@/tests/helpers/mocks'
 
 const META: Metadata = { modelId: '2REK1G03VI1902', modelName: '2REK1G03VI1902', swVersion: '1.0' }
 const LIVE_STATUS = buf('AA0F11EB0200FF0300FF000100ECBB')
@@ -113,7 +113,7 @@ test('2REK1G03VI1902 reads the control panel lock', () => {
 
 test('2REK1G03VI1902 keeps the raw compartment sensors alongside the modes', () => {
     const { ha } = makeDevice()
-    const components = ha.devices['kimchi-id'].config!.components as Record<string, Record<string, unknown>>
+    const components = ha.devices['kimchi-id'].config?.components as Record<string, Record<string, unknown>>
 
     // The mode enums are the accurate reading, but the raw sensors carry the user's
     // existing Home Assistant history, so both are published.

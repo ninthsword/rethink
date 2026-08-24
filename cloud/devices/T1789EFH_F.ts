@@ -1,19 +1,19 @@
-import HADevice from './base'
-import { Device as Thinq2Device } from '../thinq2/device'
-import { type Connection } from '../homeassistant'
-import { type Metadata } from '../thinq'
 import { allowExtendedType } from '@/util/casting'
+import type { Connection } from '../homeassistant'
+import type { Metadata } from '../thinq'
+import type { Device as Thinq2Device } from '../thinq2/device'
 import AABBDevice from './aabb_device'
+import HADevice from './base'
 
 const STATUS: Record<number, string> = {
-    0x00: 'Off',
-    0x01: 'Fill / Sense',
-    0x02: 'Paused',
-    0x03: 'Wash (initial)',
-    0x05: 'Wash (main)',
-    0x06: 'Rinse / Drain',
-    0x07: 'Rinse / Drain',
-    0x08: 'Spin',
+    0: 'Off',
+    1: 'Fill / Sense',
+    2: 'Paused',
+    3: 'Wash (initial)',
+    5: 'Wash (main)',
+    6: 'Rinse / Drain',
+    7: 'Rinse / Drain',
+    8: 'Spin',
 }
 
 export default class Device extends AABBDevice {

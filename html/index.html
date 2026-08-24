@@ -1,5 +1,5 @@
 <!doctype html>
-<html>
+<html lang="en">
     <head>
         <style>
             .offline .hide-when-offline {
@@ -58,9 +58,9 @@
     </head>
 
     <body class="offline">
-        <nav class="light-blue lighten-1" role="navigation">
+        <nav class="light-blue lighten-1" >
             <div class="nav-wrapper container">
-                <a id="logo-container" href="#" class="brand-logo">
+                <a id="logo-container" href="./" class="brand-logo">
                     <span class="material-icons">psychology_alt</span>
                     Rethink management panel
                 </a>
@@ -115,6 +115,7 @@
             <span id="status_bridge" class="status_field"></span>Status: <span id="status_bridge_text"></span
             ><br /><br />
             <button
+                type="button"
                 id="btn_thinq_login"
                 class="hide btn waves-effect waves-light modal-trigger"
                 data-target="thinq_login"
@@ -122,6 +123,7 @@
                 Log into your LG account <i class="material-icons right">login</i>
             </button>
             <button
+                type="button"
                 id="btn_thinq_logout"
                 class="hide btn waves-effect waves-light modal-trigger tooltipped"
                 data-target="thinq_logout"
@@ -196,7 +198,7 @@
             <div class="modal-content">
                 <h4>Logout confirmation</h4>
                 <p>Logging out will disable bridge mode for all your devices.</p>
-                <button class="btn waves-effect waves-light" id="btn_thinq_logout_continue">
+                <button type="button" class="btn waves-effect waves-light" id="btn_thinq_logout_continue">
                     Log out <i class="material-icons right">logout</i>
                 </button>
             </div>

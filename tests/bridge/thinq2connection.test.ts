@@ -1,5 +1,5 @@
-import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
+import { describe, test } from 'node:test'
 import { Connection } from '@/bridge/thinq2connection'
 import { Thinq2Device } from '@/bridge/thinqApi'
 import type { ClipDeployMessage } from '@/cloud/thinq2/clip'
@@ -45,6 +45,7 @@ function announce(profile?: ClipDeployMessage) {
             state: STATE,
         }),
         deployProfile: profile,
+        state: STATE,
         mid: 10000,
         mqtt: {
             subscribe: async () => {},

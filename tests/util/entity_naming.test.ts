@@ -1,7 +1,7 @@
-import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { entityObjectId, nameEntities } from '@/util/entity_naming'
+import { test } from 'node:test'
 import type { DeviceDiscovery } from '@/cloud/homeassistant'
+import { entityObjectId, nameEntities } from '@/util/entity_naming'
 
 function discovery(components: Record<string, Record<string, unknown>>, name = '안방에어컨') {
     return { device: { name }, components } as unknown as DeviceDiscovery

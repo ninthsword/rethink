@@ -5,7 +5,7 @@
 // rethink-capture.ts); the subscription is regenerated at runtime. On the first run the
 // login prompts for the country code interactively.
 
-import { connect, login, type CloudMessage } from '@/util/lgcloud/monitor'
+import { type CloudMessage, connect, login } from '@/util/lgcloud/monitor'
 import { loadState, saveState } from '@/util/lgcloud/state'
 
 function printMessage({ topic, payload, raw }: CloudMessage) {

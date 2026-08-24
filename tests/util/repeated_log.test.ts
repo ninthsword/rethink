@@ -1,5 +1,5 @@
-import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { test } from 'node:test'
 import { collapseRepeats, withoutErrorTag } from '@/util/repeated_log'
 
 test('the first occurrence is reported at once and the repeats are held', () => {

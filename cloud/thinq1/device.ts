@@ -1,9 +1,9 @@
+import { randomUUID } from 'node:crypto'
+import type { Duplex } from 'node:stream'
 import { TypedEmitter } from 'tiny-typed-emitter'
-import { Duplex } from 'node:stream'
+import type { Metadata } from '../thinq'
 import { Connection } from './connection'
 import { getDeviceMetadata } from './http'
-import { Metadata } from '../thinq'
-import { randomUUID } from 'node:crypto'
 
 type ConWithExtra = Connection & {
     deviceObj?: Device
@@ -61,9 +61,6 @@ type DeviceAcceptorEvents = {
 
 export class DeviceAcceptor extends TypedEmitter<DeviceAcceptorEvents> {
     connectionsById: Record<string, Connection> = {}
-    constructor() {
-        super()
-    }
 
     accept(socket: Duplex) {
         const con = new Connection(socket) as ConWithExtra

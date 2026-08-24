@@ -1,10 +1,10 @@
-import TLVDevice, { marksCapsResponse } from './tlv_device'
-import { Device as Thinq2Device } from '../thinq2/device'
-import { DeviceDiscovery, type Connection } from '../homeassistant'
-import { type Metadata } from '../thinq'
 import { allowExtendedType } from '@/util/casting'
-import * as TLV from '@/util/tlv'
+import type * as TLV from '@/util/tlv'
+import type { Connection, DeviceDiscovery } from '../homeassistant'
+import type { Metadata } from '../thinq'
+import type { Device as Thinq2Device } from '../thinq2/device'
 import HADevice from './base'
+import TLVDevice, { marksCapsResponse } from './tlv_device'
 
 /**
  * LG Air Conditioner Model LW1823HRSM
@@ -64,7 +64,7 @@ export default class Device extends TLVDevice {
             write_xform: (val) => (val === 'ON' ? 1 : 0),
             write_attach: (raw) => (raw ? [0x1f9] : []),
             read_xform: (raw) => (raw ? 'ON' : 'OFF'),
-            read_callback: (val) => {
+            read_callback: (_val) => {
                 // update 'mode' instead
                 this.processKeyValue(0x1f9, this.raw_clip_state[0x1f9])
                 return false
@@ -148,6 +148,6 @@ export default class Device extends TLVDevice {
 
     isValuesResponse(tlvArray: TLV.TLV[]) {
         /* power */
-        return tlvArray.length >= 10 && tlvArray.some(({ t, v }) => t === 0x1f7)
+        return tlvArray.length >= 10 && tlvArray.some(({ t }) => t === 0x1f7)
     }
 }

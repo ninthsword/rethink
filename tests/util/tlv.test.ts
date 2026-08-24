@@ -1,5 +1,5 @@
-import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
+import { describe, test } from 'node:test'
 import * as TLV from '@/util/tlv'
 
 // This covers all cases of length encodings (l=0/1/2/3).

@@ -1,5 +1,5 @@
-import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
+import { describe, test } from 'node:test'
 import DUT from '@/cloud/devices/PAC_910604_WW'
 import type { Metadata } from '@/cloud/thinq'
 import { MockHAConnection, MockThinq2Device } from '@/tests/helpers/mocks'
@@ -12,7 +12,7 @@ function makeDevice() {
     const ha = new MockHAConnection()
     const thinq = new MockThinq2Device(DEVICE_ID, META)
     const dev = new DUT(ha.asConnection(), thinq, META)
-    ha.on('setProperty', (id: string, prop: string, value: string) => dev.setProperty(prop, value))
+    ha.on('setProperty', (_id: string, prop: string, value: string) => dev.setProperty(prop, value))
     return { ha, thinq, dev }
 }
 
@@ -38,7 +38,7 @@ function configureDevice() {
 describe('PAC_910604_WW', () => {
     test('exposes its live-confirmed controls and raw power value', () => {
         const { ha, thinq, dev } = configureDevice()
-        const components = ha.devices[DEVICE_ID].config!.components as Record<string, Record<string, unknown>>
+        const components = ha.devices[DEVICE_ID].config?.components as Record<string, Record<string, unknown>>
 
         for (const component of [
             'airclean',
@@ -374,7 +374,7 @@ describe('PAC_910604_WW energy without B115 reports', () => {
 describe('PAC_910604_WW retires the by-hand period sensors', () => {
     test('Home Assistant is told to drop them rather than left showing frozen ones', () => {
         const { ha, dev } = configureDevice()
-        const published = ha.devices[DEVICE_ID].config!.components as Record<string, Record<string, unknown>>
+        const published = ha.devices[DEVICE_ID].config?.components as Record<string, Record<string, unknown>>
 
         // The month figure competed with the official ThinQ integration's, which comes from
         // LG's own accounting; the hour and day ones did by hand what Home Assistant's

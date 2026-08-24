@@ -1,18 +1,18 @@
 import { spawn } from 'node:child_process'
 import { Router } from 'express'
-import { CA, Config } from '@/util/config'
-import { ClipDeployMessage } from './clip'
+import type { CA, Config } from '@/util/config'
+import type { ClipDeployMessage } from './clip'
 
 export function routes(config: Config, ca: CA) {
     const router = Router()
-    router.get('/route', (req, res) => {
+    router.get('/route', (_req, res) => {
         // Naming rethink here only works if that name resolves for the appliance, which is
         // true when the appliance was pointed at rethink deliberately and not when a
         // firewall rule redirects it. An appliance handed an address that does not exist
         // stops dialling altogether.
         const servers = config.route_servers ?? {
-            apiServer: 'https://' + config.hostname + ':' + config.https_port.advertise,
-            mqttServer: 'ssl://' + config.hostname + ':' + config.mqtts_port.advertise,
+            apiServer: `https://${config.hostname}:${config.https_port.advertise}`,
+            mqttServer: `ssl://${config.hostname}:${config.mqtts_port.advertise}`,
         }
         res.json({ resultCode: '0000', result: servers })
     })
@@ -47,7 +47,7 @@ export function routes(config: Config, ca: CA) {
             out.push(data)
         })
         x509.stderr.on('data', () => {})
-        x509.on('close', (code) => {
+        x509.on('close', (_code) => {
             // Warning: we don't supply MQTT topics at this point. Maybe we should?
             // OTOH, the firmware seems to ignore it outright...
             res.json({
@@ -73,7 +73,7 @@ export function generateDeployResponse(payload: ClipDeployMessage) {
                 host: 'message',
                 publication: {
                     // this path is arbitrary
-                    message: 'clip/message/devices/' + payload.did,
+                    message: `clip/message/devices/${payload.did}`,
 
                     // This path is not-so-arbitrary, because the device will cache it
                     // and try to reuse it on a next provisioning attempt. We pick the
@@ -82,7 +82,7 @@ export function generateDeployResponse(payload: ClipDeployMessage) {
 
                     // The paths ARE sent by the API server during certificate generation
                     // but the firmware I've worked with seems to ignore them.
-                    provisioning: 'clip/provisioning/devices/' + payload.did,
+                    provisioning: `clip/provisioning/devices/${payload.did}`,
                 },
             },
             provisioningType: payload.cmd,

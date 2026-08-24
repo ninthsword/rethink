@@ -1,7 +1,7 @@
-import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
-import { delocalizeValue, localizeDiscovery, localizeValue } from '@/util/ha_locale'
+import { describe, test } from 'node:test'
 import type { DeviceDiscovery } from '@/cloud/homeassistant'
+import { delocalizeValue, localizeDiscovery, localizeValue } from '@/util/ha_locale'
 
 describe('korean appliance value localization', () => {
     test('translates the washer course, water temperature and dry level tokens', () => {

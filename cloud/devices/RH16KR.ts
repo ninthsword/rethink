@@ -1,9 +1,9 @@
-import HADevice from './base'
-import AABBDevice from './aabb_device'
-import { Device as Thinq2Device } from '../thinq2/device'
-import { type Connection } from '../homeassistant'
-import { type Metadata } from '../thinq'
 import { allowExtendedType } from '@/util/casting'
+import type { Connection } from '../homeassistant'
+import type { Metadata } from '../thinq'
+import type { Device as Thinq2Device } from '../thinq2/device'
+import AABBDevice from './aabb_device'
+import HADevice from './base'
 
 const STATUS: Record<number, string> = {
     0: 'POWEROFF',
@@ -50,17 +50,17 @@ const COURSE: Record<number, string> = {
  */
 const DOWNLOADED_COURSE: Record<number, string> = {
     0: 'NONE',
-    0x66: 'GYMCLOTHES',
-    0x69: 'RAINYSEASON',
-    0x6b: 'DEODORIZATION',
-    0x6c: 'SMALLLOAD',
-    0x6e: 'EASYIRON',
-    0x70: 'ECONOMICDRY',
-    0x71: 'BIGSIZEITEM',
-    0x72: 'MINIMIZEWRINKLES',
-    0x74: 'FULLSIZELOAD',
-    0x77: 'POWER',
-    0x83: 'SELFCLEANING',
+    102: 'GYMCLOTHES',
+    105: 'RAINYSEASON',
+    107: 'DEODORIZATION',
+    108: 'SMALLLOAD',
+    110: 'EASYIRON',
+    112: 'ECONOMICDRY',
+    113: 'BIGSIZEITEM',
+    114: 'MINIMIZEWRINKLES',
+    116: 'FULLSIZELOAD',
+    119: 'POWER',
+    131: 'SELFCLEANING',
 }
 // Exact RH16KR processState table from the installed model diagnostic.
 /*

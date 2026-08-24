@@ -7,7 +7,7 @@ export function subprocess(command: string, args: string[], stdin: string = ''):
         subprocess.stdout.on('data', (data: Buffer) => {
             out.push(data)
         })
-        subprocess.on('close', (code) => {
+        subprocess.on('close', (_code) => {
             resolve(Buffer.concat(out).toString('utf-8'))
         })
         subprocess.on('error', reject)

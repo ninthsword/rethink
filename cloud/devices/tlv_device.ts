@@ -8,14 +8,13 @@ const UNANSWERED_QUERIES_BEFORE_SILENT = 3
 /** Gap between initial-values attempts. */
 const INITIAL_VALUES_RETRY_MS = 15 * 1000
 
+import crc16 from '@/util/crc16'
+import log from '@/util/logging'
+import * as TLV from '@/util/tlv'
+import type { Connection, DeviceDiscovery } from '../homeassistant'
+import type { Device as Thinq2Device } from '../thinq2/device'
 // base implementation for devices with a TLV-based payload format
 import HADevice from './base'
-
-import crc16 from '@/util/crc16'
-import * as TLV from '@/util/tlv'
-import { Device as Thinq2Device } from '../thinq2/device'
-import { DeviceDiscovery, type Connection } from '../homeassistant'
-import log from '@/util/logging'
 
 export type FieldDefinition = {
     id?: number
@@ -105,9 +104,12 @@ export default class TLVDevice extends HADevice {
 
     // we waste memory by storing the field set per-device, not per-class. Whatever.
     addField(config: DeviceDiscovery, options: FieldDefinition, autoreg?: boolean) {
-        if (options.id) (this.fields_by_id[options.id] ??= []).push(options)
+        if (options.id) {
+            this.fields_by_id[options.id] ??= []
+            this.fields_by_id[options.id].push(options)
+        }
 
-        let fullName = options.comp + '-' + options.name
+        const fullName = `${options.comp}-${options.name}`
         // Two entities on one topic is never intentional: the second shadows the first for
         // writes, and no amount of reading the device file makes that visible.
         if (this.fields_by_ha[fullName])
@@ -117,17 +119,17 @@ export default class TLVDevice extends HADevice {
         if (autoreg !== false) {
             let topicPrefix: string = ''
             if (options.name !== '') {
-                topicPrefix = options.name + '_'
+                topicPrefix = `${options.name}_`
             }
 
-            let target = config['components'][options.comp] as any
+            const target = config.components[options.comp] as unknown as Record<string, string>
 
             if (options.readable !== false) {
                 const stateTopic = options.state_topic == null ? 'state_topic' : options.state_topic
-                target[topicPrefix + stateTopic] = '$this/' + fullName
+                target[topicPrefix + stateTopic] = `$this/${fullName}`
             }
 
-            if (options.writable !== false) target[topicPrefix + 'command_topic'] = '$this/' + fullName + '/set'
+            if (options.writable !== false) target[`${topicPrefix}command_topic`] = `$this/${fullName}/set`
         }
     }
 
@@ -176,7 +178,7 @@ export default class TLVDevice extends HADevice {
     }
 
     setQueryInterval(interval: number = 15 * 60 * 1000) {
-        if (this.query_timer != undefined) {
+        if (this.query_timer !== undefined) {
             if (this.query_last_interval === interval) return
 
             if (this.query_last_timestamp != null && performance.now() - this.query_last_timestamp >= interval) {
@@ -206,17 +208,17 @@ export default class TLVDevice extends HADevice {
     }
 
     stopTimers() {
-        if (this.query_timer != undefined) {
+        if (this.query_timer !== undefined) {
             clearInterval(this.query_timer)
             this.query_timer = undefined
         }
 
-        if (this.query_caps_timeout != undefined) {
+        if (this.query_caps_timeout !== undefined) {
             clearInterval(this.query_caps_timeout)
             this.query_caps_timeout = undefined
         }
 
-        if (this.query_values_timeout != undefined) {
+        if (this.query_values_timeout !== undefined) {
             clearInterval(this.query_values_timeout)
             this.query_values_timeout = undefined
         }
@@ -230,14 +232,14 @@ export default class TLVDevice extends HADevice {
 
     processData(buf: Buffer) {
         if (
-            buf[2] == 0x04 &&
-            buf[3] == 0x00 &&
-            buf[4] == 0x00 &&
-            buf[5] == 0x00 &&
-            (buf[6] == 0x87 || buf[6] == 0xa7) &&
-            buf[7] == 0x02 &&
-            (buf[8] == 0x01 || buf[8] == 0x04) &&
-            /* && buf[9] is a "sequence" number */ buf[10] == buf.length - 13
+            buf[2] === 0x04 &&
+            buf[3] === 0x00 &&
+            buf[4] === 0x00 &&
+            buf[5] === 0x00 &&
+            (buf[6] === 0x87 || buf[6] === 0xa7) &&
+            buf[7] === 0x02 &&
+            (buf[8] === 0x01 || buf[8] === 0x04) &&
+            /* && buf[9] is a "sequence" number */ buf[10] === buf.length - 13
         ) {
             // ignore the CRC, we assume that the modem verifies it :/
             log('status', this.id, 'received TLV packet')
@@ -257,33 +259,33 @@ export default class TLVDevice extends HADevice {
             this.processTLV(TLV.parse(buf.subarray(11, buf.length - 2)))
         }
         if (
-            buf[1] == 0xff &&
-            buf[2] == 0x04 &&
-            buf[3] == 0x00 &&
-            buf[4] == 0x00 &&
-            buf[5] == 0x00 &&
-            (buf[6] == 0x87 || buf[6] == 0xa7) &&
-            buf[7] == 0xfd &&
-            buf[8] == 0x03 &&
-            buf[10] == buf.length - 13
+            buf[1] === 0xff &&
+            buf[2] === 0x04 &&
+            buf[3] === 0x00 &&
+            buf[4] === 0x00 &&
+            buf[5] === 0x00 &&
+            (buf[6] === 0x87 || buf[6] === 0xa7) &&
+            buf[7] === 0xfd &&
+            buf[8] === 0x03 &&
+            buf[10] === buf.length - 13
         ) {
             this.processPrivData(buf[0], buf[9], buf.subarray(11, buf.length - 2))
         }
         if (
-            (buf[0] == 0x02 || buf[0] == 0x03) &&
-            buf[2] == 0x04 &&
-            buf[3] == 0x00 &&
-            buf[4] == 0x00 &&
-            buf[5] == 0x00 &&
-            (buf[6] == 0x87 || buf[6] == 0xa7) &&
-            buf[7] == 0xfd &&
-            buf[8] == 0x10 &&
-            buf[9] == 0x00 &&
-            buf[10] == 0x05 &&
-            buf[11] == 0xfe &&
+            (buf[0] === 0x02 || buf[0] === 0x03) &&
+            buf[2] === 0x04 &&
+            buf[3] === 0x00 &&
+            buf[4] === 0x00 &&
+            buf[5] === 0x00 &&
+            (buf[6] === 0x87 || buf[6] === 0xa7) &&
+            buf[7] === 0xfd &&
+            buf[8] === 0x10 &&
+            buf[9] === 0x00 &&
+            buf[10] === 0x05 &&
+            buf[11] === 0xfe &&
             buf[12] != null
         ) {
-            this.processPrivDataCmdResp(buf[0] == 0x02, buf[1], buf[12], buf.subarray(13, buf.length - 2))
+            this.processPrivDataCmdResp(buf[0] === 0x02, buf[1], buf[12], buf.subarray(13, buf.length - 2))
         }
     }
 
@@ -296,12 +298,12 @@ export default class TLVDevice extends HADevice {
         this.thinq.send_packet(Buffer.from(buf))
     }
 
-    isCapsResponse(tlvArray: TLV.TLV[]) {
+    isCapsResponse(_tlvArray: TLV.TLV[]) {
         /* To be overridden */
         return false
     }
 
-    isValuesResponse(tlvArray: TLV.TLV[]) {
+    isValuesResponse(_tlvArray: TLV.TLV[]) {
         /* To be overridden */
         return false
     }
@@ -338,19 +340,21 @@ export default class TLVDevice extends HADevice {
         /* To be overridden if necessary */
     }
 
-    processPrivData(cmd: number, buf9: number, data: Buffer) {
+    processPrivData(_cmd: number, _buf9: number, _data: Buffer) {
         /* To be overridden */
     }
 
-    processPrivDataCmdResp(success: boolean, buf1: number, cmd: number, data: Buffer) {
+    processPrivDataCmdResp(_success: boolean, _buf1: number, _cmd: number, _data: Buffer) {
         /* To be overridden */
     }
 
     processTLV(tlvArray: TLV.TLV[]) {
-        tlvArray.forEach(({ t, v }) => this.processKeyValue(t, v))
+        tlvArray.forEach(({ t, v }) => {
+            this.processKeyValue(t, v)
+        })
 
         // capabilities are expected to be received only at the init time
-        if (this.query_caps_timeout != undefined && this.isCapsResponse(tlvArray)) {
+        if (this.query_caps_timeout !== undefined && this.isCapsResponse(tlvArray)) {
             log('status', this.id, 'received capability key')
             clearInterval(this.query_caps_timeout)
             this.query_caps_timeout = undefined
@@ -374,8 +378,8 @@ export default class TLVDevice extends HADevice {
 
         // values are expected to be received also post-init time
         // but don't process them until capabilities are received
-        if (this.query_caps_timeout == undefined && this.isValuesResponse(tlvArray)) {
-            if (this.query_values_timeout != undefined) {
+        if (this.query_caps_timeout === undefined && this.isValuesResponse(tlvArray)) {
+            if (this.query_values_timeout !== undefined) {
                 log('status', this.id, 'received initial values key')
                 clearInterval(this.query_values_timeout)
                 this.query_values_timeout = undefined
@@ -394,7 +398,7 @@ export default class TLVDevice extends HADevice {
         let processed: string | number = v
 
         if (def.read_xform) {
-            let tmp = def.read_xform(processed)
+            const tmp = def.read_xform(processed)
             if (tmp === undefined) return
             processed = tmp
         }
@@ -404,7 +408,7 @@ export default class TLVDevice extends HADevice {
         if (doRead) {
             if (def.readable === false) return
 
-            let fullName = def.comp + '-' + def.name
+            const fullName = `${def.comp}-${def.name}`
             this.HA.publishProperty(this.id, fullName, processed)
         }
     }

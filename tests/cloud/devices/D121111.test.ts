@@ -1,8 +1,8 @@
-import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { test } from 'node:test'
 import DUT from '@/cloud/devices/D121111'
 import type { Metadata } from '@/cloud/thinq'
-import { MockHAConnection, MockThinq2Device, buf } from '@/tests/helpers/mocks'
+import { buf, MockHAConnection, MockThinq2Device } from '@/tests/helpers/mocks'
 
 const META: Metadata = { modelId: 'D121111', modelName: 'D121111', swVersion: '1.0' }
 const LIVE_POWER_OFF = buf(
@@ -26,8 +26,8 @@ test('D121111 decodes the newest live dishwasher record', () => {
     assert.equal(p.reserve_time, 0)
     assert.equal(p.course, 'NONE')
     assert.equal(p.current_download_course, 'FISH_DISH')
-    assert.equal(device.config!.components.remote_start, undefined)
-    assert.ok(device.config!.components.run_completed)
+    assert.equal(device.config?.components.remote_start, undefined)
+    assert.ok(device.config?.components.run_completed)
 })
 
 test('D121111 reports the runs since the last tub sterilisation', () => {

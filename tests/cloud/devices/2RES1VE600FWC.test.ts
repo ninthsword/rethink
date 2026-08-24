@@ -1,8 +1,8 @@
-import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
+import { describe, test } from 'node:test'
 import DUT from '@/cloud/devices/2RES1VE600FWC'
 import type { Metadata } from '@/cloud/thinq'
-import { MockHAConnection, MockThinq2Device, buf, hex } from '@/tests/helpers/mocks'
+import { buf, hex, MockHAConnection, MockThinq2Device } from '@/tests/helpers/mocks'
 
 const DEVICE_ID = 'test-id'
 const MODEL_ID = '2RES1VE600FWC'
@@ -42,7 +42,7 @@ describe(MODEL_ID, () => {
         const dev = ha.devices[DEVICE_ID]
         assert.ok(dev?.config, 'config published')
 
-        const components = dev.config!.components as Record<string, Record<string, unknown>>
+        const components = dev.config?.components as Record<string, Record<string, unknown>>
         assert.equal(components.fridge_setpoint.unit_of_measurement, '°C')
         assert.equal(components.freezer_setpoint.unit_of_measurement, '°C')
         assert.ok(components.express_freeze)

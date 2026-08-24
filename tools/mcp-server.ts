@@ -15,12 +15,12 @@
 // Run:  npx tsx tools/mcp-server.ts
 // Diagnostics go to stderr; stdout carries the protocol only.
 
-import readline from 'node:readline'
 import * as fs from 'node:fs'
+import readline from 'node:readline'
 import WebSocket from 'ws'
-import { encodePacket, decodePacket, type EncodeInput } from '@/util/packet-codec'
 import { connect as cloudConnect } from '@/util/lgcloud/monitor'
 import { loadState } from '@/util/lgcloud/state'
+import { decodePacket, type EncodeInput, encodePacket } from '@/util/packet-codec'
 
 const DEFAULT_MGMT = process.env.RETHINK_MGMT ?? 'localhost:44401'
 const CLOUD_STATE_PATH = process.env.RETHINK_CLOUD_STATE
@@ -30,6 +30,12 @@ const CLOUD_STATE_PATH = process.env.RETHINK_CLOUD_STATE
 let mgmtHost = DEFAULT_MGMT
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+
+type JsonObject = Record<string, unknown>
+
+function isJsonObject(value: unknown): value is JsonObject {
+    return !!value && typeof value === 'object' && !Array.isArray(value)
+}
 
 // ── cloud-oracle feed ───────────────────────────────────────────────────────
 // Subscribe to the real LG cloud's notification feed and buffer every message with a
@@ -141,15 +147,17 @@ function deviceCaptureStart(host: string, deviceId: string): Promise<string> {
             }
         }
         ws.on('message', (data: WebSocket.RawData) => {
-            let msg: any
+            let msg: JsonObject
             try {
-                msg = JSON.parse(data.toString())
+                const parsed: unknown = JSON.parse(data.toString())
+                if (!isJsonObject(parsed)) return
+                msg = parsed
             } catch {
                 return
             }
             if (typeof msg.rx === 'string') pushWire(deviceId, 'fromDevice', msg.rx, !!msg.injected)
             else if (typeof msg.tx === 'string') pushWire(deviceId, 'toDevice', msg.tx, !!msg.injected)
-            else if (msg.status) done(msg.status)
+            else if (typeof msg.status === 'string') done(msg.status)
         })
         ws.on('error', (err) => {
             deviceSubs.delete(deviceId)
@@ -175,7 +183,10 @@ function deviceCaptureStop(deviceId?: string) {
 
 // ── tool implementations ───────────────────────────────────────────────────
 
-const tools: Record<string, { description: string; inputSchema: object; handler: (args: any) => Promise<any> }> = {
+const tools: Record<
+    string,
+    { description: string; inputSchema: object; handler: (args: JsonObject) => Promise<unknown> }
+> = {
     set_mgmt_host: {
         description:
             'Set the rethink-cloud management host[:port] that the device tools (list_devices, device_start, inject, probe) connect to, for the rest of this session. Starts at the RETHINK_MGMT env value (or localhost:44401). Port defaults to 44401 if omitted. Returns the current value.',
@@ -438,6 +449,8 @@ const tools: Record<string, { description: string; inputSchema: object; handler:
             required: ['deviceId', 'hex', 'direction'],
         },
         handler: async (args) => {
+            if (args.direction !== 'fromDevice' && args.direction !== 'toDevice')
+                throw new Error('direction must be fromDevice or toDevice')
             if (args.direction === 'toDevice' && args.confirm !== true)
                 throw new Error('toDevice injection actuates hardware; pass confirm:true to proceed')
             await injectOnce(mgmtHost, String(args.deviceId), args.direction, String(args.hex))
@@ -478,9 +491,17 @@ const tools: Record<string, { description: string; inputSchema: object; handler:
             const settleMs = Number(args.settleMs ?? 2000)
             const feed = await ensureCloudFeed()
 
+            if (!isJsonObject(args.mutate) || !Array.isArray(args.mutate.values))
+                throw new Error('mutate.values must be an array')
+            const mutation: Mutation = {
+                tlvId: Number(args.mutate.tlvId),
+                byteOffset: Number(args.mutate.byteOffset),
+                values: args.mutate.values.map(Number),
+            }
+
             const results = []
-            for (const value of args.mutate.values as number[]) {
-                const mutated = applyMutation(base, args.mutate, value)
+            for (const value of mutation.values) {
+                const mutated = applyMutation(base, mutation, value)
                 const { hex } = encodePacket(mutated)
                 const since = Date.now()
 
@@ -506,7 +527,9 @@ const tools: Record<string, { description: string; inputSchema: object; handler:
     },
 }
 
-function applyMutation(base: EncodeInput, mutate: any, value: number): EncodeInput {
+type Mutation = { tlvId: number; byteOffset: number; values: number[] }
+
+function applyMutation(base: EncodeInput, mutate: Mutation, value: number): EncodeInput {
     if (base.protocol === 'tlv') {
         const tlv = base.tlv.map((e) => (e.t === mutate.tlvId ? { ...e, v: value } : e))
         if (!tlv.some((e) => e.t === mutate.tlvId)) tlv.push({ t: mutate.tlvId, v: value })
@@ -519,7 +542,9 @@ function applyMutation(base: EncodeInput, mutate: any, value: number): EncodeInp
 }
 
 // Open the management /ws, grab the snapshot it sends on connect ({ha, bridge, devices}), close.
-function mgmtSnapshot(host: string): Promise<any> {
+type ManagementSnapshot = { ha?: unknown; bridge?: unknown; devices?: Record<string, unknown> }
+
+function mgmtSnapshot(host: string): Promise<ManagementSnapshot> {
     const h = host.includes(':') ? host : `${host}:44401`
     return new Promise((resolve, reject) => {
         const ws = new WebSocket(`ws://${h}/ws`)
@@ -530,7 +555,9 @@ function mgmtSnapshot(host: string): Promise<any> {
         ws.on('message', (data: WebSocket.RawData) => {
             clearTimeout(timer)
             try {
-                resolve(JSON.parse(data.toString()))
+                const parsed: unknown = JSON.parse(data.toString())
+                if (!isJsonObject(parsed)) throw new Error('management snapshot is not an object')
+                resolve(parsed as ManagementSnapshot)
             } catch (err) {
                 reject(err as Error)
             } finally {
@@ -571,9 +598,11 @@ function injectOnce(host: string, deviceId: string, direction: 'fromDevice' | 't
         )
         ws.on('open', () => ws.send(JSON.stringify({ [sendKey]: hex })))
         ws.on('message', (data: WebSocket.RawData) => {
-            let msg: any
+            let msg: JsonObject
             try {
-                msg = JSON.parse(data.toString())
+                const parsed: unknown = JSON.parse(data.toString())
+                if (!isJsonObject(parsed)) return
+                msg = parsed
             } catch {
                 return
             }
@@ -587,10 +616,16 @@ function injectOnce(host: string, deviceId: string, direction: 'fromDevice' | 't
 // ── JSON-RPC / MCP plumbing ─────────────────────────────────────────────────
 
 function send(msg: object) {
-    process.stdout.write(JSON.stringify(msg) + '\n')
+    process.stdout.write(`${JSON.stringify(msg)}\n`)
 }
 
-async function handle(req: any) {
+type JsonRpcRequest = {
+    id?: string | number | null
+    method?: string
+    params?: { name?: string; arguments?: JsonObject }
+}
+
+async function handle(req: JsonRpcRequest) {
     const { id, method, params } = req
     try {
         if (method === 'initialize') {
@@ -622,24 +657,25 @@ async function handle(req: any) {
             }
         }
         if (method === 'tools/call') {
-            const tool = tools[params?.name]
+            const tool = params?.name ? tools[params.name] : undefined
             if (!tool) throw new Error(`unknown tool: ${params?.name}`)
-            const out = await tool.handler(params.arguments ?? {})
+            const out = await tool.handler(params?.arguments ?? {})
             return { jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: JSON.stringify(out, null, 2) }] } }
         }
         // notifications (no id) and anything else: no response
         if (id === undefined) return null
         return { jsonrpc: '2.0', id, error: { code: -32601, message: `method not found: ${method}` } }
-    } catch (err: any) {
+    } catch (err) {
+        const message = err instanceof Error ? err.message : String(err)
         if (id === undefined) return null
         // surface tool errors as a tool result so the agent can react, not a transport error
         if (method === 'tools/call')
             return {
                 jsonrpc: '2.0',
                 id,
-                result: { content: [{ type: 'text', text: `ERROR: ${err.message}` }], isError: true },
+                result: { content: [{ type: 'text', text: `ERROR: ${message}` }], isError: true },
             }
-        return { jsonrpc: '2.0', id, error: { code: -32000, message: err.message } }
+        return { jsonrpc: '2.0', id, error: { code: -32000, message } }
     }
 }
 
@@ -647,9 +683,11 @@ const rl = readline.createInterface({ input: process.stdin })
 rl.on('line', async (line) => {
     const text = line.trim()
     if (!text) return
-    let req: any
+    let req: JsonRpcRequest
     try {
-        req = JSON.parse(text)
+        const parsed: unknown = JSON.parse(text)
+        if (!isJsonObject(parsed)) return
+        req = parsed as JsonRpcRequest
     } catch {
         return
     }

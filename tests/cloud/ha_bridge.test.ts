@@ -1,10 +1,10 @@
-import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
+import { describe, test } from 'node:test'
 import Bridge from '@/cloud/ha_bridge'
 import type { Metadata } from '@/cloud/thinq'
 import { MockHAConnection, MockThinq2Device } from '@/tests/helpers/mocks'
-import { normalize, type RawConfig } from '@/util/config'
 import { enableMockTimers, tickMockTimers } from '@/tests/helpers/timers'
+import { normalize, type RawConfig } from '@/util/config'
 
 const META: Metadata = { modelId: 'Hd0C_F', modelName: 'Hd0C_F', swVersion: '2.10.93' }
 

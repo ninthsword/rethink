@@ -1,14 +1,12 @@
-import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
+import { describe, test } from 'node:test'
 import DUT from '@/cloud/devices/Hd0C_F'
 import type { Metadata } from '@/cloud/thinq'
-import { MockHAConnection, MockThinq2Device, buf, hex } from '@/tests/helpers/mocks'
+import { buf, hex, MockHAConnection, MockThinq2Device } from '@/tests/helpers/mocks'
 
 const META: Metadata = { modelId: 'Hd0C_F', modelName: 'Hd0C_F', swVersion: '2.10.93' }
 const LIVE_RINSING = buf('aa2120eb001906003201040100010501020000000800000000060002036600fabb')
-const LIVE_FUNCTIONAL_CLOTHING_RUNNING = buf(
-    'aa2120eb001906003201040d00010501020000000800000000060002036600fabb',
-)
+const LIVE_FUNCTIONAL_CLOTHING_RUNNING = buf('aa2120eb001906003201040d00010501020000000800000000060002036600fabb')
 const LIVE_COURSE_SELECTIONS = [
     [
         'aa3c20ec001901003400340d0002060102000000000000000100660403660000190100000000100008020102000000c00000000100000603660092bb',
@@ -57,7 +55,7 @@ function makeDevice() {
 describe('Hd0C_F', () => {
     test('publishes the expanded component set', () => {
         const { ha } = makeDevice()
-        const components = ha.devices['washer-id'].config!.components as Record<string, unknown>
+        const components = ha.devices['washer-id'].config?.components as Record<string, unknown>
         for (const name of [
             'power',
             'status',

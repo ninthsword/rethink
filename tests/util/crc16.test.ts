@@ -1,5 +1,5 @@
-import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { test } from 'node:test'
 import crc16 from '@/util/crc16'
 
 // Frame: "01010400000065020101077E447E837F902AF936"

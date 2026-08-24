@@ -1,11 +1,11 @@
-import HADevice from './base'
-import { Device as Thinq2Device } from '../thinq2/device'
-import { type Connection } from '../homeassistant'
-import { type Metadata } from '../thinq'
-import { allowExtendedType } from '@/util/casting'
-import AABBDevice from './aabb_device'
-import { dirname, join, resolve } from 'node:path'
 import { readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { dirname, join, resolve } from 'node:path'
+import { allowExtendedType } from '@/util/casting'
+import type { Connection } from '../homeassistant'
+import type { Metadata } from '../thinq'
+import type { Device as Thinq2Device } from '../thinq2/device'
+import AABBDevice from './aabb_device'
+import HADevice from './base'
 
 const STATUS_LENGTH = 68
 const DOOR_WARNING_MS = 60_000

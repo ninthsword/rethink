@@ -1,4 +1,4 @@
-document.addEventListener('DOMContentLoaded', function () {
+document.addEventListener('DOMContentLoaded', () => {
     M.Tooltip.init(document.querySelectorAll('.tooltipped'))
     M.Modal.init(document.querySelectorAll('.modal'))
     M.FormSelect.init(document.querySelectorAll('select'))
@@ -15,7 +15,7 @@ document.addEventListener('DOMContentLoaded', function () {
     })
 })
 
-let ws
+let _ws
 let reconnectTimer
 const STATUS_OK = `<i class="tiny material-icons green-text">check</i>`
 const STATUS_ERROR = `<i class="tiny material-icons red-text">error</i>`
@@ -156,7 +156,9 @@ class DeviceEntry {
         children.push(td)
 
         this.row.replaceChildren(...children)
-        Array.from(this.row.getElementsByClassName('tooltipped')).forEach((e) => M.Tooltip.init(e))
+        Array.from(this.row.getElementsByClassName('tooltipped')).forEach((e) => {
+            M.Tooltip.init(e)
+        })
     }
 
     refreshUI() {
@@ -179,7 +181,7 @@ class DeviceEntry {
 
 function connect() {
     clearTimeout(reconnectTimer)
-    let ws = new WebSocket(baseUrl + 'ws')
+    const ws = new WebSocket(`${baseUrl}ws`)
 
     ws.onclose = () => {
         get('status_rethink').innerHTML = STATUS_ERROR
@@ -206,7 +208,7 @@ function connect() {
             }
 
             if (typeof json.devices === 'object') {
-                let deletedDevices = Object.keys(devices).filter((id) => !json.devices[id])
+                const deletedDevices = Object.keys(devices).filter((id) => !json.devices[id])
                 deletedDevices.forEach((id) => {
                     devices[id].destroy()
                     delete devices[id]

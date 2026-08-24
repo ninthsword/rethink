@@ -1,6 +1,6 @@
-import * as TLV from '../util/tlv'
-import crc16 from '../util/crc16'
 import * as mqtt from 'mqtt'
+import crc16 from '../util/crc16'
+import * as TLV from '../util/tlv'
 
 if (process.argv.length < 9) {
     console.warn(
@@ -18,11 +18,11 @@ if (process.argv.length < 9) {
 const [mqttHostname, deviceId, ...numbers] = process.argv.slice(2)
 const [b0, b1, b2, b3, b4] = numbers.map(Number)
 
-let tlv: TLV.TLV[] = []
-for (var i = 5; i + 1 < numbers.length; i += 2) tlv.push({ t: Number(numbers[i]), v: Number(numbers[i + 1]) })
-let tlvArray = TLV.build(tlv)
+const tlv: TLV.TLV[] = []
+for (let i = 5; i + 1 < numbers.length; i += 2) tlv.push({ t: Number(numbers[i]), v: Number(numbers[i + 1]) })
+const tlvArray = TLV.build(tlv)
 let buf = [0x04, 0x00, 0x00, 0x00, 0x65, b2, b3, b4, tlvArray.length].concat(tlvArray)
-let result = crc16(buf)
+const result = crc16(buf)
 
 buf = [b0, b1].concat(buf, [result >> 8, result & 0xff])
 const messagestr = JSON.stringify({
@@ -34,9 +34,9 @@ const messagestr = JSON.stringify({
 })
 console.log(messagestr)
 
-const client = mqtt.connect('mqtt://' + mqttHostname)
+const client = mqtt.connect(`mqtt://${mqttHostname}`)
 
 client.on('connect', () => {
-    client.publish('lime/devices/' + deviceId, messagestr + ' ')
+    client.publish(`lime/devices/${deviceId}`, `${messagestr} `)
     client.end()
 })

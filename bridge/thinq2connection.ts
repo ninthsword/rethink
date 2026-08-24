@@ -1,8 +1,8 @@
 import * as mqtt from 'mqtt'
-import { Thinq2Device } from './thinqApi'
 import { TypedEmitter } from 'tiny-typed-emitter'
-import log from '@/util/logging'
 import type { ClipDeployMessage, ClipMessage } from '@/cloud/thinq2/clip'
+import log from '@/util/logging'
+import type { Thinq2Device, Thinq2DeviceState } from './thinqApi'
 
 type ConnectionEvents = {
     data: (buffer: Buffer) => void
@@ -14,6 +14,7 @@ type ConnectionEvents = {
 export class Connection extends TypedEmitter<ConnectionEvents> {
     mqtt: mqtt.MqttClient
     mid = 10000
+    readonly state: Thinq2DeviceState
 
     constructor(
         readonly device: Thinq2Device,
@@ -26,7 +27,9 @@ export class Connection extends TypedEmitter<ConnectionEvents> {
         readonly deployProfile?: ClipDeployMessage,
     ) {
         super()
-        const state = this.device.state!
+        const state = this.device.state
+        if (!state) throw new Error('ThinQ2 bridge state is missing')
+        this.state = state
         log('bridge', `${this.device.deviceId} connecting to ${state.mqttServer}`)
         this.mqtt = mqtt.connect(state.mqttServer.replace('ssl', 'mqtts'), {
             ca: state.caCertificate,
@@ -38,7 +41,7 @@ export class Connection extends TypedEmitter<ConnectionEvents> {
 
         this.mqtt.on('message', (topic, message, packet) => {
             try {
-                if (topic === this.device.state!.subTopic) {
+                if (topic === this.state.subTopic) {
                     this.traceMqtt('cloud->rethink', topic, message.toString('utf-8'), packet)
                     const payload = JSON.parse(message.toString('utf-8'))
                     if (payload.cmd === 'completeProvisioning') {
@@ -53,7 +56,7 @@ export class Connection extends TypedEmitter<ConnectionEvents> {
                             data: null,
                             type: 1,
                         })
-                        this.publishToCloud(this.device.state!.pubTopic, message)
+                        this.publishToCloud(this.state.pubTopic, message)
                     }
 
                     // completeProvisioning terminates at the bridge. Every other command belongs to
@@ -86,11 +89,11 @@ export class Connection extends TypedEmitter<ConnectionEvents> {
      * connect handler so it can be exercised without a broker.
      */
     async announceToCloud() {
-        await this.mqtt.subscribe(this.device.state!.subTopic)
+        await this.mqtt.subscribe(this.state.subTopic)
         if (this.deployProfile) {
             // The appliance has described itself; nothing here can describe it better.
             await this.publishToCloud(
-                this.device.state!.provTopic,
+                this.state.provTopic,
                 JSON.stringify({ ...this.deployProfile, mid: ++this.mid }),
                 1,
             )
@@ -108,11 +111,11 @@ export class Connection extends TypedEmitter<ConnectionEvents> {
             data: {
                 appInfo: {
                     modelName: this.device.meta.modelName,
-                    modelLanguage: this.device.state!.countryCode,
+                    modelLanguage: this.state.countryCode,
                     softVer: '690409',
                     ruleVer: '2.0.11',
-                    countryCode: this.device.state!.countryCode,
-                    subCountryCode: this.device.state!.countryCode,
+                    countryCode: this.state.countryCode,
+                    subCountryCode: this.state.countryCode,
                     appVersion: 'clip_hna_v1.9.183',
                     modemType: 'RTK_RTL8711am',
                     regionalCode: 'eic',
@@ -138,7 +141,7 @@ export class Connection extends TypedEmitter<ConnectionEvents> {
             },
             type: 0,
         })
-        await this.publishToCloud(this.device.state!.provTopic, message, 1)
+        await this.publishToCloud(this.state.provTopic, message, 1)
     }
 
     send(data: string | Buffer) {
@@ -155,12 +158,12 @@ export class Connection extends TypedEmitter<ConnectionEvents> {
             data,
             type: 1,
         })
-        this.publishToCloud(this.device.state!.pubTopic, message)
+        this.publishToCloud(this.state.pubTopic, message)
     }
 
     sendMessage(payload: ClipMessage) {
         log('bridge', `${this.device.deviceId} -> ${payload.cmd}`)
-        this.publishToCloud(this.device.state!.pubTopic, JSON.stringify(payload))
+        this.publishToCloud(this.state.pubTopic, JSON.stringify(payload))
     }
 
     private publishToCloud(topic: string, message: string, qos: 0 | 1 | 2 = 0) {

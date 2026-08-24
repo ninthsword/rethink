@@ -1,5 +1,5 @@
-import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { test } from 'node:test'
 import type { DeviceDiscovery } from '@/cloud/homeassistant'
 import { validateDeviceDiscovery } from '@/util/ha_mqtt_validation'
 

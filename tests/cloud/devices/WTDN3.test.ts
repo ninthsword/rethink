@@ -1,8 +1,8 @@
-import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
+import { describe, test } from 'node:test'
 import DUT from '@/cloud/devices/WTDN3'
 import type { Metadata } from '@/cloud/thinq'
-import { MockHAConnection, MockThinq1Device, buf } from '@/tests/helpers/mocks'
+import { buf, MockHAConnection, MockThinq1Device } from '@/tests/helpers/mocks'
 
 const DEVICE_ID = 'test-id'
 const MODEL_ID = 'WTDN3'
@@ -29,7 +29,7 @@ describe(MODEL_ID, () => {
         const { ha } = makeDevice()
         const cfg = ha.devices[DEVICE_ID].config
         assert.ok(cfg, 'config published on construction')
-        const components = cfg!.components as Record<string, Record<string, unknown>>
+        const components = cfg?.components as Record<string, Record<string, unknown>>
         for (const c of [
             'power',
             'start',

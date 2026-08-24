@@ -1,9 +1,9 @@
-import HADevice from './base'
-import AABBDevice from './aabb_device'
-import { Device as Thinq2Device } from '../thinq2/device'
-import { type Connection } from '../homeassistant'
-import { type Metadata } from '../thinq'
 import { allowExtendedType } from '@/util/casting'
+import type { Connection } from '../homeassistant'
+import type { Metadata } from '../thinq'
+import type { Device as Thinq2Device } from '../thinq2/device'
+import AABBDevice from './aabb_device'
+import HADevice from './base'
 
 // Korean front-loading washer. The offsets are based on packets captured from
 // this exact model and cross-checked against its ThinQ washerDryer snapshot.
@@ -115,22 +115,22 @@ const ERROR: Record<number, string> = {
 
 const DOWNLOADED_COURSE: Record<number, string> = {
     0: 'NONE',
-    0x33: 'COLD_WASH',
-    0x34: 'SMALL_LOAD',
-    0x35: 'SKIN_CARE',
-    0x36: 'RAINY_DAY',
-    0x37: 'SWEAT_STAIN',
-    0x38: 'SINGLE_GARMENTS',
-    0x39: 'KIDS_WEAR',
-    0x3a: 'SHIRT',
-    0x3b: 'SCHOOL_UNIFORM',
-    0x3c: 'STATIC_REDUCE',
-    0x3f: 'SPIN_ONLY',
-    0x41: 'DEODORIZATION_WASHER',
-    0x43: 'CLOTH_CARE',
-    0x44: 'SMART_RINSE',
+    51: 'COLD_WASH',
+    52: 'SMALL_LOAD',
+    53: 'SKIN_CARE',
+    54: 'RAINY_DAY',
+    55: 'SWEAT_STAIN',
+    56: 'SINGLE_GARMENTS',
+    57: 'KIDS_WEAR',
+    58: 'SHIRT',
+    59: 'SCHOOL_UNIFORM',
+    60: 'STATIC_REDUCE',
+    63: 'SPIN_ONLY',
+    65: 'DEODORIZATION_WASHER',
+    67: 'CLOTH_CARE',
+    68: 'SMART_RINSE',
 }
-const OPERATION_COURSE: Record<number, string> = { 0: 'NONE', 0x04: 'SPEEDWASH' }
+const OPERATION_COURSE: Record<number, string> = { 0: 'NONE', 4: 'SPEEDWASH' }
 
 function sensor(name: string, icon: string, extra: object = {}) {
     return {

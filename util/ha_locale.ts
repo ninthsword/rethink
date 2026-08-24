@@ -500,7 +500,10 @@ const KOREAN_VALUES: Record<string, string> = {
  */
 const KOREAN_VALUES_REVERSE = (() => {
     const sources: Record<string, string[]> = {}
-    for (const [english, korean] of Object.entries(KOREAN_VALUES)) (sources[korean] ??= []).push(english)
+    for (const [english, korean] of Object.entries(KOREAN_VALUES)) {
+        sources[korean] ??= []
+        sources[korean].push(english)
+    }
     return Object.fromEntries(
         Object.entries(sources)
             .filter(([, english]) => english.length === 1)

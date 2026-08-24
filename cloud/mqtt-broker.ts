@@ -1,7 +1,7 @@
-import { IPublishPacket, IConnectPacket, ISubscribePacket, IUnsubscribePacket } from 'mqtt-packet'
-import newMqttConnection, { MqttConnection } from 'mqtt-connection'
+import type { Socket } from 'node:net'
+import newMqttConnection, { type MqttConnection } from 'mqtt-connection'
+import type { IConnectPacket, IPublishPacket } from 'mqtt-packet'
 import { TypedEmitter } from 'tiny-typed-emitter'
-import { Socket } from 'node:net'
 import log from '@/util/logging'
 
 export type PublishPacket = Omit<IPublishPacket, 'cmd'>
@@ -10,7 +10,7 @@ class Subscription {
     re: RegExp
 
     constructor(topicPattern: string) {
-        const re = '^' + topicPattern.replace(/#$/, '.*').replace(/\+/g, '[^/]*') + '$'
+        const re = `^${topicPattern.replace(/#$/, '.*').replace(/\+/g, '[^/]*')}$`
         this.re = new RegExp(re)
     }
 
@@ -48,7 +48,7 @@ type ClientEvents = {
 
 export class Client extends TypedEmitter<ClientEvents> {
     subscriptions = new Map<string, Subscription>()
-    mqtt: any = undefined
+    mqtt: MqttConnection | null | undefined
     will: LWT
 
     constructor(
@@ -108,7 +108,8 @@ export class Client extends TypedEmitter<ClientEvents> {
                     if (s.match(t)) {
                         // `t` comes from `unseenRetainedTopics` which is filled with values
                         // coming from `retainMap.keys()`. It will always be a valid key.
-                        mqtt.publish(retainMap.get(t)!)
+                        const retained = retainMap.get(t)
+                        if (retained) mqtt.publish(retained)
                         break
                     }
                 }
@@ -145,7 +146,7 @@ export class Client extends TypedEmitter<ClientEvents> {
     try_publish(packet: PublishPacket) {
         if (!this.mqtt) return
 
-        for (const [k, v] of this.subscriptions) {
+        for (const [_k, v] of this.subscriptions) {
             if (v.match(packet.topic)) {
                 this.mqtt.publish(packet)
                 return
@@ -163,10 +164,6 @@ type BrokerEvents = {
 export class Broker extends TypedEmitter<BrokerEvents> {
     clients = new Set<Client>()
     retainMap = new Map<string, PublishPacket>()
-
-    constructor() {
-        super()
-    }
 
     accept(stream: Socket) {
         const mqtt = newMqttConnection(stream)
@@ -215,7 +212,7 @@ export class Broker extends TypedEmitter<BrokerEvents> {
         // Until the CONNECT packet says otherwise. The grace of half again the keepalive is
         // what the MQTT specification asks a server to allow.
         stream.setTimeout(MIN_IDLE_TIMEOUT_MS)
-        stream.on('timeout', function () {
+        stream.on('timeout', () => {
             log('status', 'dropping idle mqtt client', client.remoteAddress ?? '', 'after', stream.timeout, 'ms')
             client.destroy()
         })

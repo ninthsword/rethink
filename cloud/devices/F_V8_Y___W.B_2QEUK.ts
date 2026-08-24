@@ -1,10 +1,10 @@
-import HADevice from './base'
-import { Device as Thinq2Device } from '../thinq2/device'
-import { type Connection } from '../homeassistant'
-import { type Metadata } from '../thinq'
 import { allowExtendedType } from '@/util/casting'
+import type { Connection } from '../homeassistant'
+import type { Metadata } from '../thinq'
+import type { Device as Thinq2Device } from '../thinq2/device'
 import AABBDevice from './aabb_device'
-import { ERRORS, STATES, COURSES, TEMPERATURES, SPINS } from './washer_common'
+import HADevice from './base'
+import { COURSES, ERRORS, SPINS, STATES, TEMPERATURES } from './washer_common'
 
 export default class Device extends AABBDevice {
     constructor(HA: Connection, thinq: Thinq2Device, meta: Metadata) {
@@ -199,7 +199,7 @@ export default class Device extends AABBDevice {
     }
 
     processAABB(buf: Buffer) {
-        if (buf.length === 80 && buf[0] == 0x20) {
+        if (buf.length === 80 && buf[0] === 0x20) {
             const status = buf[43]
             const time_remain = buf[44] * 60 + buf[45]
             const time_initial = buf[46] * 60 + buf[47]

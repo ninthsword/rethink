@@ -6,10 +6,9 @@ export type TLV = {
 
 export function parse(buf: Buffer): TLV[] {
     const out: TLV[] = []
-    for (var i = 0; i < buf.length; ) {
+    for (let i = 0; i < buf.length; ) {
         if (i + 2 > buf.length) {
             return out
-            throw new Error('TLV sequence truncated')
         }
 
         const t = (buf[i] << 2) + (buf[i + 1] >> 6)
@@ -18,12 +17,11 @@ export function parse(buf: Buffer): TLV[] {
 
         if (i + 2 + l > buf.length) {
             return out
-            throw new Error('TLV sequence truncated')
         }
 
         if (l > 0) {
             v = 0
-            for (var j = 0; j < l; j++) v = (v << 8) | buf[i + 2 + j]
+            for (let j = 0; j < l; j++) v = (v << 8) | buf[i + 2 + j]
         }
         out.push({ t, l, v })
         i += 2 + l
@@ -32,11 +30,11 @@ export function parse(buf: Buffer): TLV[] {
 }
 
 export function build(elements: TLV[]) {
-    let out: number[] = []
+    const out: number[] = []
     elements.forEach((el) => {
-        let t0 = (el.t >> 2) & 255
+        const t0 = (el.t >> 2) & 255
         out.push(t0)
-        let tl = (el.t & 3) << 6
+        const tl = (el.t & 3) << 6
 
         if (el.v < 0x10) {
             out.push(tl | el.v)

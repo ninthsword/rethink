@@ -1,9 +1,9 @@
-import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { test } from 'node:test'
 import Bridge from '@/cloud/ha_bridge'
-import { setFilter } from '@/util/logging'
 import type { Metadata } from '@/cloud/thinq'
 import { MockHAConnection, MockThinq2Device } from '@/tests/helpers/mocks'
+import { setFilter } from '@/util/logging'
 
 function captureLog(run: () => void) {
     const lines: string[] = []
@@ -32,6 +32,6 @@ test('an appliance with no handler says so instead of vanishing quietly', () => 
 
     const complaint = lines.find((line) => line.includes('NOT_A_REAL_MODEL'))
     assert.ok(complaint, 'the missing handler must be reported')
-    assert.match(complaint!, /no Home Assistant entities/, 'and it must say what the consequence is')
-    assert.match(complaint!, /mystery-id/, 'and which appliance it was')
+    assert.match(complaint, /no Home Assistant entities/, 'and it must say what the consequence is')
+    assert.match(complaint, /mystery-id/, 'and which appliance it was')
 })

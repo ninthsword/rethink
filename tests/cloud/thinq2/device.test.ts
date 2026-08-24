@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import { Broker, PublishPacket } from '@/cloud/mqtt-broker'
-import { Device, DeviceAcceptor } from '@/cloud/thinq2/device'
+import { Broker, type PublishPacket } from '@/cloud/mqtt-broker'
 import type { ClipMessage } from '@/cloud/thinq2/clip'
+import { Device, DeviceAcceptor } from '@/cloud/thinq2/device'
 
 describe('ThinQ2 device message forwarding', () => {
     it('forwards a cloud ack JSON without changing its mid, cmd or data', () => {

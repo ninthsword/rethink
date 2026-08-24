@@ -1,7 +1,8 @@
 /* Verifies confirmed AIR_910604_WW controls, monitor state, and MFilter response parsing.
  * Related files: cloud/devices/AIR_910604_WW.ts, cloud/ha_bridge.ts. */
-import { describe, test } from 'node:test'
+
 import assert from 'node:assert/strict'
+import { describe, test } from 'node:test'
 import DUT from '@/cloud/devices/AIR_910604_WW'
 import type { Metadata } from '@/cloud/thinq'
 import { MockHAConnection, MockThinq1Device } from '@/tests/helpers/mocks'
@@ -20,7 +21,7 @@ function makeDevice() {
 describe(MODEL_ID, () => {
     test('config exposes only confirmed controls and sensors', () => {
         const { ha } = makeDevice()
-        const components = ha.devices[DEVICE_ID].config!.components as Record<string, Record<string, unknown>>
+        const components = ha.devices[DEVICE_ID].config?.components as Record<string, Record<string, unknown>>
         assert.deepEqual(Object.keys(components), [
             'fan',
             'air_fast',

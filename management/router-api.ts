@@ -1,14 +1,14 @@
 import type { Request, Response } from 'express'
 import type { WebSocketExpress } from 'websocket-express'
-import type HA_bridge from '@/cloud/ha_bridge'
-import type { AnyDevice, DeviceManager } from '@/cloud/devmgr'
 import type { Bridge } from '@/bridge'
+import type { AnyDevice, DeviceManager } from '@/cloud/devmgr'
+import type HA_bridge from '@/cloud/ha_bridge'
 import { RouterConfigStore } from '@/router/config-store'
 import { DNATManager, type DNATState } from '@/router/dnat-manager'
 import { DNATReconciler } from '@/router/dnat-reconciler'
 import log from '@/util/logging'
 
-type Handler = (req: Request, res: Response) => Promise<any>
+type Handler = (req: Request, res: Response) => Promise<unknown>
 
 export class RouterAPI {
     readonly store: RouterConfigStore
@@ -23,7 +23,9 @@ export class RouterAPI {
         this.store = new RouterConfigStore(filename)
         manager.on('newDevice', (device) => this.syncDevice(device))
         bridge?.on('deviceNamesChanged', () => this.syncAllDevices())
-        Object.values(manager.allDevices).forEach((device) => this.syncDevice(device))
+        Object.values(manager.allDevices).forEach((device) => {
+            this.syncDevice(device)
+        })
         this.reconciler = new DNATReconciler(this.store, () => new DNATManager(this.store.router()))
         this.reconciler.start()
     }
@@ -249,7 +251,7 @@ export class RouterAPI {
     }
 
     private wrap(handler: Handler) {
-        return (req: Request, res: Response, next: (err: any) => void) => {
+        return (req: Request, res: Response, next: (err: unknown) => void) => {
             handler(req, res).catch((err) => {
                 if (res.headersSent) return next(err)
                 /*
@@ -330,7 +332,9 @@ export class RouterAPI {
     }
 
     private syncAllDevices() {
-        Object.values(this.manager.allDevices).forEach((device) => this.syncDevice(device))
+        Object.values(this.manager.allDevices).forEach((device) => {
+            this.syncDevice(device)
+        })
     }
 
     private syncDevice(device: AnyDevice) {

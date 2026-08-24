@@ -16,7 +16,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     await refresh()
 })
 
-function get(id) { return document.getElementById(id) }
+function get(id) {
+    return document.getElementById(id)
+}
 
 function toggleRouterPassword() {
     const input = get('router_password')
@@ -50,7 +52,9 @@ async function loadConfig() {
         get('router_password').placeholder = config.passwordSaved ? 'Saved; leave blank to keep' : ''
         get('rethink_ip').value = config.rethinkIp || ''
         M.updateTextFields()
-    } catch (err) { toast(err) }
+    } catch (err) {
+        toast(err)
+    }
 }
 
 async function saveRouter() {
@@ -69,14 +73,18 @@ async function saveRouter() {
         await loadConfig()
         await refresh()
         M.toast({ html: 'Router settings saved' })
-    } catch (err) { toast(err) }
+    } catch (err) {
+        toast(err)
+    }
 }
 
 async function testRouter() {
     try {
         const result = await api('api/router/test', { method: 'POST' })
         M.toast({ html: `Connected: ${result.iptables}; ${result.conntrack}` })
-    } catch (err) { toast(err) }
+    } catch (err) {
+        toast(err)
+    }
 }
 
 async function addDevice() {
@@ -85,26 +93,37 @@ async function addDevice() {
         get('device_ip').value = ''
         M.Modal.getInstance(get('device_modal')).close()
         await refresh()
-    } catch (err) { toast(err) }
+    } catch (err) {
+        toast(err)
+    }
 }
 
 async function refresh() {
     get('refresh').disabled = true
     try {
         snapshot = await api('api/router/status')
-        get('router_status').textContent = snapshot.connected ? 'Connected' : snapshot.configured ? 'Connection failed' : 'Not configured'
+        get('router_status').textContent = snapshot.connected
+            ? 'Connected'
+            : snapshot.configured
+              ? 'Connection failed'
+              : 'Not configured'
         get('router_status').className = snapshot.connected ? 'green-text' : 'red-text'
         get('router_error').textContent = snapshot.error ? ` — ${snapshot.error}` : ''
         renderDevices()
-    } catch (err) { toast(err) }
-    finally { get('refresh').disabled = false }
+    } catch (err) {
+        toast(err)
+    } finally {
+        get('refresh').disabled = false
+    }
 }
 
 function renderDevices() {
     const body = get('device_rows')
     body.replaceChildren()
     get('empty_devices').style.display = snapshot.devices.length ? 'none' : 'block'
-    snapshot.devices.forEach((device) => body.appendChild(renderDevice(device)))
+    snapshot.devices.forEach((device) => {
+        body.appendChild(renderDevice(device))
+    })
 }
 
 function renderDevice(device) {
@@ -117,9 +136,20 @@ function renderDevice(device) {
         if (!device.connected) identity.innerHTML += '<br><span class="subtle">Offline</span>'
     } else if (snapshot.unassigned.length) {
         const select = document.createElement('select')
-        select.innerHTML = '<option value="" disabled selected>Select detected device</option>' + snapshot.unassigned.map((d) => `<option value="${escapeHtml(d.deviceId)}">${escapeHtml(d.name || d.model)}${d.sourceIp ? ` — ${escapeHtml(d.sourceIp)}` : ''}</option>`).join('')
+        select.innerHTML =
+            '<option value="" disabled selected>Select detected device</option>' +
+            snapshot.unassigned
+                .map(
+                    (d) =>
+                        `<option value="${escapeHtml(d.deviceId)}">${escapeHtml(d.name || d.model)}${d.sourceIp ? ` — ${escapeHtml(d.sourceIp)}` : ''}</option>`,
+                )
+                .join('')
         const link = button('Link', 'link')
-        link.onclick = () => select.value && run(device.entryId, () => api(`api/router/devices/${device.entryId}/link`, { method: 'POST', body: { deviceId: select.value } }))
+        link.onclick = () =>
+            select.value &&
+            run(device.entryId, () =>
+                api(`api/router/devices/${device.entryId}/link`, { method: 'POST', body: { deviceId: select.value } }),
+            )
         identity.append(select, link)
         setTimeout(() => M.FormSelect.init(select), 0)
     } else {
@@ -141,25 +171,46 @@ function renderDevice(device) {
     if (device.dnat === 'partial') {
         dnat.innerHTML = '<span class="state-partial">PARTIAL</span><br>'
         const repair = button('Repair', 'build')
-        repair.onclick = () => run(device.entryId, () => api(`api/router/devices/${device.entryId}/dnat/enable`, { method: 'POST' }))
+        repair.onclick = () =>
+            run(device.entryId, () => api(`api/router/devices/${device.entryId}/dnat/enable`, { method: 'POST' }))
         dnat.append(repair)
     } else if (device.dnat === 'unknown') {
         dnat.innerHTML = '<span class="state-unknown">UNKNOWN</span>'
     } else {
-        dnat.appendChild(toggle(device.dnat === 'on', async (enabled) => {
-            if (!enabled && device.bridgeActive) throw new Error('Suspend Bridge before turning DNAT off')
-            if (!enabled && !confirm('Turn DNAT off? Permanent LG cloud return requires ThinQ Wi-Fi re-registration.')) throw new Cancelled()
-            return api(`api/router/devices/${device.entryId}/dnat/${enabled ? 'enable' : 'disable'}`, { method: 'POST' })
-        }, device.entryId))
+        dnat.appendChild(
+            toggle(
+                device.dnat === 'on',
+                async (enabled) => {
+                    if (!enabled && device.bridgeActive) throw new Error('Suspend Bridge before turning DNAT off')
+                    if (
+                        !enabled &&
+                        !confirm('Turn DNAT off? Permanent LG cloud return requires ThinQ Wi-Fi re-registration.')
+                    )
+                        throw new Cancelled()
+                    return api(`api/router/devices/${device.entryId}/dnat/${enabled ? 'enable' : 'disable'}`, {
+                        method: 'POST',
+                    })
+                },
+                device.entryId,
+            ),
+        )
     }
 
     const bridge = document.createElement('td')
     if (!device.deviceId) bridge.textContent = 'Disabled'
     else {
-        bridge.appendChild(toggle(device.bridgeActive, async (enabled) => {
-            if (enabled && device.dnat !== 'on') throw new Error('Turn DNAT on first')
-            return api(`api/router/devices/${device.entryId}/bridge/${enabled ? 'resume' : 'suspend'}`, { method: 'POST' })
-        }, device.entryId))
+        bridge.appendChild(
+            toggle(
+                device.bridgeActive,
+                async (enabled) => {
+                    if (enabled && device.dnat !== 'on') throw new Error('Turn DNAT on first')
+                    return api(`api/router/devices/${device.entryId}/bridge/${enabled ? 'resume' : 'suspend'}`, {
+                        method: 'POST',
+                    })
+                },
+                device.entryId,
+            ),
+        )
         if (device.bridgeSaved && !device.bridgeActive) {
             bridge.append(document.createElement('br'))
             const saved = document.createElement('span')
@@ -191,10 +242,13 @@ function renderDevice(device) {
     edit.onclick = async () => {
         const customName = prompt('Custom name (blank = detected name)', device.customName || '')
         if (customName === null) return
-        await run(device.entryId, () => api(`api/router/devices/${device.entryId}`, { method: 'PUT', body: { customName } }))
+        await run(device.entryId, () =>
+            api(`api/router/devices/${device.entryId}`, { method: 'PUT', body: { customName } }),
+        )
     }
     const remove = button('Remove', 'delete')
-    remove.title = 'Remove this IP from the DNAT management list. Its Bridge registration is kept aside so the removal can be undone.'
+    remove.title =
+        'Remove this IP from the DNAT management list. Its Bridge registration is kept aside so the removal can be undone.'
     remove.classList.add('red')
     remove.onclick = async () => {
         if (
@@ -220,8 +274,12 @@ function toggle(checked, action, entryId) {
     input.checked = checked
     input.disabled = busy.has(entryId)
     input.onchange = async () => {
-        try { await run(entryId, () => action(input.checked)) }
-        catch (err) { input.checked = checked; if (!(err instanceof Cancelled)) toast(err) }
+        try {
+            await run(entryId, () => action(input.checked))
+        } catch (err) {
+            input.checked = checked
+            if (!(err instanceof Cancelled)) toast(err)
+        }
     }
     return div
 }
@@ -283,12 +341,32 @@ async function registrationChoice(device) {
 async function run(entryId, action) {
     busy.add(entryId)
     renderDevices()
-    try { await action(); await refresh() }
-    finally { busy.delete(entryId); renderDevices() }
+    try {
+        await action()
+        await refresh()
+    } finally {
+        busy.delete(entryId)
+        renderDevices()
+    }
 }
 
-function cell(text) { const td = document.createElement('td'); td.textContent = text; return td }
-function button(label, icon) { const b = document.createElement('button'); b.className = 'btn-small waves-effect waves-light'; b.innerHTML = `${label} <i class="material-icons right">${icon}</i>`; return b }
-function toast(err) { M.toast({ html: escapeHtml(err instanceof Error ? err.message : `${err}`) }) }
-function escapeHtml(value) { const div = document.createElement('div'); div.textContent = value || ''; return div.innerHTML }
+function cell(text) {
+    const td = document.createElement('td')
+    td.textContent = text
+    return td
+}
+function button(label, icon) {
+    const b = document.createElement('button')
+    b.className = 'btn-small waves-effect waves-light'
+    b.innerHTML = `${label} <i class="material-icons right">${icon}</i>`
+    return b
+}
+function toast(err) {
+    M.toast({ html: escapeHtml(err instanceof Error ? err.message : `${err}`) })
+}
+function escapeHtml(value) {
+    const div = document.createElement('div')
+    div.textContent = value || ''
+    return div.innerHTML
+}
 class Cancelled extends Error {}

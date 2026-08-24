@@ -1,9 +1,9 @@
-import HADevice from './base'
-import { Device as Thinq2Device } from '../thinq2/device'
-import { type Connection } from '../homeassistant'
-import { type Metadata } from '../thinq'
 import { allowExtendedType } from '@/util/casting'
+import type { Connection } from '../homeassistant'
+import type { Metadata } from '../thinq'
+import type { Device as Thinq2Device } from '../thinq2/device'
 import AABBDevice from './aabb_device'
+import HADevice from './base'
 
 // LG electric dryer — matched on modelId "RV13B6BSD_D_US_WIFI" (real-world nameplate DLEX3900B, product
 // code RV13B6JSD.ABLEEUS). AABB frames (buf = the AABB body, AA+len and checksum+BB already stripped)
@@ -64,32 +64,32 @@ const PHASE_OFF = 0x00
 // cloud itself calls both of these "INITIAL", so that's the name used here rather than inventing two
 // separate labels for what the appliance treats as one state.
 const STATUS: Record<number, string> = {
-    0x00: 'Off',
-    0x01: 'Initial',
-    0x03: 'Pause',
-    0x32: 'Drying',
-    0x33: 'Cooling',
-    0x04: 'End',
+    0: 'Off',
+    1: 'Initial',
+    3: 'Pause',
+    50: 'Drying',
+    51: 'Cooling',
+    4: 'End',
 }
 
 // Course/mode identifier -> name. Live-confirmed against the cloud's courseDryer27inchBase (dial
 // positions) and timeDry (the Time Dry button, which is not a dial position but shares this same byte).
 const COURSE: Record<number, string> = {
-    0x01: 'Heavy Duty',
-    0x02: 'Towels',
-    0x03: 'Normal',
-    0x04: 'Perm Press',
-    0x05: 'Delicates',
-    0x07: 'Bedding',
-    0x08: 'Antibacterial',
-    0x09: 'Small Load',
-    0x0b: 'Sportswear',
-    0x10: 'Speed Dry',
-    0x11: 'Air Dry',
-    0x12: 'Time Dry',
-    0x15: 'Steam Fresh',
-    0x16: 'Steam Sanitary',
-    0x1a: 'Super Dry',
+    1: 'Heavy Duty',
+    2: 'Towels',
+    3: 'Normal',
+    4: 'Perm Press',
+    5: 'Delicates',
+    7: 'Bedding',
+    8: 'Antibacterial',
+    9: 'Small Load',
+    11: 'Sportswear',
+    16: 'Speed Dry',
+    17: 'Air Dry',
+    18: 'Time Dry',
+    21: 'Steam Fresh',
+    22: 'Steam Sanitary',
+    26: 'Super Dry',
 }
 
 // Dry level 1-5, confirmed via a clean isolated toggle (course/temp held fixed) against the cloud's

@@ -3,7 +3,7 @@
 // save a State as a whole.
 
 import * as fs from 'node:fs'
-import { type State } from './monitor'
+import type { State } from './monitor'
 
 export const DEFAULT_STATE_FILE = 'oauth.json'
 

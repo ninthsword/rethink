@@ -1,15 +1,13 @@
-import { WebSocketExpress, ExtendedWebSocket } from 'websocket-express'
-
-import path from 'path'
-import { fileURLToPath } from 'url'
-import log from '@/util/logging'
-
-import HA_bridge from '@/cloud/ha_bridge'
-import { AnyDevice, DeviceManager } from '@/cloud/devmgr'
-import { Bridge } from '@/bridge'
-import { Request, Response } from 'express'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+import type { Request, Response } from 'express'
+import { type ExtendedWebSocket, WebSocketExpress } from 'websocket-express'
+import type { Bridge } from '@/bridge'
+import type { AnyDevice, DeviceManager } from '@/cloud/devmgr'
+import type HA_bridge from '@/cloud/ha_bridge'
 import { Device as T1Device } from '@/cloud/thinq1/device'
 import { Device as T2Device } from '@/cloud/thinq2/device'
+import log from '@/util/logging'
 import { RouterAPI } from './router-api'
 
 const MANAGEMENT_VERSION = '20260814'
@@ -31,7 +29,7 @@ export function app(ha: HA_bridge, manager: DeviceManager, bridge: Bridge | unde
         broadcast({ status: message })
     }
 
-    app.use(function (req, res, next) {
+    app.use((req, _res, next) => {
         log('MGMT', req.hostname, req.url)
         next()
     })
@@ -41,7 +39,7 @@ export function app(ha: HA_bridge, manager: DeviceManager, bridge: Bridge | unde
     routerApi.register(app)
 
     const currentDir = path.dirname(fileURLToPath(import.meta.url))
-    app.ws('/ws', (req, res, next) => {
+    app.ws('/ws', (_req, res, next) => {
         res.accept().then((ws) => {
             subscribers.push(ws)
 
@@ -54,7 +52,7 @@ export function app(ha: HA_bridge, manager: DeviceManager, bridge: Bridge | unde
                 }),
             )
 
-            ws.on('message', (msg) => {})
+            ws.on('message', (_msg) => {})
 
             ws.on('close', () => {
                 subscribers = subscribers.filter((el) => el !== ws)
@@ -67,7 +65,7 @@ export function app(ha: HA_bridge, manager: DeviceManager, bridge: Bridge | unde
     })
 
     function enumDevices() {
-        const allDevices: Record<string, any> = {}
+        const allDevices: Record<string, object> = {}
         for (const id in manager.allDevices) {
             const dev = manager.allDevices[id]
             const meta = dev.meta
@@ -89,7 +87,7 @@ export function app(ha: HA_bridge, manager: DeviceManager, bridge: Bridge | unde
         broadcast({ devices: enumDevices() })
     }
 
-    function onNewDevice(dev: AnyDevice) {
+    function onNewDevice(_dev: AnyDevice) {
         refreshDevices()
     }
 
@@ -121,7 +119,7 @@ export function app(ha: HA_bridge, manager: DeviceManager, bridge: Bridge | unde
 
         app.post(
             '/thinq_logout',
-            asyncHandler(async (req, res) => {
+            asyncHandler(async (_req, res) => {
                 await bridge.logout()
                 res.end()
             }),
@@ -219,16 +217,18 @@ export function app(ha: HA_bridge, manager: DeviceManager, bridge: Bridge | unde
             ws.on('message', (msg) => {
                 if (!Buffer.isBuffer(msg)) return
 
-                let json: any
+                let json: Record<string, unknown>
                 try {
-                    json = JSON.parse(msg.toString('utf-8'))
+                    const parsed: unknown = JSON.parse(msg.toString('utf-8'))
+                    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return
+                    json = parsed as Record<string, unknown>
                 } catch {
                     return
                 }
                 const dev = manager.allDevices[id]
 
                 try {
-                    if (typeof json.sendToDevice === 'object' && dev && dev instanceof T1Device) {
+                    if (json.sendToDevice && typeof json.sendToDevice === 'object' && dev instanceof T1Device) {
                         try {
                             injectFlag = true
                             dev.send(json.sendToDevice)
@@ -246,7 +246,7 @@ export function app(ha: HA_bridge, manager: DeviceManager, bridge: Bridge | unde
                         }
                     }
 
-                    if (json.sendFromDevice && dev) {
+                    if (typeof json.sendFromDevice === 'string' && dev) {
                         try {
                             injectFlag = true
                             const packet = Buffer.from(json.sendFromDevice, 'hex')
@@ -283,12 +283,12 @@ export function app(ha: HA_bridge, manager: DeviceManager, bridge: Bridge | unde
     })
 
     // static pages
-    app.use(WebSocketExpress.static(currentDir + '/../html', { extensions: ['html'] }))
+    app.use(WebSocketExpress.static(`${currentDir}/../html`, { extensions: ['html'] }))
     return app.createServer()
 }
 
-function asyncHandler(handler: (req: Request, res: Response) => Promise<any>) {
-    return (req: Request, res: Response, next: (err: any) => void) => {
+function asyncHandler(handler: (req: Request, res: Response) => Promise<unknown>) {
+    return (req: Request, res: Response, next: (err: unknown) => void) => {
         handler(req, res).catch(next)
     }
 }

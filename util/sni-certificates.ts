@@ -1,10 +1,10 @@
+import { spawnSync } from 'node:child_process'
 import { randomBytes, X509Certificate } from 'node:crypto'
-import { createSecureContext, SecureContext } from 'node:tls'
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { spawnSync } from 'node:child_process'
-import { CA } from './config'
+import { createSecureContext, type SecureContext } from 'node:tls'
+import type { CA } from './config'
 
 const DNS_NAME = /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)*[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/
 

@@ -1,8 +1,8 @@
-import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
+import { describe, test } from 'node:test'
 import DUT from '@/cloud/devices/VCDWL2QEUK'
 import type { Metadata } from '@/cloud/thinq'
-import { MockHAConnection, MockThinq2Device, buf } from '@/tests/helpers/mocks'
+import { buf, MockHAConnection, MockThinq2Device } from '@/tests/helpers/mocks'
 
 const DEVICE_ID = 'test-id'
 const MODEL_ID = 'VCDWL2QEUK'
@@ -175,7 +175,7 @@ describe(MODEL_ID, () => {
         const { ha } = makeDevice()
         const cfg = ha.devices[DEVICE_ID].config
         assert.ok(cfg, 'config published')
-        const components = cfg!.components as Record<string, Record<string, unknown>>
+        const components = cfg?.components as Record<string, Record<string, unknown>>
         // implemented entities present
         for (const c of [
             'power',
@@ -360,7 +360,7 @@ describe(MODEL_ID, () => {
 
     test('config exposes the EzDispense entities (2 enable binary_sensors + 2 dose sensors)', () => {
         const { ha } = makeDevice()
-        const components = ha.devices[DEVICE_ID].config!.components as Record<string, Record<string, unknown>>
+        const components = ha.devices[DEVICE_ID].config?.components as Record<string, Record<string, unknown>>
         for (const c of ['detergent_dispenser', 'softener_dispenser', 'detergent_dose', 'softener_dose']) {
             assert.ok(components[c], `component ${c} present`)
         }
@@ -403,7 +403,7 @@ describe(MODEL_ID, () => {
 
     test('0x92 decodes rinse (skyl) level from rec[26]', () => {
         const { ha, thinq } = makeDevice()
-        const components = ha.devices[DEVICE_ID].config!.components as Record<string, Record<string, unknown>>
+        const components = ha.devices[DEVICE_ID].config?.components as Record<string, Record<string, unknown>>
         assert.equal(components.rinse.platform, 'sensor')
         thinq.emit('data', SKYL_NONE)
         assert.equal(ha.devices[DEVICE_ID].properties.rinse, 'None')
@@ -415,7 +415,7 @@ describe(MODEL_ID, () => {
 
     test('config exposes the soil + option entities', () => {
         const { ha } = makeDevice()
-        const components = ha.devices[DEVICE_ID].config!.components as Record<string, Record<string, unknown>>
+        const components = ha.devices[DEVICE_ID].config?.components as Record<string, Record<string, unknown>>
         assert.equal(components.soil.platform, 'sensor')
         for (const c of ['prewash', 'turbowash', 'steam']) {
             assert.ok(components[c], `component ${c} present`)

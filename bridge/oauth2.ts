@@ -13,10 +13,10 @@ export async function signedRequest<T = unknown>(
     let signed = path
     if (body !== undefined) {
         if (typeof body !== 'string') body = body.toString()
-        signed += '?' + body
+        signed += `?${body}`
     }
 
-    signed += '\n' + timestamp
+    signed += `\n${timestamp}`
 
     const resp = await fetch(url, {
         headers: {
@@ -55,7 +55,7 @@ export async function fromCode(authUrl: string, code: string): Promise<Token> {
     params.set('sso_id', randomBytes(16).toString('hex'))
 
     const response = await signedRequest<OAuth2Response>(
-        authUrl + '/oauth/1.0/oauth2/token',
+        `${authUrl}/oauth/1.0/oauth2/token`,
         {
             'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
         },
@@ -63,14 +63,13 @@ export async function fromCode(authUrl: string, code: string): Promise<Token> {
     )
 
     if (
-        (typeof response.access_token === 'string' &&
-            typeof response.refresh_token === 'string' &&
-            typeof response.expires_in === 'string') ||
-        typeof response.expires_in === 'number'
+        typeof response.access_token === 'string' &&
+        typeof response.refresh_token === 'string' &&
+        (typeof response.expires_in === 'string' || typeof response.expires_in === 'number')
     ) {
         return {
-            accessToken: response.access_token!,
-            refreshToken: response.refresh_token!,
+            accessToken: response.access_token,
+            refreshToken: response.refresh_token,
             validUntil: Date.now() + Number(response.expires_in) * 1000,
         }
     } else {
@@ -84,7 +83,7 @@ export async function refresh(authUrl: string, refreshToken: string): Promise<{ 
     params.set('refresh_token', refreshToken)
 
     const response = await signedRequest<OAuth2Response>(
-        authUrl + '/oauth/1.0/oauth2/token',
+        `${authUrl}/oauth/1.0/oauth2/token`,
         {
             'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
         },

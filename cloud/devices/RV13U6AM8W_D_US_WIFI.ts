@@ -1,46 +1,46 @@
-import HADevice from './base'
-import { Device as Thinq2Device } from '../thinq2/device'
-import { type Connection } from '../homeassistant'
-import { type Metadata } from '../thinq'
 import { allowExtendedType } from '@/util/casting'
+import type { Connection } from '../homeassistant'
+import type { Metadata } from '../thinq'
+import type { Device as Thinq2Device } from '../thinq2/device'
 import AABBDevice from './aabb_device'
+import HADevice from './base'
 
 const STATUS: Record<number, string> = {
-    0x00: 'Off',
-    0x01: 'Starting',
-    0x03: 'Paused',
-    0x32: 'Drying',
-    0x33: 'Cooldown',
-    0x04: 'Finishing',
+    0: 'Off',
+    1: 'Starting',
+    3: 'Paused',
+    50: 'Drying',
+    51: 'Cooldown',
+    4: 'Finishing',
 }
 
 const CYCLES: Record<number, string> = {
-    0x01: 'Heavy Duty',
-    0x03: 'Normal',
-    0x04: 'Perm. Press',
-    0x05: 'Delicates',
-    0x07: 'Bedding',
-    0x10: 'Speed Dry',
-    0x11: 'Air Dry',
-    0x12: 'Manual',
+    1: 'Heavy Duty',
+    3: 'Normal',
+    4: 'Perm. Press',
+    5: 'Delicates',
+    7: 'Bedding',
+    16: 'Speed Dry',
+    17: 'Air Dry',
+    18: 'Manual',
 }
 
 const TEMPS: Record<number, string> = {
-    0x00: 'Off',
-    0x01: 'Ultra Low',
-    0x02: 'Low',
-    0x03: 'Medium',
-    0x04: 'Med High',
-    0x05: 'High',
+    0: 'Off',
+    1: 'Ultra Low',
+    2: 'Low',
+    3: 'Medium',
+    4: 'Med High',
+    5: 'High',
 }
 
 const DRY_LEVELS: Record<number, string> = {
-    0x00: 'None',
-    0x01: 'Damp',
-    0x02: 'Less',
-    0x03: 'Normal',
-    0x04: 'More',
-    0x05: 'Very',
+    0: 'None',
+    1: 'Damp',
+    2: 'Less',
+    3: 'Normal',
+    4: 'More',
+    5: 'Very',
 }
 
 export default class Device extends AABBDevice {

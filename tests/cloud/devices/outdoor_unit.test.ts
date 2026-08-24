@@ -1,5 +1,5 @@
-import { describe, test, beforeEach } from 'node:test'
 import assert from 'node:assert/strict'
+import { beforeEach, describe, test } from 'node:test'
 import { OutdoorUnit, outdoorUnitFor, resetOutdoorUnits } from '@/cloud/devices/outdoor_unit'
 import type { HAConfig } from '@/util/config'
 
@@ -56,8 +56,8 @@ describe('shared outdoor unit', () => {
 
         assert.ok(living)
         assert.equal(living, bedroom, 'one group, not one per appliance')
-        assert.equal(living!.isPrimary(LIVING), true)
-        assert.equal(living!.isPrimary(BEDROOM), false)
+        assert.equal(living?.isPrimary(LIVING), true)
+        assert.equal(living?.isPrimary(BEDROOM), false)
     })
 
     test('an appliance with an outdoor unit to itself is left alone', () => {

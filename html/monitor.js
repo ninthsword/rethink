@@ -1,4 +1,4 @@
-document.addEventListener('DOMContentLoaded', function () {})
+document.addEventListener('DOMContentLoaded', () => {})
 
 let ws
 let reconnectTimer

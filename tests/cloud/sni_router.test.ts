@@ -1,6 +1,6 @@
-import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
-import { readServerName, matchesHostPattern } from '@/cloud/sni_router'
+import { describe, test } from 'node:test'
+import { matchesHostPattern, readServerName } from '@/cloud/sni_router'
 
 /** A ClientHello carrying one server name, built the way a real one is laid out. */
 function clientHello(serverName?: string) {

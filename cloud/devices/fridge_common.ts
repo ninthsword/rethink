@@ -77,7 +77,7 @@ export const STATUS_FIELDS = [
 export type Status = Record<(typeof STATUS_FIELDS)[number], number>
 
 export function unpackStatus(buf: Buffer): Status {
-    let rv = {} as Status
+    const rv = {} as Status
     STATUS_FIELDS.forEach((key, index) => {
         if (buf.length > index) rv[key] = buf[index]
     })

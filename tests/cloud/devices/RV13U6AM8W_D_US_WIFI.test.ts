@@ -1,8 +1,8 @@
-import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
+import { describe, test } from 'node:test'
 import DUT from '@/cloud/devices/RV13U6AM8W_D_US_WIFI'
 import type { Metadata } from '@/cloud/thinq'
-import { MockHAConnection, MockThinq2Device, buf } from '@/tests/helpers/mocks'
+import { buf, MockHAConnection, MockThinq2Device } from '@/tests/helpers/mocks'
 
 const DEVICE_ID = 'test-id'
 const MODEL_ID = 'RV13U6AM8W_D_US_WIFI'
@@ -90,7 +90,7 @@ describe(MODEL_ID, () => {
         const { ha } = makeDevice()
         const cfg = ha.devices[DEVICE_ID].config
         assert.ok(cfg, 'config published on construction')
-        const components = cfg!.components as Record<string, Record<string, unknown>>
+        const components = cfg?.components as Record<string, Record<string, unknown>>
         for (const c of ['status', 'remaining_time', 'power', 'drum_running', 'cycle', 'temp', 'dry_level']) {
             assert.ok(components[c], `component ${c} present`)
         }

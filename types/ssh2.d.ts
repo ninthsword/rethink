@@ -1,6 +1,8 @@
 declare module 'ssh2' {
     import { EventEmitter } from 'node:events'
 
+    export type ClientChannel = EventEmitter & { stderr: EventEmitter }
+
     export type ConnectConfig = {
         host: string
         port?: number
@@ -11,7 +13,7 @@ declare module 'ssh2' {
 
     export class Client extends EventEmitter {
         connect(config: ConnectConfig): this
-        exec(command: string, callback: (err: Error | undefined, stream: any) => void): void
+        exec(command: string, callback: (err: Error | undefined, stream: ClientChannel) => void): void
         end(): void
     }
 }

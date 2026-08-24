@@ -1,11 +1,12 @@
 /* Implements confirmed ThinQ 1 controls, monitor state, and filter telemetry for AIR_910604_WW.
  * Related files: cloud/ha_bridge.ts, cloud/thinq1/connection.ts, cloud/thinq1/device.ts,
  * tests/cloud/devices/AIR_910604_WW.test.ts. */
-import HADevice from './base'
-import { Device as Thinq1Device } from '../thinq1/device'
-import { type Connection } from '../homeassistant'
-import { type Metadata } from '../thinq'
+
 import { allowExtendedType } from '@/util/casting'
+import type { Connection } from '../homeassistant'
+import type { Metadata } from '../thinq'
+import type { Device as Thinq1Device } from '../thinq1/device'
+import HADevice from './base'
 
 const SLEEP_TIMER_VALUES: Record<string, string> = {
     Off: '0',

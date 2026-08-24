@@ -1,20 +1,20 @@
 declare module 'mqtt-connection' {
-    import { type TypedEmitter } from 'tiny-typed-emitter'
+    import { Duplex } from 'node:stream'
 
     import type {
         IConnackPacket,
+        IConnectPacket,
         IDisconnectPacket,
         IPingreqPacket,
+        IPingrespPacket,
         IPubackPacket,
         IPublishPacket,
         ISubackPacket,
         ISubscribePacket,
         IUnsubackPacket,
         IUnsubscribePacket,
-        IConnectPacket,
-        IPingrespPacket,
     } from 'mqtt-packet'
-    import { Duplex } from 'node:stream'
+    import { type TypedEmitter } from 'tiny-typed-emitter'
 
     const connect:
         | ((stream: Duplex, options?: object, callback?: () => void) => MqttConnection)

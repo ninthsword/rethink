@@ -5,7 +5,7 @@
 // Note that the repository layout was at a later point changed to match simple-git-hooks.
 
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, writeFileSync, chmodSync, readFileSync } from 'node:fs'
+import { chmodSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 

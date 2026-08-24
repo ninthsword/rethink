@@ -1,7 +1,7 @@
-import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import * as tls from 'node:tls'
-import fetch from 'node-fetch'
+import { test } from 'node:test'
+import type * as tls from 'node:tls'
+import type fetch from 'node-fetch'
 import { Connection } from '@/bridge/thinq1connection'
 import { Thinq1Device } from '@/bridge/thinqApi'
 

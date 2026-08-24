@@ -1,11 +1,11 @@
-import { Thinq1Device } from './thinqApi'
-import { TypedEmitter } from 'tiny-typed-emitter'
-import * as tls from 'node:tls'
-import { splitter, make as makeFrame } from '@/util/length_prefixed_frame'
-import fetch from 'node-fetch'
-import * as HTTPS from 'node:https'
 import { randomUUID } from 'node:crypto'
+import * as HTTPS from 'node:https'
+import * as tls from 'node:tls'
+import fetch, { type Response } from 'node-fetch'
+import { TypedEmitter } from 'tiny-typed-emitter'
+import { make as makeFrame, splitter } from '@/util/length_prefixed_frame'
 import log from '@/util/logging'
+import type { Thinq1Device } from './thinqApi'
 
 type ConnectionEvents = {
     data: (payload: object) => void
@@ -47,15 +47,17 @@ export class Connection extends TypedEmitter<ConnectionEvents> {
 
     async start() {
         const state = this.device.state
+        const deviceType = this.device.meta.deviceType
+        if (!deviceType) throw new Error('ThinQ1 device type is missing')
 
         const abort = new AbortController()
         this.requestAbort = abort
         const requestTimeout = setTimeout(() => abort.abort(), this.connectTimeoutMs)
         requestTimeout.unref?.()
 
-        let resp
+        let resp: Response
         try {
-            resp = await this.fetchImpl(state.httpServer + '/lgehadm/api/Device/TotalDeviceInfoSvc', {
+            resp = await this.fetchImpl(`${state.httpServer}/lgehadm/api/Device/TotalDeviceInfoSvc`, {
                 method: 'POST',
                 headers: {
                     Accept: 'text/xml',
@@ -63,7 +65,7 @@ export class Connection extends TypedEmitter<ConnectionEvents> {
                     'x-lgedm-userid': 'lgehadmUser',
                     'x-lgedm-password': 'bxLoLAZ+rp3oJDbEzRuIfAG4YumeqwWM9l6uUH6TupQ=',
                     'x-lgedm-deviceid': this.device.deviceId,
-                    'x-lgedm-devicetype': this.device.meta.deviceType!,
+                    'x-lgedm-devicetype': deviceType,
                 },
                 body: `<lgedmRoot><countryCode>WW</countryCode><modelName>${this.device.meta.modelName}</modelName><itemList><item>THINQ_TIME_SYNC_URI</item><elementList><elementCode>pushDetailYn</elementCode><elementValue>Y</elementValue></elementList></itemList></lgedmRoot>`,
                 agent: new HTTPS.Agent({ keepAlive: true, rejectUnauthorized: false }),

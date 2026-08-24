@@ -1,15 +1,15 @@
-import { createHash, publicEncrypt, randomBytes } from 'node:crypto'
-import * as OAuth2 from './oauth2'
 import { RSA_PKCS1_PADDING } from 'node:constants'
-import { subprocess } from './util'
+import { createHash, publicEncrypt, randomBytes } from 'node:crypto'
 import fetch, { type RequestInit } from 'node-fetch'
-import { Metadata } from '@/cloud/thinq'
+import type { Metadata } from '@/cloud/thinq'
+import * as OAuth2 from './oauth2'
+import { subprocess } from './util'
 
 export const IOT_BASE_URL = 'https://common.lgthinq.com'
 const GATEWAY_URL = 'https://route.lgthinq.com:46030/v1/service/application/gateway-uri'
 
 export function signInUrl(baseUrl: string, countryCode: string) {
-    const url = new URL(baseUrl + 'signin')
+    const url = new URL(`${baseUrl}signin`)
     url.searchParams.set('callback_url', 'https://kr.m.lgaccount.com/login/iabClose')
     url.searchParams.set('redirect_url', 'https://kr.m.lgaccount.com/login/iabClose')
     url.searchParams.set('client_id', 'LGAO221A02')
@@ -141,7 +141,7 @@ export class Client {
         client_id?: string,
     ) {
         this.headers['x-country-code'] = env.countryCode
-        this.headers['x-language-code'] = 'en-' + env.countryCode
+        this.headers['x-language-code'] = `en-${env.countryCode}`
         if (!client_id) client_id = randomBytes(32).toString('hex')
 
         this.clientId = this.headers['x-client-id'] = client_id
@@ -168,7 +168,7 @@ export class Client {
         } = await this.gateway
         const { accessToken } = await OAuth2.refresh(authUrl, refreshToken)
 
-        const profile = await OAuth2.signedRequest<ProfileResponse>(authUrl + '/users/profile', {
+        const profile = await OAuth2.signedRequest<ProfileResponse>(`${authUrl}/users/profile`, {
             Authorization: `Bearer ${accessToken}`,
             'X-Device-Type': 'M01',
             'X-Device-Platform': 'ADR',

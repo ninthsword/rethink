@@ -1,6 +1,6 @@
+import log from '@/util/logging'
 import type { RouterConfigStore, RouterDeviceEntry } from './config-store'
 import type { DNATState } from './dnat-manager'
-import log from '@/util/logging'
 
 /**
  * ASUS stock firmware drops user-added NAT chains on a reboot or a firewall restart, and

@@ -1,5 +1,5 @@
-import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
+import { describe, test } from 'node:test'
 import DUT from '@/cloud/devices/DHUM_056905_WW_ThinQ1'
 import type { Metadata } from '@/cloud/thinq'
 import { MockHAConnection, MockThinq1Device } from '@/tests/helpers/mocks'
@@ -17,7 +17,7 @@ function makeDevice() {
 describe('ThinQ1 DHUM_056905_WW', () => {
     test('discovery exposes the model-confirmed entities and ranges', () => {
         const { ha } = makeDevice()
-        const components = ha.devices[DEVICE_ID].config!.components as Record<string, Record<string, unknown>>
+        const components = ha.devices[DEVICE_ID].config?.components as Record<string, Record<string, unknown>>
         assert.deepEqual(Object.keys(components), [
             'dehumidifier',
             'target_humidity',

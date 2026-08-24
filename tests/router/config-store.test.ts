@@ -1,8 +1,8 @@
-import { describe, test, beforeEach, afterEach } from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { afterEach, beforeEach, describe, test } from 'node:test'
 import { RouterConfigStore } from '@/router/config-store'
 
 let dir: string

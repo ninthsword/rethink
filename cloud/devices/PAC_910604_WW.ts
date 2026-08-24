@@ -1,14 +1,14 @@
-import TLVDevice, { FieldDefinition, marksCapsResponse } from './tlv_device'
-import { Device as Thinq2Device } from '../thinq2/device'
-import { ClimateComponent, DeviceDiscovery, type Connection } from '../homeassistant'
-import { type Metadata } from '../thinq'
-import { allowExtendedType } from '@/util/casting'
-import { EnergyMeter, energyTotalComponent as energyTotal } from './energy_meter'
-import { outdoorUnitComponents, outdoorUnitFor, type OutdoorUnit } from './outdoor_unit'
-import * as TLV from '@/util/tlv'
 import { racAirTemp, racPipeTemp } from '@/util/ac_tables'
+import { allowExtendedType } from '@/util/casting'
 import log from '@/util/logging'
+import type * as TLV from '@/util/tlv'
+import type { ClimateComponent, Connection, DeviceDiscovery } from '../homeassistant'
+import type { Metadata } from '../thinq'
+import type { Device as Thinq2Device } from '../thinq2/device'
 import HADevice from './base'
+import { EnergyMeter, energyTotalComponent as energyTotal } from './energy_meter'
+import { type OutdoorUnit, outdoorUnitComponents, outdoorUnitFor } from './outdoor_unit'
+import TLVDevice, { type FieldDefinition, marksCapsResponse } from './tlv_device'
 
 type PowerModeChangeHook = () => void
 type CheckMode = (arg: number) => boolean
@@ -88,32 +88,32 @@ export default class Device extends TLVDevice {
     }
 
     stopTimers() {
-        if (this.tlvBlacklistDisableTimer != undefined) {
+        if (this.tlvBlacklistDisableTimer !== undefined) {
             clearTimeout(this.tlvBlacklistDisableTimer)
             this.tlvBlacklistDisableTimer = undefined
         }
 
-        if (this.increasedQueryIntervalTimeout != undefined) {
+        if (this.increasedQueryIntervalTimeout !== undefined) {
             clearTimeout(this.increasedQueryIntervalTimeout)
             this.increasedQueryIntervalTimeout = undefined
         }
 
-        if (this.filterInitialQueryTimeout != undefined) {
+        if (this.filterInitialQueryTimeout !== undefined) {
             clearTimeout(this.filterInitialQueryTimeout)
             this.filterInitialQueryTimeout = undefined
         }
 
-        if (this.filterQueryTimer != undefined) {
+        if (this.filterQueryTimer !== undefined) {
             clearInterval(this.filterQueryTimer)
             this.filterQueryTimer = undefined
         }
 
-        if (this.pacFanOnlyStopTimeout != undefined) {
+        if (this.pacFanOnlyStopTimeout !== undefined) {
             clearTimeout(this.pacFanOnlyStopTimeout)
             this.pacFanOnlyStopTimeout = undefined
         }
 
-        if (this.pacLongPowerTimeout != undefined) {
+        if (this.pacLongPowerTimeout !== undefined) {
             clearTimeout(this.pacLongPowerTimeout)
             this.pacLongPowerTimeout = undefined
         }
@@ -150,11 +150,11 @@ export default class Device extends TLVDevice {
     }
 
     processPrivData(cmd: number, buf9: number, data: Buffer) {
-        if (cmd == 0x02) this.processFilterData(buf9, data)
+        if (cmd === 0x02) this.processFilterData(buf9, data)
     }
 
-    processPrivDataCmdResp(success: boolean, buf1: number, cmd: number, data: Buffer) {
-        if (cmd == 0x2) this.processFilterCmdResp(success, data)
+    processPrivDataCmdResp(success: boolean, _buf1: number, cmd: number, data: Buffer) {
+        if (cmd === 0x2) this.processFilterCmdResp(success, data)
     }
 
     sendFilterQuery() {
@@ -182,7 +182,7 @@ export default class Device extends TLVDevice {
 
     isValuesResponse(tlvArray: TLV.TLV[]) {
         /* power */
-        return tlvArray.length >= 10 && tlvArray.some(({ t, v }) => t === 0x1f7)
+        return tlvArray.length >= 10 && tlvArray.some(({ t }) => t === 0x1f7)
     }
 
     valuesReceived() {
@@ -218,7 +218,7 @@ export default class Device extends TLVDevice {
         }, 5 * 1000)
     }
 
-    processFilterData(buf9: number, data: Buffer) {
+    processFilterData(_buf9: number, data: Buffer) {
         if (data.length < 1 + 3 * 4) {
             log('status', this.id, 'filter data too short:', data.length)
             return
@@ -229,7 +229,7 @@ export default class Device extends TLVDevice {
         this.filterChangedDate = data.readUInt32LE(1 + 2 * 4)
 
         // if this was the initial filter query the device config is ready now
-        if (this.filterInitialQueryTimeout != undefined) {
+        if (this.filterInitialQueryTimeout !== undefined) {
             log('status', this.id, 'received initial filter data')
 
             clearTimeout(this.filterInitialQueryTimeout)
@@ -257,7 +257,7 @@ export default class Device extends TLVDevice {
         this.HA.publishProperty(this.id, 'filterchangeddate', changedDate)
     }
 
-    processFilterCmdResp(success: boolean, data: Buffer) {
+    processFilterCmdResp(success: boolean, _data: Buffer) {
         if (!success) {
             log('status', this.id, 'filter reset failed')
             return
@@ -281,7 +281,7 @@ export default class Device extends TLVDevice {
             this.meta.modelId === 'PAC_910604_WW'
                 ? ['cooling', 'drying', undefined, undefined, undefined, 'fan']
                 : ['cooling', 'drying', 'fan', undefined, 'heating']
-        let action: string | undefined = undefined
+        let action: string | undefined
         let increaseQueryInterval = false
         if (this.getPowerTLV() === 0) {
             action = 'off'
@@ -307,7 +307,7 @@ export default class Device extends TLVDevice {
 
     updateQueryInterval(increaseQueryInterval: boolean) {
         if (increaseQueryInterval) {
-            if (this.increasedQueryIntervalTimeout != undefined) {
+            if (this.increasedQueryIntervalTimeout !== undefined) {
                 clearTimeout(this.increasedQueryIntervalTimeout)
                 this.increasedQueryIntervalTimeout = undefined
             }
@@ -401,7 +401,7 @@ export default class Device extends TLVDevice {
                 state_class: 'measurement',
                 state_topic: '$this/humidity',
             }
-            config['components']['humidity'] = humidity
+            config.components.humidity = humidity
             this.addField(config, {
                 id: 0x336,
                 name: 'current_humidity',
@@ -427,7 +427,7 @@ export default class Device extends TLVDevice {
                     unit_of_measurement: 'µg/m³',
                     state_class: 'measurement',
                 }
-                config['components'][component] = particulateMatter
+                config.components[component] = particulateMatter
                 this.addField(config, { id, name: '', comp: component, writable: false })
             }
 
@@ -439,7 +439,7 @@ export default class Device extends TLVDevice {
                 unit_of_measurement: '%',
                 state_class: 'measurement',
             }
-            config['components']['filterremaining'] = filterRemaining
+            config.components.filterremaining = filterRemaining
             this.addField(config, {
                 id: 0x355,
                 name: '',
@@ -464,7 +464,7 @@ export default class Device extends TLVDevice {
                 // for the dehumidifiers, which use the same two values.
                 options: ['operating_only', 'always'],
             }
-            config['components']['humidity_sensor_mode'] = humiditySensorMode
+            config.components.humidity_sensor_mode = humiditySensorMode
             this.addField(config, {
                 id: 0x337,
                 name: '',
@@ -627,8 +627,8 @@ export default class Device extends TLVDevice {
         })
 
         if (isPac910604) {
-            config['components']['climate']['swing_modes'] = ['정지', '회전']
-            config['components']['climate']['swing_horizontal_modes'] = ['정지', '우측회전', '좌측회전', '회전']
+            config.components.climate.swing_modes = ['정지', '회전']
+            config.components.climate.swing_horizontal_modes = ['정지', '우측회전', '좌측회전', '회전']
             this.addField(config, {
                 id: 0x205,
                 name: 'swing_mode',
@@ -640,11 +640,11 @@ export default class Device extends TLVDevice {
                 id: 0x206,
                 name: 'swing_horizontal_mode',
                 comp: 'climate',
-                read_xform: (raw) => ({ 0x0000: '정지', 0x0001: '우측회전', 0x0100: '좌측회전', 0x0101: '회전' })[raw],
+                read_xform: (raw) => ({ 0: '정지', 1: '우측회전', 256: '좌측회전', 257: '회전' })[raw],
                 write_xform: (val) => ({ 정지: 0x0000, 우측회전: 0x0001, 좌측회전: 0x0100, 회전: 0x0101 })[val],
             })
         } else if (this.raw_clip_state[0x2cd] & 4) {
-            config['components']['climate']['swing_modes'] = ['1', '2', '3', '4', '5', '6', 'on', 'off']
+            config.components.climate.swing_modes = ['1', '2', '3', '4', '5', '6', 'on', 'off']
             this.addField(config, {
                 id: 0x321,
                 name: 'swing_mode',
@@ -671,17 +671,7 @@ export default class Device extends TLVDevice {
         }
 
         if (this.raw_clip_state[0x2cd] & 8) {
-            config['components']['climate']['swing_horizontal_modes'] = [
-                '1',
-                '2',
-                '3',
-                '4',
-                '5',
-                '1-3',
-                '3-5',
-                'on',
-                'off',
-            ]
+            config.components.climate.swing_horizontal_modes = ['1', '2', '3', '4', '5', '1-3', '3-5', 'on', 'off']
             this.addField(config, {
                 id: 0x322,
                 name: 'swing_horizontal_mode',
@@ -844,7 +834,7 @@ export default class Device extends TLVDevice {
                 name: '아이스롱파워',
                 icon: 'mdi:wind-power',
             }
-            config['components']['longpower'] = longPower
+            config.components.longpower = longPower
             this.addField(config, {
                 name: '',
                 comp: 'longpower',
@@ -858,7 +848,7 @@ export default class Device extends TLVDevice {
                     if (this.jetMode) this.setProperty('coolpower-', 'OFF')
                     if (this.getModeTLV() === 5) {
                         this.setProperty('climate-mode', 'cool')
-                        if (this.pacLongPowerTimeout != undefined) clearTimeout(this.pacLongPowerTimeout)
+                        if (this.pacLongPowerTimeout !== undefined) clearTimeout(this.pacLongPowerTimeout)
                         this.pacLongPowerTimeout = setTimeout(() => {
                             this.pacLongPowerTimeout = undefined
                             this.writePacFanMode(0x0909)
@@ -953,7 +943,7 @@ export default class Device extends TLVDevice {
                 suggested_display_precision: 0,
                 entity_category: 'diagnostic',
             }
-            config['components']['autodryprogress'] = compADryProgress
+            config.components.autodryprogress = compADryProgress
             this.addField(config, {
                 id: 0x225,
                 name: '',
@@ -977,8 +967,8 @@ export default class Device extends TLVDevice {
                 suggested_display_precision: 0,
                 entity_category: 'diagnostic',
             }
-            config['components']['autodry'] = compADry
-            config['components']['autodryremain'] = compADryRem
+            config.components.autodry = compADry
+            config.components.autodryremain = compADryRem
 
             this.addField(config, {
                 id: 0x20e,
@@ -1011,7 +1001,7 @@ export default class Device extends TLVDevice {
                     id: this.getIDUActionRunningTLVNum(),
                     name: 'action',
                     comp: 'climate',
-                    read_callback: (val) => {
+                    read_callback: (_val) => {
                         this.updateClimateAction()
                         return false
                     },
@@ -1042,7 +1032,7 @@ export default class Device extends TLVDevice {
                 state_class: 'total_increasing',
                 entity_category: 'diagnostic',
             }
-            config['components']['filterused'] = filterUsed
+            config.components.filterused = filterUsed
             const filterLife = {
                 platform: 'sensor',
                 unique_id: '$deviceid-filterlife',
@@ -1053,7 +1043,7 @@ export default class Device extends TLVDevice {
                 unit_of_measurement: 'h',
                 entity_category: 'diagnostic',
             }
-            config['components']['filterlife'] = filterLife
+            config.components.filterlife = filterLife
             const filterChanged = {
                 platform: 'sensor',
                 unique_id: '$deviceid-filterchangeddate',
@@ -1063,7 +1053,7 @@ export default class Device extends TLVDevice {
                 device_class: 'date',
                 entity_category: 'diagnostic',
             }
-            config['components']['changeddate'] = filterChanged
+            config.components.changeddate = filterChanged
 
             const filterReset = {
                 platform: 'button',
@@ -1073,8 +1063,8 @@ export default class Device extends TLVDevice {
                 icon: 'mdi:calendar-refresh-outline',
                 entity_category: 'diagnostic',
             }
-            config['components']['filterreset'] = filterReset
-            this.fields_by_ha['filterreset'] = {
+            config.components.filterreset = filterReset
+            this.fields_by_ha.filterreset = {
                 name: '',
                 comp: '',
                 write_xform: (val) => (val === 'PRESS' ? 1 : 0),
@@ -1098,7 +1088,7 @@ export default class Device extends TLVDevice {
                 suggested_display_precision: 0,
             }
 
-            config['components']['energy_current'] = energyCurrent
+            config.components.energy_current = energyCurrent
 
             // The measurements reported by RAC_056905_WW appear to be Watts, but they are not accurate in several aspects:
             // - the value is biased by +50
@@ -1131,8 +1121,8 @@ export default class Device extends TLVDevice {
             // Where an outdoor unit is shared, the total belongs to the group rather than
             // to either head, and lives on the group's primary appliance.
             if (this.outdoor) {
-                if (this.outdoor.isPrimary(this.id)) Object.assign(config['components'], outdoorUnitComponents())
-            } else config['components']['energy_total'] = energyTotal()
+                if (this.outdoor.isPrimary(this.id)) Object.assign(config.components, outdoorUnitComponents())
+            } else config.components.energy_total = energyTotal()
         }
 
         this.setConfig(
@@ -1181,7 +1171,7 @@ export default class Device extends TLVDevice {
     ) {
         const comp = {
             platform: 'number',
-            unique_id: '$deviceid-' + name,
+            unique_id: `$deviceid-${name}`,
             name: desc,
             icon: icon,
             device_class: 'duration',
@@ -1191,20 +1181,20 @@ export default class Device extends TLVDevice {
             step: 0.25,
             mode: 'slider',
         } as const
-        config['components'][name] = comp
+        config.components[name] = comp
 
         if (sensor) {
             const timerSensor = {
                 platform: 'sensor',
-                unique_id: '$deviceid-' + sensor.component,
+                unique_id: `$deviceid-${sensor.component}`,
                 name: sensor.name,
                 icon: sensor.icon,
                 device_class: 'duration',
                 unit_of_measurement: 'min',
-                state_topic: '$this/' + sensor.component,
+                state_topic: `$this/${sensor.component}`,
                 entity_category: 'diagnostic',
             }
-            config['components'][sensor.component] = timerSensor
+            config.components[sensor.component] = timerSensor
         }
 
         /*
@@ -1235,17 +1225,17 @@ export default class Device extends TLVDevice {
         const descFull =
             desc === 'Cool power'
                 ? desc
-                : desc + ' ' + (jetCool ? 'cool' : '') + (jetCool && jetHeat ? '/' : '') + (jetHeat ? 'heat' : '')
+                : `${desc} ${jetCool ? 'cool' : ''}${jetCool && jetHeat ? '/' : ''}${jetHeat ? 'heat' : ''}`
 
         const comp = {
             platform: 'switch',
-            unique_id: '$deviceid-' + name,
+            unique_id: `$deviceid-${name}`,
             name: descFull,
             icon: icon,
             entity_category: 'config',
             optimistic: true,
         }
-        config['components'][name] = comp
+        config.components[name] = comp
 
         this.addField(config, {
             id: id,
@@ -1261,8 +1251,8 @@ export default class Device extends TLVDevice {
                 return 0
             },
             read_xform: (raw) => {
-                if (jetCool && this.getModeTLV() === 0 && raw == 1) return 'ON'
-                if (jetHeat && this.getModeTLV() === 4 && raw == 2) return 'ON'
+                if (jetCool && this.getModeTLV() === 0 && raw === 1) return 'ON'
+                if (jetHeat && this.getModeTLV() === 4 && raw === 2) return 'ON'
                 return 'OFF'
             },
             read_callback: (val) => {
@@ -1276,7 +1266,7 @@ export default class Device extends TLVDevice {
                 this.jetMode = val === 'ON'
                 return true
             },
-            write_callback: (val) => {
+            write_callback: (_val) => {
                 /*
                  * Writing '1' in OFF state seem to immediately
                  * power on into the cooling mode, while writing
@@ -1297,10 +1287,10 @@ export default class Device extends TLVDevice {
          */
         this.powerChangeHooks.push(() => {
             if (this.getPowerTLV() === 0) return
-            this.setProperty(name + '-', this.jetMode ? 'ON' : 'OFF')
+            this.setProperty(`${name}-`, this.jetMode ? 'ON' : 'OFF')
         })
         this.modeChangeHooks.push(() => {
-            this.setProperty(name + '-', this.jetMode ? 'ON' : 'OFF')
+            this.setProperty(`${name}-`, this.jetMode ? 'ON' : 'OFF')
         })
     }
 
@@ -1317,7 +1307,7 @@ export default class Device extends TLVDevice {
             ids = [ids]
         }
 
-        let id = ids.find(
+        const id = ids.find(
             (val) =>
                 this.raw_clip_state[val] != null &&
                 (read_xform == null || read_xform(this.raw_clip_state[val]) != null),
@@ -1327,13 +1317,13 @@ export default class Device extends TLVDevice {
         const comp = {
             icon: icon ?? undefined,
             platform: 'sensor',
-            unique_id: '$deviceid-' + name,
+            unique_id: `$deviceid-${name}`,
             name: desc,
             entity_category: 'diagnostic',
             ...extra,
         }
 
-        config['components'][name] = comp
+        config.components[name] = comp
 
         this.addField(config, {
             id: id,
@@ -1369,7 +1359,7 @@ export default class Device extends TLVDevice {
     }
 
     private schedulePacFanOnlyStop() {
-        if (this.pacFanOnlyStopTimeout != undefined) clearTimeout(this.pacFanOnlyStopTimeout)
+        if (this.pacFanOnlyStopTimeout !== undefined) clearTimeout(this.pacFanOnlyStopTimeout)
         this.pacFanOnlyStopTimeout = setTimeout(() => {
             this.pacFanOnlyStopTimeout = undefined
             this.send([1, 1, 2, 1, 0], [{ t: 0x20f, v: 0 }])
@@ -1387,11 +1377,11 @@ export default class Device extends TLVDevice {
     addPacSwitchField(config: DeviceDiscovery, id: number, name: string, desc: string, icon: string) {
         const component = {
             platform: 'switch',
-            unique_id: '$deviceid-' + name,
+            unique_id: `$deviceid-${name}`,
             name: desc,
             icon,
         }
-        config['components'][name] = component
+        config.components[name] = component
 
         this.addField(config, {
             id,
@@ -1407,12 +1397,12 @@ export default class Device extends TLVDevice {
     addConfigSwitchField(config: DeviceDiscovery, id: number, name: string, desc: string, icon: string) {
         const comp = {
             platform: 'switch',
-            unique_id: '$deviceid-' + name,
+            unique_id: `$deviceid-${name}`,
             name: desc,
             icon: icon,
             entity_category: 'config',
         }
-        config['components'][name] = comp
+        config.components[name] = comp
 
         this.addField(config, {
             id: id,
@@ -1434,13 +1424,13 @@ export default class Device extends TLVDevice {
     ) {
         const comp = {
             platform: 'switch',
-            unique_id: '$deviceid-' + name,
+            unique_id: `$deviceid-${name}`,
             name: desc,
             icon: icon,
             entity_category: 'config',
             optimistic: true,
         }
-        config['components'][name] = comp
+        config.components[name] = comp
 
         this.addField(config, {
             id: id,
@@ -1454,7 +1444,7 @@ export default class Device extends TLVDevice {
                 if (powerTLV === 0 || powerTLV == null) return false
 
                 // Ignore read value if not in the right mode
-                if (!!check_mode && !check_mode(this.getModeTLV())) return false
+                if (check_mode && !check_mode(this.getModeTLV())) return false
 
                 this[field_name] = val === 'ON'
                 return true
@@ -1473,12 +1463,12 @@ export default class Device extends TLVDevice {
              * This value needs to be written at each power up,
              * but in a separate message.
              */
-            this.setProperty(name + '-', this[field_name] ? 'ON' : 'OFF')
+            this.setProperty(`${name}-`, this[field_name] ? 'ON' : 'OFF')
         })
 
-        if (!!check_mode) {
+        if (check_mode) {
             this.modeChangeHooks.push(() => {
-                this.setProperty(name + '-', this[field_name] ? 'ON' : 'OFF')
+                this.setProperty(`${name}-`, this[field_name] ? 'ON' : 'OFF')
             })
         }
     }

@@ -1,8 +1,8 @@
-import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
+import { describe, test } from 'node:test'
 import DUT from '@/cloud/devices/POT_056905_WW'
 import type { Metadata } from '@/cloud/thinq'
-import { MockHAConnection, MockThinq2Device, buf, hex } from '@/tests/helpers/mocks'
+import { buf, hex, MockHAConnection, MockThinq2Device } from '@/tests/helpers/mocks'
 import { enableMockTimers, tickMockTimers } from '@/tests/helpers/timers'
 
 const DEVICE_ID = 'test-id'
@@ -45,7 +45,7 @@ function makeDevice() {
     const ha = new MockHAConnection()
     const thinq = new MockThinq2Device(DEVICE_ID, META)
     const dev = new DUT(ha.asConnection(), thinq, META)
-    ha.on('setProperty', (id: string, prop: string, value: string) => {
+    ha.on('setProperty', (_id: string, prop: string, value: string) => {
         dev.setProperty(prop, value)
     })
     return { ha, thinq, dev }
@@ -71,12 +71,12 @@ function buildReadyDevice(t: import('node:test').TestContext) {
 
 describe(MODEL_ID, () => {
     test('config exposes expected climate component', (t) => {
-        const { ha, thinq, dev } = buildReadyDevice(t)
+        const { ha, dev } = buildReadyDevice(t)
 
         const device = ha.devices[DEVICE_ID]
         assert.ok(device, 'HA configuration published')
 
-        const components = device.config!.components as Record<string, Record<string, unknown>>
+        const components = device.config?.components as Record<string, Record<string, unknown>>
         assert.ok(components.climate, 'climate component')
         assert.equal(components.climate.platform, 'climate')
         assert.deepEqual(components.climate.modes, ['off', 'cool', 'dry', 'fan_only'])

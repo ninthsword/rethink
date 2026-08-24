@@ -1,8 +1,8 @@
-import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
+import { describe, test } from 'node:test'
 import DUT from '@/cloud/devices/DHUM_056905_WW'
 import type { Metadata } from '@/cloud/thinq'
-import { MockHAConnection, MockThinq2Device, buf, hex } from '@/tests/helpers/mocks'
+import { buf, hex, MockHAConnection, MockThinq2Device } from '@/tests/helpers/mocks'
 import * as TLV from '@/util/tlv'
 
 const DEVICE_ID = 'test-id'
@@ -44,7 +44,7 @@ function makeDevice() {
     const ha = new MockHAConnection()
     const thinq = new MockThinq2Device(DEVICE_ID, META)
     const dev = new DUT(ha.asConnection(), thinq, META)
-    ha.on('setProperty', (id: string, prop: string, value: string) => dev.setProperty(prop, value))
+    ha.on('setProperty', (_id: string, prop: string, value: string) => dev.setProperty(prop, value))
     return { ha, thinq, dev }
 }
 
@@ -61,7 +61,7 @@ function buildReadyDevice() {
 describe(MODEL_ID, () => {
     test('publishes humidifier configuration and captured state', () => {
         const { ha, dev } = buildReadyDevice()
-        const components = ha.devices[DEVICE_ID].config!.components as Record<string, Record<string, unknown>>
+        const components = ha.devices[DEVICE_ID].config?.components as Record<string, Record<string, unknown>>
 
         assert.equal(components.dehumidifier.platform, 'humidifier')
         assert.equal(components.dehumidifier.device_class, 'dehumidifier')
@@ -100,7 +100,7 @@ describe(MODEL_ID, () => {
         )
         assert.ok(removal, 'no sensor removal was published')
         assert.equal(
-            (ha.devices[DEVICE_ID].config!.components.operation_mode as Record<string, unknown>) ?? undefined,
+            (ha.devices[DEVICE_ID].config?.components.operation_mode as Record<string, unknown>) ?? undefined,
             undefined,
             'the mode sensor must not survive in the published config',
         )
@@ -109,7 +109,7 @@ describe(MODEL_ID, () => {
 
     test('offers only the modes and fan speeds the capability bitmaps report', () => {
         const { ha, dev } = buildReadyDevice()
-        const components = ha.devices[DEVICE_ID].config!.components as Record<string, Record<string, unknown>>
+        const components = ha.devices[DEVICE_ID].config?.components as Record<string, Record<string, unknown>>
 
         // The captured capability response reports 0x2c1 = 0x3e0000 (modes 17..21) and
         // 0x2c2 = 0x11044 (fan values 2 and 6). Every other fan value is acknowledged by
@@ -268,7 +268,7 @@ describe(MODEL_ID, () => {
 
     test('offers target humidity in the steps the appliance accepts', () => {
         const { ha, thinq, dev } = buildReadyDevice()
-        const number = ha.devices[DEVICE_ID].config!.components.target_humidity as Record<string, unknown>
+        const number = ha.devices[DEVICE_ID].config?.components.target_humidity as Record<string, unknown>
 
         // The appliance only takes multiples of five and Home Assistant's humidifier
         // slider always moves one per cent at a time, so the value gets its own control.

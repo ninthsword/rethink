@@ -1,9 +1,9 @@
-import HADevice from './base'
-import { Device as Thinq2Device } from '../thinq2/device'
-import { type Connection } from '../homeassistant'
-import { type Metadata } from '../thinq'
 import { allowExtendedType } from '@/util/casting'
+import type { Connection } from '../homeassistant'
+import type { Metadata } from '../thinq'
+import type { Device as Thinq2Device } from '../thinq2/device'
 import AABBDevice from './aabb_device'
+import HADevice from './base'
 
 // Korean top-loading washer (Hd0C_F).
 //
@@ -11,86 +11,86 @@ import AABBDevice from './aabb_device'
 // records, with the newest state in the second record. The offsets below were checked against a
 // live Hd0C_F response and the same appliance's ThinQ2 washerDryer snapshot.
 const STATUS: Record<number, string> = {
-    0x00: '꺼짐',
-    0x01: '초기 설정',
-    0x02: '일시 정지',
-    0x03: '무게 감지',
-    0x04: '불림',
-    0x05: '세탁 중',
-    0x06: '헹굼 중',
-    0x07: '탈수 중',
-    0x08: '완료',
-    0x09: '예약',
+    0: '꺼짐',
+    1: '초기 설정',
+    2: '일시 정지',
+    3: '무게 감지',
+    4: '불림',
+    5: '세탁 중',
+    6: '헹굼 중',
+    7: '탈수 중',
+    8: '완료',
+    9: '예약',
 }
 
 const COURSE: Record<number, string> = {
-    0x01: '표준',
-    0x02: '울/섬세',
-    0x03: '급속',
-    0x04: '이불',
-    0x08: '통세척',
-    0x0c: '수건',
-    0x0d: '기능성의류',
-    0x10: '애벌 + 표준',
-    0x18: '안심 표준',
+    1: '표준',
+    2: '울/섬세',
+    3: '급속',
+    4: '이불',
+    8: '통세척',
+    12: '수건',
+    13: '기능성의류',
+    16: '애벌 + 표준',
+    24: '안심 표준',
 }
 
 const WASH: Record<number, string> = {
-    0x00: '-',
-    0x01: '3분',
-    0x02: '6분',
-    0x03: '10분',
-    0x04: '12분',
-    0x05: '14분',
-    0x06: '17분',
-    0x07: '19분',
-    0x08: '21분',
-    0x09: '23분',
-    0x0a: '25분',
+    0: '-',
+    1: '3분',
+    2: '6분',
+    3: '10분',
+    4: '12분',
+    5: '14분',
+    6: '17분',
+    7: '19분',
+    8: '21분',
+    9: '23분',
+    10: '25분',
 }
 
 const SPIN: Record<number, string> = {
-    0x00: '-',
-    0x01: '약',
-    0x02: '중',
-    0x03: '강',
-    0x04: '최강',
-    0x05: '건조맞춤',
-    0x06: '섬세',
+    0: '-',
+    1: '약',
+    2: '중',
+    3: '강',
+    4: '최강',
+    5: '건조맞춤',
+    6: '섬세',
 }
 
 const TEMP: Record<number, string> = {
-    0x00: '-',
-    0x01: '냉수',
-    0x02: '온수',
-    0x03: '미온수',
-    0x04: '냉수 + 온수',
+    0: '-',
+    1: '냉수',
+    2: '온수',
+    3: '미온수',
+    4: '냉수 + 온수',
 }
 
 const RINSE: Record<number, string> = {
-    0x00: '-',
-    0x01: '1회',
-    0x02: '2회',
-    0x03: '강력 3회',
-    0x04: '강력 4회',
-    0x05: '강력 5회',
-    0x06: '강력 1회',
-    0x07: '강력 2회',
-    0x08: '3회',
-    0x09: '4회',
-    0x0a: '5회',
+    0: '-',
+    1: '1회',
+    2: '2회',
+    3: '강력 3회',
+    4: '강력 4회',
+    5: '강력 5회',
+    6: '강력 1회',
+    7: '강력 2회',
+    8: '3회',
+    9: '4회',
+    10: '5회',
 }
 
 const ERROR: Record<number, string> = {
-    0x00: '-',
-    0x01: '도어 오류 (dE)',
-    0x02: '급수 오류 (IE)',
-    0x03: '배수 오류 (OE)',
-    0x04: '불균형 오류 (UE)',
-    0x05: '과급수 오류 (FE)',
-    0x06: '수압 오류 (PE)',
-    0x07: '온도 센서 오류 (tE)',
-    0x08: '모터 오류 (LE)',
+    0: '-',
+    1: '도어 오류 (dE)',
+    2: '급수 오류 (IE)',
+    3: '배수 오류 (OE)',
+    4: '불균형 오류 (UE)',
+    5: '과급수 오류 (FE)',
+    6: '수압 오류 (PE)',
+    7: '온도 센서 오류 (tE)',
+    8: '모터 오류 (LE)',
 }
 
 // Commands captured from this washer while its physical Remote Start mode was

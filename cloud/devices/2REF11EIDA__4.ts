@@ -1,15 +1,15 @@
-import HADevice from './base'
-import { Device as Thinq2Device } from '../thinq2/device'
-import { DeviceDiscovery, type Connection } from '../homeassistant'
-import { type Metadata } from '../thinq'
 import { allowExtendedType } from '@/util/casting'
+import type { Connection, DeviceDiscovery } from '../homeassistant'
+import type { Metadata } from '../thinq'
+import type { Device as Thinq2Device } from '../thinq2/device'
 import AABBDevice from './aabb_device'
+import HADevice from './base'
 import {
     convertFreezerTemperature,
     convertFridgeTemperature,
     freezerRange,
     fridgeRange,
-    TemperatureUnit,
+    type TemperatureUnit,
 } from './fridge_common'
 
 const FLEX_OPTIONS = ['Chilled Wine', 'Deli/Snacks', 'Cold Drink', 'Meat/Seafood', 'Freezer']
@@ -82,12 +82,12 @@ export default class Device extends AABBDevice {
         // I'm not sure what is the proper way to identify packet types, so let's match
         // on the length and a few initial bytes
 
-        if (buf.length === 2 + 68 * 2 && buf[0] == 0x10 && buf[1] == 0xec) {
+        if (buf.length === 2 + 68 * 2 && buf[0] === 0x10 && buf[1] === 0xec) {
             // 10EC (prev status) (cur status)
             this.processStatus(buf.subarray(2 + 68, 2 + 68 + 68))
         }
 
-        if (buf.length === 2 + 68 && buf[0] == 0x10 && buf[1] == 0xeb) {
+        if (buf.length === 2 + 68 && buf[0] === 0x10 && buf[1] === 0xeb) {
             // 10EB (initial status)
             this.processStatus(buf.subarray(2, 2 + 68 + 68))
         }
@@ -101,13 +101,13 @@ export default class Device extends AABBDevice {
 
         const setpointFridge = convertFridgeTemperature(unit, curStatus[1])
         const setpointFreezer = convertFreezerTemperature(unit, curStatus[2])
-        const icePlus = curStatus[3] // 1=off 2=on
-        const smartGrid = curStatus[5] // 0=off 1=? 2=on
+        const _icePlus = curStatus[3] // 1=off 2=on
+        const _smartGrid = curStatus[5] // 0=off 1=? 2=on
         const anyDoorOpen = curStatus[7]
-        const panelLock = curStatus[10] // 2=locked 1=unlocked
+        const _panelLock = curStatus[10] // 2=locked 1=unlocked
         const setpointFlex = curStatus[13] // 1 - chilled wine. 2 - deli/snacks. 3 - cold drink. 4 - meat/seafood. 5 - freezer
-        const iceDoor = curStatus[32] // 0=off 1=on 2=full
-        const iceCube = curStatus[33] // 0=off 1=on 2=full
+        const _iceDoor = curStatus[32] // 0=off 1=on 2=full
+        const _iceCube = curStatus[33] // 0=off 1=on 2=full
 
         this.publishProperty('door', anyDoorOpen === 1 ? 'ON' : 'OFF')
         this.publishProperty('fridge_setpoint', setpointFridge)

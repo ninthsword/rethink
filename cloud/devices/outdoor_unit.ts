@@ -1,6 +1,6 @@
 import type { HAConfig } from '@/util/config'
-import { EnergyMeter } from './energy_meter'
 import log from '@/util/logging'
+import { EnergyMeter } from './energy_meter'
 
 /**
  * Air conditioners that share an outdoor unit.

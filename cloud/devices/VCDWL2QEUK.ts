@@ -1,9 +1,9 @@
-import HADevice from './base'
-import { Device as Thinq2Device } from '../thinq2/device'
-import { type Connection } from '../homeassistant'
-import { type Metadata } from '../thinq'
 import { allowExtendedType } from '@/util/casting'
+import type { Connection } from '../homeassistant'
+import type { Metadata } from '../thinq'
+import type { Device as Thinq2Device } from '../thinq2/device'
 import AABBDevice from './aabb_device'
+import HADevice from './base'
 
 // LG F4X7511TWS front-load washer — matched on modelId "VCDWL2QEUK". Unlike the 80-byte
 // single-frame F-class washers, this model emits several AABB frame types, discriminated by inner[3]
@@ -47,32 +47,32 @@ const RECORD_B_STANDBY = 0x00
 const STATUS_TEMP_BY_INDEX: Record<number, number> = { 1: 20, 2: 30, 3: 40, 5: 60, 6: 95 } // idx 4 (50 °C) not offered on this model
 const STATUS_SPIN_BY_INDEX: Record<number, number> = { 0: 0, 1: 400, 4: 800, 6: 1000, 8: 1200, 9: 1400 } // full RPM set (no 600 on this model)
 const STATUS_COURSE: Record<number, string> = {
-    0x72: 'AI Wash',
-    0x2e: 'Cotton',
-    0x54: 'Towels',
-    0x4b: 'Quick 14',
-    0x4e: 'Spin only', // a 0x00-soil-led program; decoded like the rinse/spin phases (same record-B offsets)
-    0x55: 'Drum Clean',
+    114: 'AI Wash',
+    46: 'Cotton',
+    84: 'Towels',
+    75: 'Quick 14',
+    78: 'Spin only', // a 0x00-soil-led program; decoded like the rinse/spin phases (same record-B offsets)
+    85: 'Drum Clean',
     // RE'd 2026-06-30 by pushing each program from the LG app and reading rec[4] (cross-checked against
     // the rec[19] repeat). English names for the DK programs this unit offers.
-    0x13: 'Eco 40-60',
-    0x7a: 'TurboWash 39',
-    0x2b: 'Mixed',
-    0x16: 'Delicate',
-    0x1d: 'Easy Care',
-    0x5e: 'Hand/Wool',
-    0x4f: 'Activewear',
-    0x04: 'Allergy Care',
-    0x1b: 'Duvet',
-    0x11: 'Cold Wash',
-    0x81: 'Bedding',
-    0xa9: 'Cuffs & Collars',
-    0x6a: 'Rainy Days',
-    0x42: 'Silent Wash',
-    0x07: 'Baby Steam Care',
-    0x73: 'Down Jacket',
-    0x88: 'Microplastic Care',
-    0x37: 'Rinse + Spin', // pure rinse+spin program: 0x00-soil-led (no wash phase, like spin-only), decoded
+    19: 'Eco 40-60',
+    122: 'TurboWash 39',
+    43: 'Mixed',
+    22: 'Delicate',
+    29: 'Easy Care',
+    94: 'Hand/Wool',
+    79: 'Activewear',
+    4: 'Allergy Care',
+    27: 'Duvet',
+    17: 'Cold Wash',
+    129: 'Bedding',
+    169: 'Cuffs & Collars',
+    106: 'Rainy Days',
+    66: 'Silent Wash',
+    7: 'Baby Steam Care',
+    115: 'Down Jacket',
+    136: 'Microplastic Care',
+    55: 'Rinse + Spin', // pure rinse+spin program: 0x00-soil-led (no wash phase, like spin-only), decoded
     // via the running path since its status byte is non-zero.
 }
 
@@ -92,17 +92,17 @@ const SKYL_BY_INDEX: Record<number, string> = {
 // courses use their own ids (Drum Clean = 0x29); anything unmapped falls back to 'Running' (free-text
 // status, so HA never rejects it).
 const STATUS: Record<number, string> = {
-    0x01: 'Detecting',
-    0x02: 'Paused',
-    0x03: 'Detecting', // early detection sub-step (cloud state DETECTING)
-    0x0b: 'Washing',
-    0x0c: 'Rinsing',
-    0x0e: 'Spinning',
-    0x10: 'End',
-    0x25: 'Detecting', // clothing-recognition sub-step (cloud state CLOTHING_RECOGNITION)
-    0x26: 'Washing', // detergent-input sub-step (cloud state DETERGENT_INPUT)
-    0x27: 'Rinsing', // softener-input sub-step (cloud state SOFTENER_INPUT)
-    0x29: 'Drum Clean',
+    1: 'Detecting',
+    2: 'Paused',
+    3: 'Detecting', // early detection sub-step (cloud state DETECTING)
+    11: 'Washing',
+    12: 'Rinsing',
+    14: 'Spinning',
+    16: 'End',
+    37: 'Detecting', // clothing-recognition sub-step (cloud state CLOTHING_RECOGNITION)
+    38: 'Washing', // detergent-input sub-step (cloud state DETERGENT_INPUT)
+    39: 'Rinsing', // softener-input sub-step (cloud state SOFTENER_INPUT)
+    41: 'Drum Clean',
 }
 
 // EzDispense auto-dosing — also in status-frame record B. The two reservoir enable flags and their

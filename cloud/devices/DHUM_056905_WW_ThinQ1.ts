@@ -1,9 +1,10 @@
 /* ThinQ 1 JSON-protocol handler for the older Korean DHUM_056905_WW dehumidifier. */
-import HADevice from './base'
-import { Device as Thinq1Device } from '../thinq1/device'
-import { type Connection } from '../homeassistant'
-import { type Metadata } from '../thinq'
+
 import { allowExtendedType } from '@/util/casting'
+import type { Connection } from '../homeassistant'
+import type { Metadata } from '../thinq'
+import type { Device as Thinq1Device } from '../thinq1/device'
+import HADevice from './base'
 
 const MODES: Record<string, string> = {
     smart: '17',

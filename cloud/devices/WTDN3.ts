@@ -1,9 +1,9 @@
-import HADevice from './base'
-import { Device as Thinq1Device } from '../thinq1/device'
-import { type Connection } from '../homeassistant'
 import { allowExtendedType } from '@/util/casting'
-import { Metadata } from '../thinq'
-import { ERRORS, STATES, COURSES, TEMPERATURES, SPINS, DRYING_MODES } from './washer_common'
+import type { Connection } from '../homeassistant'
+import type { Metadata } from '../thinq'
+import type { Device as Thinq1Device } from '../thinq1/device'
+import HADevice from './base'
+import { COURSES, DRYING_MODES, ERRORS, SPINS, STATES, TEMPERATURES } from './washer_common'
 
 export default class Device extends HADevice {
     constructor(
@@ -143,7 +143,7 @@ export default class Device extends HADevice {
         )
 
         thinq.on('data', (buf) => {
-            if (buf.length == 28) {
+            if (buf.length === 28) {
                 const status = buf[0]
                 const time_remain = buf[1] * 60 + buf[2]
                 const time_initial = buf[3] * 60 + buf[4]

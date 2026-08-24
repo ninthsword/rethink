@@ -1,8 +1,8 @@
-import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
+import { describe, test } from 'node:test'
 import DUT from '@/cloud/devices/2RES2VE300UA2'
 import type { Metadata } from '@/cloud/thinq'
-import { MockHAConnection, MockThinq2Device, buf, hex } from '@/tests/helpers/mocks'
+import { buf, hex, MockHAConnection, MockThinq2Device } from '@/tests/helpers/mocks'
 
 const DEVICE_ID = 'test-id'
 const META: Metadata = { modelId: '2RES2VE300UA2', modelName: '2RES2VE300UA2', swVersion: '' }
@@ -21,7 +21,7 @@ function makeDevice() {
 describe('2RES2VE300UA2', () => {
     test('exposes the supported refrigerator components', () => {
         const { ha } = makeDevice()
-        const c = ha.devices[DEVICE_ID].config!.components as Record<string, unknown>
+        const c = ha.devices[DEVICE_ID].config?.components as Record<string, unknown>
         for (const name of [
             'fridge',
             'freezer',

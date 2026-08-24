@@ -1,9 +1,9 @@
-import HADevice from './base'
-import AABBDevice from './aabb_device'
-import { Device as Thinq2Device } from '../thinq2/device'
-import { type Connection } from '../homeassistant'
-import { type Metadata } from '../thinq'
 import { allowExtendedType } from '@/util/casting'
+import type { Connection } from '../homeassistant'
+import type { Metadata } from '../thinq'
+import type { Device as Thinq2Device } from '../thinq2/device'
+import AABBDevice from './aabb_device'
+import HADevice from './base'
 
 const MONITOR_STATUS: Record<number, string> = {
     0: 'MONITOR_FAIL',
@@ -157,7 +157,8 @@ export default class Device extends AABBDevice {
         if (status[6] !== IGNORE) this.publishProperty('one_touch_filter', status[6] === 1 ? 'ON' : 'OFF')
         if (status[7] !== IGNORE) this.publishProperty('display_lock', status[7] === 1 ? 'ON' : 'OFF')
         if (status[8] !== IGNORE) this.publishProperty('door', status[8] === 1 ? 'ON' : 'OFF')
-        if (status[0] !== IGNORE) this.publishProperty('monitor_status', MONITOR_STATUS[status[0]] ?? `RAW_${status[0]}`)
+        if (status[0] !== IGNORE)
+            this.publishProperty('monitor_status', MONITOR_STATUS[status[0]] ?? `RAW_${status[0]}`)
     }
 
     processAABB(buf: Buffer) {

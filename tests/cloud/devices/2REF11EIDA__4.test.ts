@@ -1,8 +1,8 @@
-import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
+import { describe, test } from 'node:test'
 import DUT from '@/cloud/devices/2REF11EIDA__4'
 import type { Metadata } from '@/cloud/thinq'
-import { MockHAConnection, MockThinq2Device, buf, hex } from '@/tests/helpers/mocks'
+import { buf, hex, MockHAConnection, MockThinq2Device } from '@/tests/helpers/mocks'
 
 const DEVICE_ID = 'test-id'
 const MODEL_ID = '2REF11EIDA__4'
@@ -57,7 +57,7 @@ describe(MODEL_ID, () => {
         assert.ok(dev, 'device entry created')
         assert.ok(dev.config, 'config published once unit is known')
 
-        const components = dev.config!.components as Record<string, Record<string, unknown>>
+        const components = dev.config?.components as Record<string, Record<string, unknown>>
         // Range comes from fridgeRange/freezerRange for unit=F.
         assert.equal(components.fridge_setpoint.unit_of_measurement, '°F')
         assert.equal(components.fridge_setpoint.min, 33)
@@ -172,7 +172,7 @@ describe(MODEL_ID, () => {
         assert.equal(pkt[2 + 2 + 13], 5) // FLEX_OPTIONS.indexOf('Freezer')+1
     })
 
-    test('HA write flex_setpoint with unrecognised value sends nothing', (t) => {
+    test('HA write flex_setpoint with unrecognised value sends nothing', (_t) => {
         const { thinq, dev } = makeDevice()
         thinq.emit('data', SAMPLE_INITIAL)
         thinq.resetRecorder()
@@ -181,7 +181,7 @@ describe(MODEL_ID, () => {
         assert.equal(thinq.outbox.length, 0)
     })
 
-    test('HA write to an unknown property sends nothing', (t) => {
+    test('HA write to an unknown property sends nothing', (_t) => {
         const { thinq, dev } = makeDevice()
         thinq.emit('data', SAMPLE_INITIAL)
         thinq.resetRecorder()

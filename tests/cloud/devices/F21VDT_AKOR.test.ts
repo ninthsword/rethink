@@ -1,8 +1,8 @@
-import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
+import { describe, test } from 'node:test'
 import DUT from '@/cloud/devices/F21VDT_AKOR'
 import type { Metadata } from '@/cloud/thinq'
-import { MockHAConnection, MockThinq2Device, buf } from '@/tests/helpers/mocks'
+import { buf, MockHAConnection, MockThinq2Device } from '@/tests/helpers/mocks'
 
 const META: Metadata = { modelId: 'F21VDT_AKOR', modelName: 'F21VDT_AKOR', swVersion: '1.0' }
 const LIVE_POWER_OFF = buf('AA2220EB001A000000000000000000000000000000000000000534150400000016BB')
@@ -30,7 +30,8 @@ describe('F21VDT_AKOR', () => {
         const ha = new MockHAConnection()
         const thinq = new MockThinq2Device('washer-id', META)
         new DUT(ha.asConnection(), thinq, META)
-        const components = ha.devices['washer-id'].config!.components
+        const components = ha.devices['washer-id'].config?.components
+        assert.ok(components)
         assert.ok(components.status)
         assert.ok(components.run_completed)
         assert.ok(components.tub_clean_count)

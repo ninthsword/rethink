@@ -37,8 +37,8 @@ jobs:
             - name: Install dependencies
               run: npm ci
 
-            - name: Check formatting
-              run: npx prettier . --check --ignore-path .gitignore
+            - name: Check formatting and lint
+              run: npm run check
 
             - name: Type check
               run: npm run typecheck

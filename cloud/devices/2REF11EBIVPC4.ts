@@ -1,9 +1,9 @@
-import HADevice from './base'
-import { Device as Thinq2Device } from '../thinq2/device'
-import { DeviceDiscovery, type Connection } from '../homeassistant'
-import { type Metadata } from '../thinq'
 import { allowExtendedType } from '@/util/casting'
+import type { Connection, DeviceDiscovery } from '../homeassistant'
+import type { Metadata } from '../thinq'
+import type { Device as Thinq2Device } from '../thinq2/device'
 import AABBDevice from './aabb_device'
+import HADevice from './base'
 import { convertFreezerTemperature, convertFridgeTemperature, freezerRange, fridgeRange } from './fridge_common'
 
 // 2REF11EBIVPC4 - LG ThinQ Refrigerator (Israeli market)
@@ -100,11 +100,11 @@ export default class Device extends AABBDevice {
     }
 
     processAABB(buf: Buffer) {
-        if (buf.length === 2 + 43 * 2 && buf[0] == 0x10 && buf[1] == 0xec) {
+        if (buf.length === 2 + 43 * 2 && buf[0] === 0x10 && buf[1] === 0xec) {
             // 10EC: [prev status 43 bytes] [cur status 43 bytes]
             this.processStatus(buf.subarray(2 + 43, 2 + 43 + 43))
         }
-        if (buf.length === 2 + 43 && buf[0] == 0x10 && buf[1] == 0xeb) {
+        if (buf.length === 2 + 43 && buf[0] === 0x10 && buf[1] === 0xeb) {
             // 10EB: [initial status 43 bytes]
             this.processStatus(buf.subarray(2, 2 + 43))
         }

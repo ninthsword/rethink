@@ -1,7 +1,7 @@
 export function splitter(callback: (arg: Buffer) => void, options?: { maxPayloadLength?: number }) {
     let accum: Buffer | undefined
 
-    return function (buf: Buffer) {
+    return (buf: Buffer) => {
         accum = accum && accum.length > 0 ? Buffer.concat([accum, buf]) : buf
 
         while (accum && accum.length >= 4) {

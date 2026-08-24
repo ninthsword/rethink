@@ -1,10 +1,10 @@
-import TLVDevice, { marksCapsResponse } from './tlv_device'
-import { Device as Thinq2Device } from '../thinq2/device'
-import { DeviceDiscovery, type Connection } from '../homeassistant'
-import { type Metadata } from '../thinq'
 import { allowExtendedType } from '@/util/casting'
 import * as TLV from '@/util/tlv'
+import type { Connection, DeviceDiscovery } from '../homeassistant'
+import type { Metadata } from '../thinq'
+import type { Device as Thinq2Device } from '../thinq2/device'
 import HADevice from './base'
+import TLVDevice, { marksCapsResponse } from './tlv_device'
 
 /**
  * LG Portable Air Conditioner Model LP1022FVSM

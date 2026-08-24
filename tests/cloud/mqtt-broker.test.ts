@@ -1,7 +1,7 @@
-import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { Broker, idleTimeoutFor } from '@/cloud/mqtt-broker'
 import type { Socket } from 'node:net'
+import { test } from 'node:test'
+import { Broker, idleTimeoutFor } from '@/cloud/mqtt-broker'
 
 function fakeSocket(record: string[]): Socket {
     const handlers: Record<string, (packet: unknown) => void> = {}

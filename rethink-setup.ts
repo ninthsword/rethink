@@ -2,7 +2,7 @@ import * as tls from 'node:tls'
 import jsonSplitter from './util/json_splitter'
 import * as mtosp from './util/mtosp'
 
-if (process.argv.length != 5) {
+if (process.argv.length !== 5) {
     console.warn(
         `Usage:
 	tsx rethink-setup.ts hostname wifi_ssid wifi_password
@@ -14,6 +14,12 @@ if (process.argv.length != 5) {
 }
 
 const [host, wifiname, wifipass] = process.argv.slice(2)
+
+type SetupMessage = {
+    type?: string
+    cmd?: string
+    data?: { result?: string }
+}
 
 async function request(xml: string) {
     const socket = await new Promise<tls.TLSSocket>((resolve, reject) => {
@@ -84,18 +90,20 @@ QwIDAQAB
 `
     return new Promise<void>((resolve, reject) => {
         console.log(`Connecting to ${host}:5500`)
-        const socket = tls.connect({ host: host, port: 5500, rejectUnauthorized: false }, function () {
+        const socket = tls.connect({ host: host, port: 5500, rejectUnauthorized: false }, () => {
             console.log('TLS connection established')
             socket.write(
                 JSON.stringify({ type: 'request', cmd: 'setDeviceInit', data: { set: 'true', constantConnect: 'Y' } }),
             )
         })
 
-        function onMessage(json: any) {
+        function onMessage(value: unknown) {
+            if (!value || typeof value !== 'object' || Array.isArray(value)) return
+            const json = value as SetupMessage
             console.log(json)
 
             if (json.type === 'response') {
-                if (json.data.result && json.data.result !== '000') {
+                if (json.data?.result && json.data.result !== '000') {
                     console.warn('Error code returned!')
                     return
                 }
