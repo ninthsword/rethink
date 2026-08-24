@@ -1,4 +1,4 @@
-import TLVDevice, { FieldDefinition } from './tlv_device'
+import TLVDevice, { FieldDefinition, marksCapsResponse } from './tlv_device'
 import { Device as Thinq2Device } from '../thinq2/device'
 import { ClimateComponent, DeviceDiscovery, type Connection } from '../homeassistant'
 import { type Metadata } from '../thinq'
@@ -177,8 +177,7 @@ export default class Device extends TLVDevice {
     }
 
     isCapsResponse(tlvArray: TLV.TLV[]) {
-        /* eeprom checksum */
-        return tlvArray.some(({ t, v }) => t === 0x2da)
+        return marksCapsResponse(tlvArray)
     }
 
     isValuesResponse(tlvArray: TLV.TLV[]) {

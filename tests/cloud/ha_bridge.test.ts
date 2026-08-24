@@ -8,6 +8,9 @@ import { enableMockTimers, tickMockTimers } from '@/tests/helpers/timers'
 
 const META: Metadata = { modelId: 'Hd0C_F', modelName: 'Hd0C_F', swVersion: '2.10.93' }
 
+/** The same appliance after LG renamed its model, which is what this dryer actually did. */
+const RENAMED: Metadata = { modelId: 'RH16_UNKNOWN_KR', modelName: 'RH16KR', swVersion: '2.9.66' }
+
 class AvailabilityRecordingHA extends MockHAConnection {
     availabilityHistory: string[] = []
 
@@ -18,6 +21,20 @@ class AvailabilityRecordingHA extends MockHAConnection {
 }
 
 describe('HA bridge device replacement', () => {
+    test('an appliance whose model id was renamed is still matched by its model name', (t) => {
+        // This dryer went from RH16KR to RH16_N_KR with a firmware update and kept working
+        // only because someone added the new id by hand. The two fields do not always move
+        // together, so whichever one still names a handler is the one to use.
+        enableMockTimers(t)
+        const ha = new MockHAConnection()
+        const bridge = new Bridge(ha.asConnection(), 20)
+        const thinq = new MockThinq2Device('renamed-dryer', RENAMED)
+
+        bridge.newDevice(thinq)
+
+        assert.ok(ha.devices['renamed-dryer'], 'no handler was found for the renamed model')
+    })
+
     test('does not publish offline while atomically replacing a live connection', async () => {
         const ha = new AvailabilityRecordingHA()
         const bridge = new Bridge(ha.asConnection(), 20)

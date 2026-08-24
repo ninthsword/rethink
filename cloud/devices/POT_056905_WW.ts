@@ -1,4 +1,4 @@
-import TLVDevice from './tlv_device'
+import TLVDevice, { marksCapsResponse } from './tlv_device'
 import { Device as Thinq2Device } from '../thinq2/device'
 import { DeviceDiscovery, type Connection } from '../homeassistant'
 import { type Metadata } from '../thinq'
@@ -181,7 +181,7 @@ export default class Device extends TLVDevice {
     }
 
     isCapsResponse(tlvArray: TLV.TLV[]) {
-        return tlvArray.some(({ t }) => t === 0x2da)
+        return marksCapsResponse(tlvArray)
     }
 
     isValuesResponse(tlvArray: TLV.TLV[]) {

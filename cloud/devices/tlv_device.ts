@@ -31,6 +31,21 @@ export type FieldDefinition = {
     write_callback?: (val: number) => boolean
 }
 
+/**
+ * Tags that mark a reply as the answer to a capability query on this platform.
+ *
+ * 0x2da is the eeprom checksum older firmware sends. Newer modules answer with 0x2db or
+ * 0x2c1 instead, and a handler that recognises only the old one waits out its capability
+ * timeout and then concludes the appliance never answered — which is what anszom/rethink
+ * issue #137 reports for a RAC on an RTL8720cm module. Every handler on this platform
+ * carried its own copy of the old test, so the set lives here and they share it.
+ */
+export const CAPS_RESPONSE_TAGS: ReadonlySet<number> = new Set([0x2da, 0x2db, 0x2c1])
+
+export function marksCapsResponse(tlvArray: TLV.TLV[]) {
+    return tlvArray.some(({ t }) => CAPS_RESPONSE_TAGS.has(t))
+}
+
 export default class TLVDevice extends HADevice {
     query_timer: ReturnType<typeof setInterval> | undefined
     query_last_timestamp: number | undefined = undefined

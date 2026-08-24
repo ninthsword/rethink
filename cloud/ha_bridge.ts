@@ -110,11 +110,20 @@ class Bridge {
 
         let hadevice: HADevice | undefined
 
+        /*
+         * modelName is tried when modelId misses because LG renames a model without the
+         * appliance changing: this dryer went from RH16KR to RH16_N_KR with a firmware
+         * update, and only a hand-added alias kept its entities alive. The two fields do not
+         * always move together, so the one that still matches a handler wins.
+         */
+        const handlerFor = (table: Record<string, T1Factory | T2Factory>) =>
+            table[meta.modelId] ?? (meta.modelName ? table[meta.modelName] : undefined)
+
         if (thinqdev.platform === 'thinq1') {
-            const devclass = t1deviceTypes[meta.modelId]
+            const devclass = handlerFor(t1deviceTypes) as T1Factory | undefined
             if (devclass) hadevice = new devclass(this.HA, thinqdev, meta)
         } else if (thinqdev.platform === 'thinq2') {
-            const devclass = t2deviceTypes[meta.modelId]
+            const devclass = handlerFor(t2deviceTypes) as T2Factory | undefined
             if (devclass) hadevice = new devclass(this.HA, thinqdev, meta)
         }
 
@@ -125,7 +134,9 @@ class Bridge {
             // id nothing here knew — so say what it is and what to do about it.
             log(
                 'status',
-                `no handler for ${thinqdev.platform} model ${meta.modelId}; ${thinqdev.id} will have no Home Assistant entities`,
+                `no handler for ${thinqdev.platform} model ${meta.modelId}` +
+                    (meta.modelName && meta.modelName !== meta.modelId ? ` (name ${meta.modelName})` : '') +
+                    `; ${thinqdev.id} will have no Home Assistant entities`,
             )
             return
         }
