@@ -10,9 +10,16 @@ import type { DeviceDiscovery } from '@/cloud/homeassistant'
  * Worse, all three air conditioners derived theirs from the same model default, so they
  * became lg_air_conditioner, _2 and _3 with nothing to say which room is which.
  *
- * `object_id` is the discovery field that decides it instead. The name here is built from
- * the appliance's own name and rethink's component key, so it does not move when the
- * display language changes and it can be traced back to the handler that publishes it.
+ * `object_id` is the discovery field that is meant to decide it instead, and the name here is
+ * built from the appliance's own name and rethink's component key so it does not move when the
+ * display language changes and can be traced back to the handler that publishes it.
+ *
+ * It does not currently work. Every entity Home Assistant created after this began publishing
+ * — seven of them, across four appliances and three separate deploys — still took the
+ * `<area>_<device>_<entity name>` fallback, and every id that does follow the rule predates it
+ * and got there through a registry rename. Device-based discovery evidently ignores the field
+ * in the Home Assistant this install runs. Publishing it costs nothing and would start working
+ * if that changes, but a newly added component still needs its id renamed in the registry.
  *
  * The `rethink_` prefix is not decoration. The same appliances also exist under the
  * official lg_thinq integration and under ha-smartthinq-sensors, and a registry entry holds
