@@ -1,5 +1,5 @@
-import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { test } from 'node:test'
 import type { MqttClient } from 'mqtt'
 import { Connection, type DeviceDiscovery } from '@/cloud/homeassistant'
 
@@ -162,6 +162,14 @@ test('korean language localizes Korean appliance course values', () => {
     assert.equal(published[1].payload, '자가 세척')
 })
 
+test('clearRetainedProperty removes the broker value with an empty retained payload', () => {
+    const { connection, published } = fakeConnection({})
+
+    connection.clearRetainedProperty('rac-id', 'filterchangeddate')
+
+    assert.deepEqual(published, [{ topic: 'rethink/rac-id/filterchangeddate', payload: '', options: { retain: true } }])
+})
+
 function config(components: Record<string, unknown>) {
     return {
         device: { identifiers: '$deviceid', name: 'Living room air conditioner' },
@@ -171,7 +179,11 @@ function config(components: Record<string, unknown>) {
 }
 
 const FILTER_REMAINING = {
-    filterremaining: { platform: 'sensor', unique_id: '$deviceid-filterremaining', state_topic: '$this/filterremaining' },
+    filterremaining: {
+        platform: 'sensor',
+        unique_id: '$deviceid-filterremaining',
+        state_topic: '$this/filterremaining',
+    },
 }
 const FILTER_HOURS = {
     filterused: { platform: 'sensor', unique_id: '$deviceid-filterused', state_topic: '$this/filterused' },

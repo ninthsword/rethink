@@ -1,10 +1,10 @@
 import * as mqtt from 'mqtt'
 import { TypedEmitter } from 'tiny-typed-emitter'
-import { HAConfig } from '@/util/config'
-import log from '@/util/logging'
+import type { HAConfig } from '@/util/config'
+import { nameEntities } from '@/util/entity_naming'
 import { delocalizeValue, localizeDiscovery, localizeValue } from '@/util/ha_locale'
 import { validateDeviceDiscovery } from '@/util/ha_mqtt_validation'
-import { nameEntities } from '@/util/entity_naming'
+import log from '@/util/logging'
 
 // Notes on availability topic handling:
 // 1. We want HA to be able to tell if a device is available.
@@ -44,7 +44,7 @@ function recursiveReplace(obj: unknown, replacements: Record<string, string>): u
         )
     } else if (typeof obj === 'string') {
         let str: string = obj
-        for (let pattern in replacements) {
+        for (const pattern in replacements) {
             str = str.replaceAll(pattern, replacements[pattern])
         }
         return str
@@ -78,7 +78,7 @@ export class Connection extends TypedEmitter<ConnectionEvents> {
         // mqtt module has builtin reconnection support
         this.client = mqtt.connect(this.config.mqtt_url, {
             will: {
-                topic: config.rethink_prefix + '/availability',
+                topic: `${config.rethink_prefix}/availability`,
                 payload: Buffer.from('offline'),
                 retain: true,
             },
@@ -100,12 +100,12 @@ export class Connection extends TypedEmitter<ConnectionEvents> {
         this.isConnected = true
 
         // homeassistant/status
-        this.client.subscribe(this.config.discovery_prefix + '/status')
+        this.client.subscribe(`${this.config.discovery_prefix}/status`)
         // rethink/ID/PROPERTY/set
-        this.client.subscribe(this.config.rethink_prefix + '/+/+/set')
+        this.client.subscribe(`${this.config.rethink_prefix}/+/+/set`)
 
-        this.client.subscribe(this.config.rethink_prefix + '/+/availability')
-        this.client.publish(this.config.rethink_prefix + '/availability', Buffer.from('online'), { retain: true })
+        this.client.subscribe(`${this.config.rethink_prefix}/+/availability`)
+        this.client.publish(`${this.config.rethink_prefix}/availability`, Buffer.from('online'), { retain: true })
 
         this.emit('discovery')
         this.emit('statusChanged', true)
@@ -122,12 +122,12 @@ export class Connection extends TypedEmitter<ConnectionEvents> {
 
     received(topic: string, message: Buffer, packet: mqtt.IPublishPacket) {
         try {
-            if (topic === this.config.discovery_prefix + '/status' && message.toString('utf-8') === 'online') {
+            if (topic === `${this.config.discovery_prefix}/status` && message.toString('utf-8') === 'online') {
                 log('status', 'HA online, starting discovery process')
                 this.emit('discovery')
             }
 
-            if (topic.startsWith(this.config.rethink_prefix + '/')) {
+            if (topic.startsWith(`${this.config.rethink_prefix}/`)) {
                 const pathelements = topic.substring(this.config.rethink_prefix.length + 1).split('/')
                 // rethink/+/+/set
                 if (pathelements.length === 3 && pathelements[2] === 'set') {
@@ -191,7 +191,7 @@ export class Connection extends TypedEmitter<ConnectionEvents> {
         // Discovery must survive broker/rethink/HA restart ordering. Without retain, HA can keep an
         // older entity definition (for example, a generic RAC definition discovered before the
         // exact model handler was available) until it happens to announce `online` again.
-        this.client.publish(discoveryTopic + '/config', configPayload, { retain: true })
+        this.client.publish(`${discoveryTopic}/config`, configPayload, { retain: true })
         this.sweepRetainedState(id, localizedConfig)
     }
 
@@ -294,6 +294,13 @@ export class Connection extends TypedEmitter<ConnectionEvents> {
         }
     }
 
+    /** Remove a retained state value that is no longer valid for an entity. */
+    clearRetainedProperty(id: string, property: string) {
+        const topic = `${this.config.rethink_prefix}/${id}/${property}`
+        log('status', `clearing retained ${topic}`)
+        this.client.publish(topic, Buffer.alloc(0), { retain: true })
+    }
+
     publishProperty(id: string, property: string, value: string | number, options?: mqtt.IClientPublishOptions) {
         if (!options) options = { retain: true } // FIXME?
 
@@ -307,7 +314,7 @@ export class Connection extends TypedEmitter<ConnectionEvents> {
                 this.localizedStateValues.get(`${id}/${property}`)?.get(value) ??
                 localizeValue(value, this.config.language)
         log('publish', id, property, value)
-        this.client.publish(deviceTopic + '/' + property, value, options)
+        this.client.publish(`${deviceTopic}/${property}`, value, options)
     }
 }
 

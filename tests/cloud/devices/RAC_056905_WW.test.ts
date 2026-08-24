@@ -1,9 +1,9 @@
-import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
+import { describe, test } from 'node:test'
+import { outdoorUnitFor, resetOutdoorUnits } from '@/cloud/devices/outdoor_unit'
 import DUT from '@/cloud/devices/RAC_056905_WW'
 import type { Metadata } from '@/cloud/thinq'
-import { MockHAConnection, MockThinq2Device, buf, hex } from '@/tests/helpers/mocks'
-import { outdoorUnitFor, resetOutdoorUnits } from '@/cloud/devices/outdoor_unit'
+import { buf, hex, MockHAConnection, MockThinq2Device } from '@/tests/helpers/mocks'
 import { enableMockTimers, tickMockTimers } from '@/tests/helpers/timers'
 import * as TLV from '@/util/tlv'
 
@@ -48,7 +48,7 @@ function makeDevice() {
     const ha = new MockHAConnection()
     const thinq = new MockThinq2Device(DEVICE_ID, META)
     const dev = new DUT(ha.asConnection(), thinq, META)
-    ha.on('setProperty', (id: string, prop: string, value: string) => {
+    ha.on('setProperty', (_id: string, prop: string, value: string) => {
         dev.setProperty(prop, value)
     })
     return { ha, thinq, dev }
@@ -87,7 +87,7 @@ describe(MODEL_ID, () => {
         assert.ok(device, 'HA configuration published')
 
         // Config exposes the climate component with all five base fields registered.
-        const components = device.config!.components as Record<string, Record<string, unknown>>
+        const components = device.config?.components as Record<string, Record<string, unknown>>
         assert.ok(components.climate, 'climate component')
         assert.equal(components.climate.platform, 'climate')
 
@@ -253,7 +253,7 @@ describe(MODEL_ID, () => {
 
         // This model is cooling only; its panel has no heating mode, so offering one in
         // Home Assistant only produced a selection the appliance ignored.
-        const climate = ha.devices[DEVICE_ID].config!.components.climate as Record<string, unknown>
+        const climate = ha.devices[DEVICE_ID].config?.components.climate as Record<string, unknown>
         assert.deepEqual(climate.modes, ['off', 'cool', 'dry', 'fan_only', 'auto'])
         dev.drop()
     })
@@ -269,7 +269,7 @@ describe(MODEL_ID, () => {
 
         // Only the WINF panel has them; offering them on this model gave Home Assistant
         // controls with nothing behind them.
-        const components = ha.devices[DEVICE_ID].config!.components as Record<string, unknown>
+        const components = ha.devices[DEVICE_ID].config?.components as Record<string, unknown>
         assert.equal(components.sound, undefined)
         assert.equal(components.temperature_step, undefined)
         assert.notEqual(components.display, undefined)
@@ -281,12 +281,12 @@ describe(MODEL_ID, () => {
         const ha = new MockHAConnection()
         const thinq = new MockThinq2Device(DEVICE_ID, META)
         const dev = new DUT(ha.asConnection(), thinq, META)
-        ha.on('setProperty', (id: string, prop: string, value: string) => dev.setProperty(prop, value))
+        ha.on('setProperty', (_id: string, prop: string, value: string) => dev.setProperty(prop, value))
         thinq.emit('data', buf(CAPS_RESPONSE_HEX))
         thinq.emit('data', buf(QUERY_RESPONSE_HEX))
         tickMockTimers(t, 6000)
 
-        const components = ha.devices[DEVICE_ID].config!.components as Record<string, Record<string, unknown>>
+        const components = ha.devices[DEVICE_ID].config?.components as Record<string, Record<string, unknown>>
         assert.equal(components.autodry.platform, 'switch')
         assert.equal(components.display.platform, 'switch')
 
@@ -325,7 +325,7 @@ describe(MODEL_ID, () => {
         const meta: Metadata = { ...META, modelId: 'WINF_056905_WW' }
         const thinq = new MockThinq2Device(DEVICE_ID, meta)
         const dev = new DUT(ha.asConnection(), thinq, meta)
-        ha.on('setProperty', (id: string, prop: string, value: string) => dev.setProperty(prop, value))
+        ha.on('setProperty', (_id: string, prop: string, value: string) => dev.setProperty(prop, value))
         thinq.emit('data', buf(CAPS_RESPONSE_HEX))
         thinq.emit('data', buf(QUERY_RESPONSE_HEX))
         tickMockTimers(t, 6000)
@@ -350,7 +350,7 @@ describe(MODEL_ID, () => {
         // The thermostat card rounds to the step it was told about, so the published step
         // has to follow the appliance.
         dev.processKeyValue(0x1fb, 1)
-        const climate = ha.devices[DEVICE_ID].config!.components.climate as Record<string, unknown>
+        const climate = ha.devices[DEVICE_ID].config?.components.climate as Record<string, unknown>
         assert.equal(climate.temp_step, 1)
         assert.equal(climate.precision, 1)
         dev.processKeyValue(0x1fb, 0)
@@ -364,14 +364,14 @@ describe(MODEL_ID, () => {
         const meta: Metadata = { ...META, modelId: 'WINF_056905_WW' }
         const thinq = new MockThinq2Device(DEVICE_ID, meta)
         const dev = new DUT(ha.asConnection(), thinq, meta)
-        ha.on('setProperty', (id: string, prop: string, value: string) => {
+        ha.on('setProperty', (_id: string, prop: string, value: string) => {
             dev.setProperty(prop, value)
         })
         thinq.emit('data', buf(CAPS_RESPONSE_HEX))
         thinq.emit('data', buf(QUERY_RESPONSE_HEX))
         tickMockTimers(t, 6000)
 
-        const climate = ha.devices[DEVICE_ID].config!.components.climate as Record<string, unknown>
+        const climate = ha.devices[DEVICE_ID].config?.components.climate as Record<string, unknown>
         assert.deepEqual(climate.modes, ['off', 'cool', 'dry', 'fan_only'])
         assert.deepEqual(climate.fan_modes, ['level_1', 'level_2', 'level_3', 'level_4', 'level_5'])
         assert.deepEqual(climate.swing_horizontal_modes, [
@@ -386,7 +386,7 @@ describe(MODEL_ID, () => {
             'position_4',
             'position_5',
         ])
-        const sleepTimer = ha.devices[DEVICE_ID].config!.components.sleeptimer as Record<string, unknown>
+        const sleepTimer = ha.devices[DEVICE_ID].config?.components.sleeptimer as Record<string, unknown>
         assert.equal(sleepTimer.platform, 'number')
         assert.equal(sleepTimer.min, 0)
         assert.equal(sleepTimer.max, 12)
@@ -456,7 +456,7 @@ describe(MODEL_ID, () => {
         // appliance published no discovery and no availability at all.
         assert.ok(ha.devices[DEVICE_ID]?.config, 'the appliance published no discovery')
         assert.equal(ha.devices[DEVICE_ID].availability, 'online')
-        const components = ha.devices[DEVICE_ID].config!.components as Record<string, unknown>
+        const components = ha.devices[DEVICE_ID].config?.components as Record<string, unknown>
         assert.equal(components.compressor, undefined, 'the group owns the compressor, not the head')
         resetOutdoorUnits()
         dev.drop()
@@ -473,7 +473,8 @@ describe(MODEL_ID, () => {
         thinq.emit('data', buf(QUERY_RESPONSE_HEX))
         tickMockTimers(t, 6000)
 
-        const outdoor = outdoorUnitFor(ha.config as never, DEVICE_ID)!
+        const outdoor = outdoorUnitFor(ha.config as never, DEVICE_ID)
+        assert.ok(outdoor)
         outdoor.report(DEVICE_ID, 470, true)
         assert.equal(ha.devices[DEVICE_ID].properties.outdoor_power, 470)
 
@@ -495,7 +496,7 @@ describe(MODEL_ID, () => {
         thinq.emit('data', buf(QUERY_RESPONSE_HEX))
         tickMockTimers(t, 6000)
 
-        const components = ha.devices[DEVICE_ID].config!.components as Record<string, Record<string, unknown>>
+        const components = ha.devices[DEVICE_ID].config?.components as Record<string, Record<string, unknown>>
         assert.ok(components.compressor, 'no compressor sensor')
         assert.equal(components.compressor.platform, 'binary_sensor')
         assert.equal(components.compressor.device_class, 'running')
@@ -530,7 +531,7 @@ describe(MODEL_ID, () => {
 
         // The slider rounds to the quarter hour it can display, so on its own it cannot say
         // that eleven minutes are left. The appliance sends the real figure every minute.
-        const components = ha.devices[DEVICE_ID].config!.components as Record<string, Record<string, unknown>>
+        const components = ha.devices[DEVICE_ID].config?.components as Record<string, Record<string, unknown>>
         for (const [slider, counter] of [
             ['sleeptimer', 'sleep_time'],
             ['starttimer', 'start_time'],
@@ -545,7 +546,7 @@ describe(MODEL_ID, () => {
         dev.drop()
     })
 
-    test('a filter that was never reset publishes no date at all', (t) => {
+    test('a zero filter reset date clears the retained date', (t) => {
         enableMockTimers(t)
         const ha = new MockHAConnection()
         const thinq = new MockThinq2Device(DEVICE_ID, META)
@@ -554,14 +555,22 @@ describe(MODEL_ID, () => {
         thinq.emit('data', buf(QUERY_RESPONSE_HEX))
         tickMockTimers(t, 6000)
 
-        // Zero formats to 0000-00-00, which the date device class rejects: Home Assistant
-        // logged a warning on every reconnect and left the sensor at unknown anyway. The
-        // sensor reads unknown either way, so the warning bought nothing.
+        ha.clearedProperties.length = 0
+        dev.filterChangedDate = 20260818
+        dev.publishFilterData()
+        assert.equal(ha.devices[DEVICE_ID].properties.filterchangeddate, '2026-08-18')
+
+        // Zero formats to 0000-00-00, which the date device class rejects. An empty retained
+        // payload removes the historical value from the broker instead of merely leaving it
+        // there for Home Assistant to reject again after every reconnect.
+        dev.filterChangedDate = 0
+        dev.publishFilterData()
         assert.equal(
-            ha.getProperty(DEVICE_ID, 'filterchangeddate', 'state'),
+            ha.devices[DEVICE_ID].properties.filterchangeddate,
             undefined,
-            'a filter with no reset date must not publish one',
+            'a filter with no reset date must clear the old value',
         )
+        assert.deepEqual(ha.clearedProperties, [`${DEVICE_ID}/filterchangeddate`])
         dev.drop()
     })
 
@@ -635,7 +644,7 @@ describe('RAC_056905_WW energy total', () => {
     test('adds up the corrected power reading, not the raw one', (t) => {
         const { ha, dev } = buildReadyDevice(t)
         try {
-            const total = ha.devices[DEVICE_ID].config!.components.energy_total as Record<string, unknown>
+            const total = ha.devices[DEVICE_ID].config?.components.energy_total as Record<string, unknown>
             assert.equal(total.state_class, 'total_increasing', 'a meter for the energy dashboard')
             assert.equal(total.unit_of_measurement, 'Wh')
 

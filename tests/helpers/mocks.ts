@@ -1,13 +1,13 @@
-import { EventEmitter } from 'node:events'
-import { setFilter } from '@/util/logging'
-import type { Connection, DeviceDiscovery } from '@/cloud/homeassistant'
-import type { Metadata } from '@/cloud/thinq'
-import { Device as Thinq2Device } from '@/cloud/thinq2/device'
-import { Device as Thinq1Device } from '@/cloud/thinq1/device'
-import type { Connection as Thinq1Connection } from '@/cloud/thinq1/connection'
-import type { Broker } from '@/cloud/mqtt-broker'
 import assert from 'node:assert/strict'
+import { EventEmitter } from 'node:events'
+import type { Connection, DeviceDiscovery } from '@/cloud/homeassistant'
+import type { Broker } from '@/cloud/mqtt-broker'
+import type { Metadata } from '@/cloud/thinq'
+import type { Connection as Thinq1Connection } from '@/cloud/thinq1/connection'
+import { Device as Thinq1Device } from '@/cloud/thinq1/device'
+import { Device as Thinq2Device } from '@/cloud/thinq2/device'
 import { validateDeviceDiscovery } from '@/util/ha_mqtt_validation'
+import { setFilter } from '@/util/logging'
 
 // Suppress device logging noise during tests. Imported for side effect.
 setFilter(() => false)
@@ -21,6 +21,7 @@ export type DeviceInfo = {
 export class MockHAConnection extends EventEmitter {
     devices: Record<string, DeviceInfo> = {}
     publishedConfigs: DeviceDiscovery[] = []
+    clearedProperties: string[] = []
     isConnected = true
     /**
      * The handler configuration a real Connection carries. Left undefined by default, which
@@ -45,17 +46,22 @@ export class MockHAConnection extends EventEmitter {
         } else this.devices[id].properties[property] = value
     }
 
+    clearRetainedProperty(id: string, property: string) {
+        this.clearedProperties.push(`${id}/${property}`)
+        delete this.devices[id]?.properties[property]
+    }
+
     lookupDevice(dev: string | DeviceInfo) {
         if (typeof dev === 'string') return this.devices[dev]
         return dev
     }
 
     lookupTopic(id: string | DeviceInfo, component: string, topic_id: string) {
-        let dev = this.lookupDevice(id)
-        let comp = dev?.config?.components[component]
+        const dev = this.lookupDevice(id)
+        const comp = dev?.config?.components[component]
         if (!comp) return undefined
 
-        let topic = (comp as Record<string, string>)[topic_id + '_topic']
+        let topic = (comp as Record<string, string>)[`${topic_id}_topic`]
         if (!topic) return undefined
 
         topic = topic.replace(/^\$this\//, '')
@@ -63,20 +69,21 @@ export class MockHAConnection extends EventEmitter {
     }
 
     getProperty(id: string | DeviceInfo, component: string, topic_id: string) {
-        let dev = this.lookupDevice(id)
+        const dev = this.lookupDevice(id)
         if (!dev) return undefined
 
-        let topic = this.lookupTopic(dev, component, topic_id)
+        const topic = this.lookupTopic(dev, component, topic_id)
         if (!topic) return undefined
 
         return dev.properties[topic]
     }
 
     setProperty(id: string, component: string, topic_id: string, value: string) {
-        let dev = this.lookupDevice(id)
+        const dev = this.lookupDevice(id)
         if (!dev) return undefined
 
-        let topic = this.lookupTopic(dev, component, topic_id)!
+        const topic = this.lookupTopic(dev, component, topic_id)
+        if (!topic) return undefined
         this.emit('setProperty', id, topic.replace(/\/set$/, ''), value)
     }
 

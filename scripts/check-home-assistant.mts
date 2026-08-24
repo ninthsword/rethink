@@ -21,12 +21,11 @@
  * Where the ha-mcp server is available, Home Assistant's own last_changed per entity is the
  * final word on staleness; this is what can be had without it.
  */
-import mqtt from 'mqtt'
+
 import { execFileSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
-
-/** Longer than this without rethink publishing anything for an appliance is worth saying. */
-const STALE_MINUTES = 45
+import mqtt from 'mqtt'
+import { stalePublicationReason } from './home-assistant-freshness'
 
 const CONFIG = process.env.RETHINK_CONFIG ?? `${process.env.HOME}/docker/rethink-data/config.json`
 const raw = readFileSync(CONFIG, 'utf-8')
@@ -34,7 +33,9 @@ const setting = (key: string) => new RegExp(`"${key}"\\s*:\\s*"([^"]*)"`).exec(r
 
 /** Everything rethink told Home Assistant to create, and the last value it gave each topic. */
 async function whatRethinkPublished() {
-    const client = mqtt.connect(setting('mqtt_url')!, {
+    const mqttUrl = setting('mqtt_url')
+    if (!mqttUrl) throw new Error('mqtt_url is missing from the rethink config')
+    const client = mqtt.connect(mqttUrl, {
         clientId: 'rethink-ha-check',
         username: setting('mqtt_user'),
         password: setting('mqtt_pass'),
@@ -82,13 +83,14 @@ function fromTheLog() {
     } catch {
         return undefined
     }
-    const state = new Map<string, { stillStarting: boolean; lastPublish?: Date }>()
+    const state = new Map<string, { stillStarting: boolean; lastPublish?: Date; periodicRefreshSeen: boolean }>()
     for (const line of log.split('\n')) {
         const id = /([0-9a-f]{8}-[0-9a-f-]{27,})/.exec(line)?.[1]
         if (!id) continue
-        const entry = state.get(id) ?? { stillStarting: false }
+        const entry = state.get(id) ?? { stillStarting: false, periodicRefreshSeen: false }
         if (line.includes('re-trying initial values')) entry.stillStarting = true
         if (line.includes('received initial values key')) entry.stillStarting = false
+        if (line.includes('sending periodic refresh query')) entry.periodicRefreshSeen = true
         if (/ publish [0-9a-f-]+ /.test(line)) {
             const at = new Date(line.slice(0, 24))
             if (!Number.isNaN(at.valueOf())) entry.lastPublish = at
@@ -108,19 +110,18 @@ for (const [id, { name, entities }] of [...appliances].sort((a, b) => a[1].name.
     const availability = retained.get(`rethink/${id}/availability`) ?? '(none)'
     const state = log?.get(id)
     const quietFor = state?.lastPublish ? Math.round((Date.now() - state.lastPublish.valueOf()) / 60_000) : undefined
-    const note = state?.stillStarting
-        ? 'still asking for its initial values'
-        : quietFor !== undefined && quietFor >= STALE_MINUTES
-          ? `nothing published for ${quietFor} minutes`
-          : ''
+    const staleReason = stalePublicationReason({
+        periodicRefreshSeen: state?.periodicRefreshSeen ?? false,
+        quietForMinutes: quietFor,
+    })
+    const note = state?.stillStarting ? 'still asking for its initial values' : staleReason ? staleReason : ''
     console.log(
         `  ${name.padEnd(14)} ${String(entities).padStart(3)} entities   availability=${availability.padEnd(7)} ${note}`,
     )
     if (availability !== 'online') problems.push(`${name} is ${availability} to Home Assistant`)
     // The one that reads as healthy from every angle except the screen.
     if (state?.stillStarting) problems.push(`${name} never finished starting up; its entities are not current`)
-    else if (quietFor !== undefined && quietFor >= STALE_MINUTES)
-        problems.push(`${name} has published nothing for ${quietFor} minutes`)
+    else if (staleReason) problems.push(`${name}: ${staleReason}`)
 }
 
 // An appliance rethink is talking to but never published discovery for has no entities at
