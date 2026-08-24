@@ -248,8 +248,16 @@ describe('PAC_910604_WW', () => {
 
             await new Promise((resolve) => setTimeout(resolve, 1800))
 
-            coolPackets = coolPower.thinq.outbox.map((packet) => TLV.parse(packet.subarray(11, packet.length - 2)))
-            longPackets = longPower.thinq.outbox.map((packet) => TLV.parse(packet.subarray(11, packet.length - 2)))
+            // A write is now followed by a values query, because the appliance's own answer to
+            // a write is a frame the parser does not read. This test is about which writes the
+            // switches produce, so the confirming query is not part of what it compares.
+            const writesOnly = (device: { thinq: { outbox: Buffer[] } }) =>
+                device.thinq.outbox
+                    .map((packet) => TLV.parse(packet.subarray(11, packet.length - 2)))
+                    .filter((tlv) => !tlv.some(({ t }) => t === 0x1f5))
+
+            coolPackets = writesOnly(coolPower)
+            longPackets = writesOnly(longPower)
         } finally {
             coolPower.dev.drop()
             longPower.dev.drop()

@@ -39,6 +39,9 @@ export type FieldDefinition = {
  * issue #137 reports for a RAC on an RTL8720cm module. Every handler on this platform
  * carried its own copy of the old test, so the set lives here and they share it.
  */
+/** How long the writes must stay quiet before the confirming query goes out. */
+const WRITE_REFRESH_DELAY = 1500
+
 export const CAPS_RESPONSE_TAGS: ReadonlySet<number> = new Set([0x2da, 0x2db, 0x2c1])
 
 export function marksCapsResponse(tlvArray: TLV.TLV[]) {
@@ -59,6 +62,8 @@ export default class TLVDevice extends HADevice {
     fields_by_id: Record<number, FieldDefinition[]> = {}
     fields_by_ha: Record<string, FieldDefinition> = {}
     raw_clip_state: Record<number, number> = {}
+    /** Coalesces the refresh that follows a burst of writes; see refreshAfterWrite(). */
+    private write_refresh_timeout: ReturnType<typeof setTimeout> | undefined = undefined
     query_caps_timeout: ReturnType<typeof setInterval> | undefined = undefined
     query_values_timeout: ReturnType<typeof setInterval> | undefined = undefined
     /**
@@ -208,6 +213,11 @@ export default class TLVDevice extends HADevice {
     }
 
     stopTimers() {
+        if (this.write_refresh_timeout !== undefined) {
+            clearTimeout(this.write_refresh_timeout)
+            this.write_refresh_timeout = undefined
+        }
+
         if (this.query_timer !== undefined) {
             clearInterval(this.query_timer)
             this.query_timer = undefined
@@ -442,7 +452,29 @@ export default class TLVDevice extends HADevice {
             const tlvArray = write_fields.map((id) => ({ t: id, v: this.raw_clip_state[id] }))
             //console.log("Sending ", tlvArray)
             this.send(this.writeHeader(), tlvArray)
+            this.refreshAfterWrite()
         }
+    }
+
+    /**
+     * Ask for the values again once a burst of writes has settled.
+     *
+     * An appliance answers a write with a frame this parser does not recognise — the
+     * dehumidifier's carries 0xa8 where a values response carries 0xa7 — so the value it
+     * accepted reaches Home Assistant only on the next periodic query. That is fifteen
+     * minutes by default, which is how a turn-off reservation could be written correctly,
+     * accepted by the appliance, and still read as unchanged on screen for a quarter of an
+     * hour. The air conditioner hid the same gap by polling every twenty-eight seconds.
+     *
+     * Dragging a slider produces a write per step, so the query waits for the writes to stop
+     * rather than following each one: fourteen moves in a minute ask the appliance once.
+     */
+    private refreshAfterWrite() {
+        if (this.write_refresh_timeout !== undefined) clearTimeout(this.write_refresh_timeout)
+        this.write_refresh_timeout = setTimeout(() => {
+            this.write_refresh_timeout = undefined
+            this.query()
+        }, WRITE_REFRESH_DELAY)
     }
 
     protected writeHeader() {

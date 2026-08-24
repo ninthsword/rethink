@@ -25,6 +25,33 @@ function makeDevice() {
     return { ha, thinq, dev, config }
 }
 
+test('a write is followed by one refresh query, however fast the slider moves', (t) => {
+    // The appliance answers a write with a frame this parser does not recognise, so the value
+    // it accepted only reaches Home Assistant on the next periodic query. The dehumidifier
+    // polls every fifteen minutes by default, which is how a turn-off reservation could be set
+    // correctly on the wire and still read as unchanged on screen for a quarter of an hour.
+    // One query after the writes settle closes that without asking the appliance fourteen
+    // times because someone dragged a slider.
+    enableMockTimers(t)
+    const { thinq, dev, config } = makeDevice()
+    dev.addField(config, { id: 0x21b, name: '', comp: 'c', write_xform: (v) => Number(v) * 60 })
+
+    dev.setProperty('c-', '1')
+    dev.setProperty('c-', '2')
+    dev.setProperty('c-', '4')
+    const writes = thinq.outbox.length
+    assert.equal(writes, 3, 'each write still goes out immediately')
+
+    tickMockTimers(t, 2000)
+    const after = thinq.outbox
+    assert.equal(after.length, writes + 1, 'exactly one refresh query follows the burst')
+    // A values query uses the 0x02 sub-header; a write uses 0x01 there.
+    assert.match(after[after.length - 1].toString('hex'), /^010104000000650202/)
+
+    tickMockTimers(t, 60_000)
+    assert.equal(thinq.outbox.length, writes + 1, 'the refresh does not repeat on its own')
+})
+
 test('processData ignores frames that do not match magic prefix', () => {
     const { ha, thinq } = makeDevice()
     thinq.emit('data', buf('00112233445566778899AABBCC'))
