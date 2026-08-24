@@ -297,7 +297,7 @@ export default class Device extends TLVDevice {
             // PAC_910604_WW reports its live power in periodic state responses,
             // but fan-speed notifications do not consistently include 0x2B3.
             // Poll fan-only at the same 28-second interval as cooling/drying so
-            // HA does not retain the 3 W standby value for up to 15 minutes.
+            // HA does not retain the powered-off zero for up to 15 minutes.
             increaseQueryInterval = action != null && (action !== 'fan' || this.meta.modelId === 'PAC_910604_WW')
         }
 
@@ -493,8 +493,8 @@ export default class Device extends TLVDevice {
 
                 const powerState = val === 'ON'
                 // PAC_910604_WW does not report 0x2B3 when it turns off, so
-                // replace the retained last-running value with measured standby power.
-                if (isPac910604 && !powerState) this.HA.publishProperty(this.id, 'energy_current-', 3)
+                // replace the retained last-running value with zero.
+                if (isPac910604 && !powerState) this.HA.publishProperty(this.id, 'energy_current-', 0)
                 /*
                  * Only a change the appliance actually made. The first reading after rethink
                  * starts is not one: the appliance has been sitting there with its own
@@ -1105,7 +1105,7 @@ export default class Device extends TLVDevice {
                 name: '',
                 comp: 'energy_current',
                 writable: false,
-                read_xform: (raw) => (this.getPowerTLV() === 0 ? (isPac910604 ? 3 : 5) : raw),
+                read_xform: (raw) => (this.getPowerTLV() === 0 ? 0 : raw),
                 read_callback: (value) => {
                     if (isPac910604 && typeof value === 'number') {
                         const running = this.getPowerTLV() !== 0

@@ -114,13 +114,15 @@ export default class Device extends AABBDevice {
         if (rec.length !== 27 || rec[1] !== 0x19) return
 
         const state = rec[2]
+        const isOff = state === 0
         const error = rec[22]
-        this.publishProperty('power', state === 0 ? 'OFF' : 'ON')
+        this.publishProperty('power', isOff ? 'OFF' : 'ON')
         this.publishProperty('status', STATUS[state] ?? `RAW_${state}`)
         this.publishProperty('run_completed', state === 8 ? 'ON' : 'OFF')
         this.publishProperty('previous_status', PREVIOUS_STATUS[rec[21]] ?? `RAW_${rec[21]}`)
-        this.publishProperty('remaining_time', rec[3] * 60 + rec[4])
-        this.publishProperty('initial_time', rec[5] * 60 + rec[6])
+        // Its power-off record uses one minute in both fields as an idle sentinel.
+        this.publishProperty('remaining_time', isOff ? 0 : rec[3] * 60 + rec[4])
+        this.publishProperty('initial_time', isOff ? 0 : rec[5] * 60 + rec[6])
         this.publishProperty('reserve_time', rec[13] * 60 + rec[14])
         this.publishProperty('error', error === 0 ? 'OFF' : 'ON')
         this.publishProperty('error_message', ERROR[error] ?? `ERROR_${error}`)

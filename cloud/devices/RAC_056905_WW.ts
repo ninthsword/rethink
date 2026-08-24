@@ -928,7 +928,7 @@ export default class Device extends TLVDevice {
              * subtract sixty from every value for a "bias of +50"; measured against the
              * whole-house meter, that bias is a standby artefact and not an offset on
              * running values — switched off, these units keep reporting around fifty, which
-             * is a placeholder rather than a measurement. So standby is shown as five watts
+             * is a placeholder rather than a measurement. So standby is shown as zero watts
              * and everything else is passed through, which is what ha-smartthinq-sensors
              * does with the same field.
              *
@@ -942,7 +942,7 @@ export default class Device extends TLVDevice {
                 name: '',
                 comp: 'energy_current',
                 writable: false,
-                read_xform: (raw) => (this.getPowerTLV() === 0 ? 5 : Math.max(5, raw)),
+                read_xform: (raw) => (this.getPowerTLV() === 0 ? 0 : Math.max(5, raw)),
                 // Whatever correction the reading needs, the total is added up from the
                 // corrected figure — the same one the sensor shows.
                 read_callback: (value) => {

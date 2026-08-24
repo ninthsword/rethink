@@ -662,18 +662,18 @@ describe('RAC_056905_WW energy total', () => {
         }
     })
 
-    test('standby is shown but not counted', (t) => {
+    test('standby is zero and not counted', (t) => {
         const { ha, dev } = buildReadyDevice(t)
         try {
             // Switched off, these units keep reporting around fifty watts. That is a
-            // placeholder, not a measurement, so it is displayed as five and adds nothing:
+            // placeholder, not a measurement, so it is displayed as zero and adds nothing:
             // counting it would put over a hundred made-up watt-hours a day on the total.
             dev.raw_clip_state[0x1f7] = 0
             dev.processKeyValue(0x2b3, 50)
-            assert.equal(ha.devices[DEVICE_ID].properties['energy_current-'], 5)
+            assert.equal(ha.devices[DEVICE_ID].properties['energy_current-'], 0)
 
-            meter(dev).integratePower(5, 0, false)
-            meter(dev).integratePower(5, 60 * 60 * 1000, false)
+            meter(dev).integratePower(0, 0, false)
+            meter(dev).integratePower(0, 60 * 60 * 1000, false)
             assert.equal(ha.devices[DEVICE_ID].properties.energy_total, 0, 'an hour switched off is nothing')
         } finally {
             dev.drop()
@@ -685,7 +685,7 @@ describe('RAC_056905_WW energy total', () => {
         try {
             meter(dev).integratePower(720, 0, true)
             // Off for an hour, then running again: the hour is not credited to either state.
-            meter(dev).integratePower(5, 30 * 60 * 1000, false)
+            meter(dev).integratePower(0, 30 * 60 * 1000, false)
             meter(dev).integratePower(720, 60 * 60 * 1000, true)
             assert.equal(ha.devices[DEVICE_ID].properties.energy_total ?? 0, 0)
 

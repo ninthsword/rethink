@@ -79,6 +79,13 @@ export default class Device extends AABBDevice {
                         name: 'Power',
                         icon: 'mdi:dishwasher',
                     },
+                    door: {
+                        platform: 'binary_sensor',
+                        unique_id: '$deviceid-door',
+                        state_topic: '$this/door',
+                        name: 'Door',
+                        device_class: 'door',
+                    },
                     run_completed: {
                         platform: 'binary_sensor',
                         unique_id: '$deviceid-run_completed',
@@ -115,12 +122,18 @@ export default class Device extends AABBDevice {
         if (rec.length !== 26 || rec[1] !== 0x18) return
 
         const state = rec[2]
-        this.publishProperty('power', state === 0 || state === 4 ? 'OFF' : 'ON')
-        this.publishProperty('status', mapped(STATUS, state))
+        const isOff = state === 0 || state === 4
+        this.publishProperty('power', isOff ? 'OFF' : 'ON')
+        // Opening the door while state remained POWEROFF changed only bit 0x02 here;
+        // the official ThinQ door entity changed from closed to open at the same instant.
+        this.publishProperty('door', (rec[13] & 0x02) !== 0 ? 'ON' : 'OFF')
+        // The appliance settles from POWEROFF into STANDBY without becoming operable.
+        this.publishProperty('status', isOff ? 'POWEROFF' : mapped(STATUS, state))
         this.publishProperty('run_completed', state === 5 || rec[3] === 5 ? 'ON' : 'OFF')
         this.publishProperty('process', mapped(PROCESS, rec[3]))
-        this.publishProperty('remaining_time', rec[5] * 60 + rec[6])
-        this.publishProperty('initial_time', rec[9] * 60 + rec[10])
+        // A captured cycle held rec[5:6] constant while rec[9:10] counted to zero.
+        this.publishProperty('remaining_time', isOff ? 0 : rec[9] * 60 + rec[10])
+        this.publishProperty('initial_time', rec[5] * 60 + rec[6])
         this.publishProperty('reserve_time', rec[11] * 60 + rec[12])
         this.publishProperty('course', mapped(COURSE, rec[7]))
         this.publishProperty('current_download_course', mapped(DOWNLOAD_COURSE, rec[25]))

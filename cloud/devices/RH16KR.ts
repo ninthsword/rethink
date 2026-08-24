@@ -186,10 +186,12 @@ export default class Device extends AABBDevice {
         if (rec.length !== 27 || rec[1] !== 0x19) return
 
         const state = rec[2]
+        const isOff = state === 0
         this.publishProperty('power', state === 0 ? 'OFF' : 'ON')
         this.publishProperty('status', mapped(STATUS, state))
         this.publishProperty('run_completed', state === 4 || rec[21] === 8 ? 'ON' : 'OFF')
-        this.publishProperty('process_status', mapped(PROCESS, rec[21]))
+        // The live power-off record retains the last process byte (observed as DRY_LV2).
+        this.publishProperty('process_status', isOff ? 'NONE' : mapped(PROCESS, rec[21]))
         this.publishProperty('remaining_time', rec[3] * 60 + rec[4])
         this.publishProperty('initial_time', rec[5] * 60 + rec[6])
         this.publishProperty('reserve_time', rec[13] * 60 + rec[14])

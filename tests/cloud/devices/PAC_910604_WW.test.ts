@@ -187,11 +187,11 @@ describe('PAC_910604_WW', () => {
         assert.equal(ha.devices[DEVICE_ID].properties['energy_current-'], 38)
 
         dev.processKeyValue(0x1f7, 0)
-        assert.equal(ha.devices[DEVICE_ID].properties['energy_current-'], 3)
+        assert.equal(ha.devices[DEVICE_ID].properties['energy_current-'], 0)
 
         // Full state packets contain a stale 0x2B3 value after the OFF tag.
         dev.processKeyValue(0x2b3, 38)
-        assert.equal(ha.devices[DEVICE_ID].properties['energy_current-'], 3)
+        assert.equal(ha.devices[DEVICE_ID].properties['energy_current-'], 0)
         dev.drop()
     })
 

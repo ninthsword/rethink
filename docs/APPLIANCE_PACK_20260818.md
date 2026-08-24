@@ -30,15 +30,20 @@ particular, defer:
 - remote start, pause, power-off, cycle selection and downloaded-cycle execution;
 - washer/dryer option switches whose packet offsets have not been observed while
   changing;
-- dishwasher door, option bitmaps, error and tub-clean count until each byte is
-  isolated by a physical state change;
+- dishwasher option bitmaps and error until each byte is isolated by a physical
+  state change;
 - kimchi-refrigerator writes: its model schema reports `supportControl=false`.
 
-The ThinQ model diagnostic confirms that `D121111` has door, rinse-refill,
+The ThinQ model diagnostic confirms that `D121111` has rinse-refill,
 salt-refill, auto-door, rinse-level and softening-level properties. It does not
 identify their byte offsets in the local AABB record. Do not expose those cloud
 snapshot values as local entities until a labelled physical state-change capture
 isolates each byte.
+
+The dishwasher door is the exception: a labelled close/open capture on 2026-08-24
+kept the appliance state at `POWEROFF` and changed only bit `0x02` of status record
+byte 13. The official ThinQ door entity changed at the same instant, confirming
+`rec[13] & 0x02` as open.
 
 `WINF_056905_WW` is registered through the RAC TLV handler. Its diagnostic
 capability table confirms cooling, drying and fan-only modes, so heat and auto are

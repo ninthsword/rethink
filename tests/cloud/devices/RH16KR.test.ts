@@ -16,7 +16,7 @@ test('RH16KR decodes the live dryer snapshot', () => {
     const p = ha.devices['dryer-id'].properties
     assert.equal(p.power, 'OFF')
     assert.equal(p.status, 'POWEROFF')
-    assert.equal(p.process_status, 'DETECTING')
+    assert.equal(p.process_status, 'NONE')
     assert.equal(p.run_completed, 'OFF')
     assert.equal(p.remaining_time, 0)
     assert.equal(p.dry_level, 'NO')
