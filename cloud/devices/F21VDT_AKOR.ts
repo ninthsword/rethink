@@ -67,7 +67,36 @@ const COURSE: Record<number, string> = {
     13: 'RINSE_SPIN',
     14: 'DOWNLOADED',
 }
-const DOWNLOADED_COURSE: Record<number, string> = { 0: 'NONE', 0x34: 'SMALL_LOAD' }
+/*
+ * Each byte was read from the `f0 25` download command captured while that course was
+ * picked in the ThinQ app, so the pairing is the appliance's own. The names are the cloud's
+ * keys for this model, matching the SmartCourse table in LG's model JSON.
+ *
+ * DEODORIZATION_WASHER is the one exception. The dryer has a course under the same cloud
+ * key that the app calls 리프레쉬, while this one is 냄새 제거, and util/ha_locale.ts is a
+ * flat table with room for only one Korean name per value.
+ *
+ * ECO_WASH (알뜰 세탁) is the fifteenth course the model lists and is not here: it was not
+ * among the ones downloaded. The codes run consecutively for the first ten and then skip,
+ * so guessing where it landed is exactly the mistake this table was built to avoid.
+ */
+const DOWNLOADED_COURSE: Record<number, string> = {
+    0: 'NONE',
+    0x33: 'COLD_WASH',
+    0x34: 'SMALL_LOAD',
+    0x35: 'SKIN_CARE',
+    0x36: 'RAINY_DAY',
+    0x37: 'SWEAT_STAIN',
+    0x38: 'SINGLE_GARMENTS',
+    0x39: 'KIDS_WEAR',
+    0x3a: 'SHIRT',
+    0x3b: 'SCHOOL_UNIFORM',
+    0x3c: 'STATIC_REDUCE',
+    0x3f: 'SPIN_ONLY',
+    0x41: 'DEODORIZATION_WASHER',
+    0x43: 'CLOTH_CARE',
+    0x44: 'SMART_RINSE',
+}
 const OPERATION_COURSE: Record<number, string> = { 0: 'NONE', 0x04: 'SPEEDWASH' }
 
 function sensor(name: string, icon: string, extra: object = {}) {
