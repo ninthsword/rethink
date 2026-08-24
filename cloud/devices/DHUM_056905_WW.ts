@@ -61,7 +61,29 @@ const NOTIFICATION_STATE = 0x2b2
 const WATER_TANK_FULL = 256
 /** Both of these read 0 for on and 1 for off, the opposite way round to the others. */
 const BUTTON_SOUND = 0x3a0
+/*
+ * Both tags come from the `_tlv_NNN` labels in LG's model JSON for this appliance, which is
+ * also where every tag already read here matches. The cloud reports both for this unit.
+ */
+const AIR_REMOVAL = 0x360
+const MELODY = 0x3b9
 const STATUS_DISPLAY = 0x21f
+
+/* The twelve tunes this model's melody table names, in its own order. */
+const MELODIES: Record<number, string> = {
+    0: 'MELODY_DEFAULT',
+    1: 'MELODY_VIVALDI_WINTER',
+    2: 'MELODY_JINGLE_BELLS_CHORUS',
+    3: 'MELODY_WE_WISH_YOU_A_MERRY_CHRISTMAS',
+    4: 'MELODY_BEETHOVEN_PASTORALE',
+    5: 'MELODY_VIVALDI_SPRING',
+    6: 'MELODY_DVORAK_HUMORESQUE',
+    7: 'MELODY_ELGAR_SALUT_D_AMOUR',
+    8: 'MELODY_VIVALDI_AUTUMN',
+    9: 'MELODY_DANCE_OF_THE_SUGAR_PLUM_FAIRY',
+    10: 'MELODY_RADETZKY_MARSCH',
+    11: 'MELODY_JINGLE_BELLS_INTRO',
+}
 
 const SENSOR_MODES: Record<number, string> = {
     0: 'operating_only',
@@ -137,6 +159,20 @@ export default class Device extends TLVDevice {
                     name: 'UVnano',
                     icon: 'mdi:auto-fix',
                     entity_category: 'config',
+                },
+                air_removal: {
+                    platform: 'switch',
+                    unique_id: '$deviceid-air-removal',
+                    name: 'Air removal',
+                    icon: 'mdi:weather-windy',
+                    entity_category: 'config',
+                },
+                melody: {
+                    platform: 'sensor',
+                    unique_id: '$deviceid-melody',
+                    name: 'Melody',
+                    icon: 'mdi:music-note',
+                    entity_category: 'diagnostic',
                 },
                 water_tank_light: {
                     platform: 'switch',
@@ -294,6 +330,22 @@ export default class Device extends TLVDevice {
             comp: 'uvnano',
             read_xform: (raw) => (raw ? 'ON' : 'OFF'),
             write_xform: (value) => (value === 'ON' ? 1 : 0),
+        })
+
+        this.addField(config, {
+            id: AIR_REMOVAL,
+            name: '',
+            comp: 'air_removal',
+            read_xform: (raw) => (raw ? 'ON' : 'OFF'),
+            write_xform: (value) => (value === 'ON' ? 1 : 0),
+        })
+
+        this.addField(config, {
+            id: MELODY,
+            name: '',
+            comp: 'melody',
+            readable: true,
+            read_xform: (raw) => MELODIES[raw] ?? `RAW_${raw}`,
         })
 
         this.addField(config, {
