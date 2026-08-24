@@ -63,6 +63,36 @@ const DOWNLOADED_COURSE: Record<number, string> = {
     0x83: 'SELFCLEANING',
 }
 // Exact RH16KR processState table from the installed model diagnostic.
+/*
+ * From the error table in LG's model JSON for this appliance, whose keys are the numbers it
+ * puts on the wire. ERROR_AE_DRYER departs from the cloud key because the mini washer has an
+ * ERROR_AE of its own that means a clutch fault rather than a compressor one, and
+ * util/ha_locale.ts holds a single Korean name per value.
+ *
+ * The byte is rec[22]. That position is inferred rather than seen in a fault: this handler
+ * does not otherwise read it, it was zero across every captured record while the appliance was
+ * healthy, and Hd0C_F and Pd0F_F — the two siblings whose records have this same length and
+ * discriminator — both read their error there. Worth confirming against the ThinQ app the
+ * first time this dryer actually faults.
+ */
+const ERROR: Record<number, string> = {
+    0: 'NO_ERROR',
+    1: 'ERROR_TE1',
+    2: 'ERROR_TE2',
+    7: 'ERROR_CE1',
+    13: 'ERROR_DRAINMOTOR',
+    14: 'ERROR_EMPTYWATER',
+    15: 'ERROR_DOOR',
+    17: 'ERROR_NOFILTER',
+    19: 'ERROR_F1',
+    20: 'ERROR_LE2',
+    21: 'ERROR_AE_DRYER',
+    30: 'ERROR_LE1',
+    37: 'ERROR_DE4',
+    39: 'ERROR_LE3',
+    42: 'ERROR_DE2',
+}
+
 const PROCESS: Record<number, string> = {
     // The AABB wire record is one-based. The ThinQ model diagnostic uses
     // zero-based indices for the same ordered processState values.
@@ -131,6 +161,15 @@ export default class Device extends AABBDevice {
                     downloaded_course: sensor('downloaded_course', 'mdi:download-circle-outline'),
                     dry_level: sensor('dry_level', 'mdi:water-percent'),
                     eco_hybrid: sensor('eco_hybrid', 'mdi:leaf'),
+                    error: {
+                        platform: 'binary_sensor',
+                        unique_id: '$deviceid-error',
+                        state_topic: '$this/error',
+                        name: 'error',
+                        icon: 'mdi:alert-circle-outline',
+                        device_class: 'problem',
+                    },
+                    error_message: sensor('error_message', 'mdi:alert-circle-outline'),
                     anti_crease: {
                         platform: 'binary_sensor',
                         unique_id: '$deviceid-anti_crease',
@@ -159,6 +198,8 @@ export default class Device extends AABBDevice {
         this.publishProperty('dry_level', DRY_LEVEL[rec[9]] ?? `RAW_${rec[9]}`)
         this.publishProperty('eco_hybrid', ECO_HYBRID[rec[10]] ?? `RAW_${rec[10]}`)
         this.publishProperty('anti_crease', rec[11] === 1 ? 'ON' : 'OFF')
+        this.publishProperty('error', rec[22] === 0 ? 'OFF' : 'ON')
+        this.publishProperty('error_message', mapped(ERROR, rec[22]))
     }
 
     processAABB(buf: Buffer) {

@@ -72,6 +72,36 @@ test('RH16KR names the courses whose codes the download command revealed', () =>
     }
 })
 
+test('RH16KR reports the errors its model defines', () => {
+    const ha = new MockHAConnection()
+    const thinq = new MockThinq2Device('dryer-id', META)
+    new DUT(ha.asConnection(), thinq, META)
+
+    const report = (code: number) => {
+        const rec = Buffer.alloc(27)
+        rec[1] = 0x19
+        rec[22] = code
+        thinq.emit('data', Buffer.concat([Buffer.from([0xaa, 0x21, 0x30, 0xeb]), rec, Buffer.from([0, 0xbb])]))
+        return ha.devices['dryer-id'].properties
+    }
+
+    assert.equal(report(0).error, 'OFF')
+    assert.equal(report(0).error_message, 'NO_ERROR')
+    for (const [code, name] of [
+        [1, 'ERROR_TE1'],
+        [7, 'ERROR_CE1'],
+        [15, 'ERROR_DOOR'],
+        [17, 'ERROR_NOFILTER'],
+        [21, 'ERROR_AE_DRYER'],
+        [30, 'ERROR_LE1'],
+        [42, 'ERROR_DE2'],
+    ] as const) {
+        const p = report(code)
+        assert.equal(p.error_message, name)
+        assert.equal(p.error, 'ON')
+    }
+})
+
 test('RH16KR exposes the complete model process table', () => {
     const ha = new MockHAConnection()
     const thinq = new MockThinq2Device('dryer-id', META)
