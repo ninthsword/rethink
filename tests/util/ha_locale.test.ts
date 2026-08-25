@@ -66,6 +66,23 @@ describe('korean appliance value localization', () => {
         assert.deepEqual(localized.modes, ['스마트', '쾌속', '저소음'])
     })
 
+    test('translates the WINF AI dry entity and its options', () => {
+        const config = {
+            device: { name: 'LG Air Conditioner' },
+            components: {
+                ai_dry_strength: {
+                    platform: 'select',
+                    name: 'AI dry strength',
+                    options: ['weak_wind', 'medium_wind', 'strong_wind'],
+                },
+            },
+        } as unknown as DeviceDiscovery
+
+        const localized = localizeDiscovery(config, 'korean').components.ai_dry_strength as Record<string, unknown>
+        assert.equal(localized.name, 'AI건조 바람 세기')
+        assert.deepEqual(localized.options, ['약풍', '중풍', '강풍'])
+    })
+
     test('keeps the air purifier sleep timer distinct from the washer dry level', () => {
         // Both would render as "30분" if the dry level were not disambiguated, which
         // would make the reverse map send a dry-level token to the sleep timer select.

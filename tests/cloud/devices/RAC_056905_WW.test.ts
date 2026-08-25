@@ -41,8 +41,10 @@ const QUERY_RESPONSE_HEX =
 
 // Bytes that the device sends in response to specific HA setProperty calls.
 const WRITE_MODE_FAN_ONLY_HEX = '01010400000065020101067E427E837F80B452'
-const WRITE_MODE_HEAT_HEX = '01010400000065020101077E447E837F902AF936'
 const WRITE_POWER_OFF_HEX = '01010400000065020101027DC00576'
+const QUERY_REQUEST_HEX = '01010400000065020201027D425A6E'
+const WINF_PUSH_HEX =
+    '000004000000A8666501EA0A011465590001000002000100000000000000000000353400000000000000000007000000000000000000000000000000000001000000000000000000000000000000000000000000000000000000000000000000000000010101000000000000000000000000869422000100000000000000003B0000011B4B000000000300000301050005000000000000010200D8000000044C03E800006B00DD003CBC0000F906A4000005C10000000000000000010000FF000000000000000000000000006400DD3C0145020000010E00000000000100000000000000000EF5290092000087000A98000038000DC3E1'
 
 function makeDevice() {
     const ha = new MockHAConnection()
@@ -104,14 +106,10 @@ describe(MODEL_ID, () => {
         assert.ok(!components.airclean, 'airclean off (0x2CC bit 0x1 unset)')
 
         // Swing modes registered because 0x2CD has both 0x4 and 0x8.
-        assert.deepEqual(components.climate.fan_modes, [
-            'level_1',
-            'level_2',
-            'level_3',
-            'level_4',
-            'level_5',
-            'natural',
-        ])
+        // Three levels plus natural wind, on raw 2/4/6/8. The five levels on raw 3..7 that
+        // the model data advertises are what the appliance was assumed to use until a
+        // labelled capture of this unit showed otherwise.
+        assert.deepEqual(components.climate.fan_modes, ['level_1', 'level_2', 'level_3', 'natural'])
         assert.deepEqual(components.climate.swing_modes, [
             'off',
             'swing',
@@ -147,8 +145,11 @@ describe(MODEL_ID, () => {
 
         assert.equal(ha.getProperty(DEVICE_ID, 'climate', 'current_temperature'), 20.5) // 0x29 / 2
         assert.equal(ha.getProperty(DEVICE_ID, 'climate', 'temperature_state'), 19) // 0x26 / 2
-        assert.equal(ha.getProperty(DEVICE_ID, 'climate', 'fan_mode_state'), 'level_1') // 0x1FA=3
-        assert.equal(ha.getProperty(DEVICE_ID, 'climate', 'mode_state'), 'heat') // 0x1F9=4 with power=ON
+        // This capture predates the labelled session that established this model's encoding.
+        // Its raw 3 and raw 4 are not values the installed appliance uses for a fan level or
+        // a mode, so nothing is published for them rather than a name they do not mean.
+        assert.equal(ha.getProperty(DEVICE_ID, 'climate', 'fan_mode_state'), undefined) // 0x1FA=3
+        assert.equal(ha.getProperty(DEVICE_ID, 'climate', 'mode_state'), undefined) // 0x1F9=4
         assert.equal(ha.getProperty(DEVICE_ID, 'climate', 'swing_mode_state'), 'off') // 0x321=0
         assert.equal(ha.getProperty(DEVICE_ID, 'climate', 'swing_horizontal_mode_state'), 'off') // 0x322=0
         assert.equal(ha.getProperty(DEVICE_ID, 'autodry', 'state'), 'OFF') // 0x20E=0
@@ -178,16 +179,69 @@ describe(MODEL_ID, () => {
         dev.drop()
     })
 
-    test('HA write climate-mode=heat emits expected bytes', (t) => {
+    test('a mode written while the appliance runs carries the fan and the setpoint with it', (t) => {
         const { thinq, dev, ha } = buildReadyDevice(t)
-        // Pre-state observed in the capture at the moment of this write.
-        dev.raw_clip_state[0x1fa] = 3
+        dev.raw_clip_state[0x1f7] = 1
+        dev.raw_clip_state[0x1fa] = 2
         dev.raw_clip_state[0x1fe] = 42 // 21C
 
-        ha.setProperty(DEVICE_ID, 'climate', 'mode_command', 'heat')
+        ha.setProperty(DEVICE_ID, 'climate', 'mode_command', 'fan_only')
 
-        assert.equal(thinq.outbox.length, 1)
-        assert.equal(hex(thinq.outbox[0]), WRITE_MODE_HEAT_HEX.toUpperCase())
+        assert.deepEqual(TLV.parse(thinq.outbox[0].subarray(11, thinq.outbox[0].length - 2)), [
+            { t: 0x1f9, l: 0, v: 2 },
+            { t: 0x1fa, l: 0, v: 2 },
+            { t: 0x1fe, l: 1, v: 42 },
+        ])
+
+        dev.drop()
+    })
+
+    test('a mode chosen while the appliance is off turns it on in the same frame', (t) => {
+        // Selecting a mode from the thermostat card sent 0x1f9 alone, which this appliance
+        // takes and stays off for, so the card snapped back to off. The window unit showed it;
+        // the frame is built the same way for both, so both are covered here.
+        const { thinq, dev, ha } = buildReadyDevice(t)
+        dev.raw_clip_state[0x1f7] = 0
+        dev.raw_clip_state[0x1fa] = 2
+        dev.raw_clip_state[0x1fe] = 42
+
+        ha.setProperty(DEVICE_ID, 'climate', 'mode_command', 'cool')
+
+        const sent = TLV.parse(thinq.outbox[0].subarray(11, thinq.outbox[0].length - 2))
+        assert.deepEqual(sent, [
+            { t: 0x1f9, l: 0, v: 0 },
+            { t: 0x1f7, l: 0, v: 1 },
+            { t: 0x1fa, l: 0, v: 2 },
+            { t: 0x1fe, l: 1, v: 42 },
+        ])
+
+        dev.drop()
+    })
+
+    test('RAC auto action becomes idle when the indoor unit stops', (t) => {
+        enableMockTimers(t)
+        const { ha, thinq, dev } = makeDevice()
+        thinq.resetRecorder()
+
+        thinq.emit('data', buf(CAPS_RESPONSE_HEX))
+        // Register the IDU running field before configuration is built, as it appears in the
+        // appliance's full state reports. The installed RAC reports auto as raw 3.
+        dev.raw_clip_state[0x189] = 1
+        thinq.emit('data', buf(QUERY_RESPONSE_HEX))
+        tickMockTimers(t, 6000)
+        assert.ok(ha.devices[DEVICE_ID]?.config, 'HA configuration published')
+
+        // The previous full report left Home Assistant showing cooling. The next report
+        // changes the indoor unit from running to idle while auto (raw 3) remains selected.
+        dev.raw_clip_state[0x1f9] = 0
+        dev.updateClimateAction()
+        assert.equal(ha.getProperty(DEVICE_ID, 'climate', 'action'), 'cooling')
+        dev.raw_clip_state[0x1f9] = 3
+
+        // This is the next state report's IDU transition. Before the regression fix, the
+        // hard-coded auto raw 6 left the prior action in place instead of updating it to idle.
+        dev.processKeyValue(0x189, 0)
+        assert.equal(ha.getProperty(DEVICE_ID, 'climate', 'action'), 'idle')
 
         dev.drop()
     })
@@ -276,7 +330,7 @@ describe(MODEL_ID, () => {
         dev.drop()
     })
 
-    test('auto dry and the display are writable switches', (t) => {
+    test('auto dry is read-only and the display is a writable switch', (t) => {
         enableMockTimers(t)
         const ha = new MockHAConnection()
         const thinq = new MockThinq2Device(DEVICE_ID, META)
@@ -287,33 +341,35 @@ describe(MODEL_ID, () => {
         tickMockTimers(t, 6000)
 
         const components = ha.devices[DEVICE_ID].config?.components as Record<string, Record<string, unknown>>
-        assert.equal(components.autodry.platform, 'switch')
+        // Auto dry is a reading: both rethink and the SmartThinQ path had their 0x20e writes
+        // acknowledged on the wire and ignored by the appliance, which only moved for a
+        // three-second press of the remote's own button.
+        assert.equal(components.autodry.platform, 'binary_sensor')
+        assert.equal(components.autodry.command_topic, undefined)
         assert.equal(components.display.platform, 'switch')
 
-        // Captured from the appliance's own buttons, in this order: auto dry off, auto dry
-        // on, display off, display on. The display is inverted on the wire.
+        // Nothing may go out for auto dry. The display remains a control and is inverted on
+        // the wire, which a separate capture confirmed and this change does not touch.
         thinq.resetRecorder()
         ha.setProperty(DEVICE_ID, 'autodry', 'command', 'OFF')
         ha.setProperty(DEVICE_ID, 'autodry', 'command', 'ON')
         ha.setProperty(DEVICE_ID, 'display', 'command', 'OFF')
         ha.setProperty(DEVICE_ID, 'display', 'command', 'ON')
         assert.deepEqual(
-            thinq.outbox.map((packet) => TLV.parse(packet.subarray(11, packet.length - 2))),
-            [
-                [{ t: 0x20e, l: 0, v: 0 }],
-                [{ t: 0x20e, l: 0, v: 1 }],
-                [{ t: 0x21f, l: 0, v: 1 }],
-                [{ t: 0x21f, l: 0, v: 0 }],
-            ],
+            thinq.outbox
+                .map((packet) => TLV.parse(packet.subarray(11, packet.length - 2)))
+                .filter((tlv) => !tlv.some(({ t }) => t === 0x1f5)),
+            [[{ t: 0x21f, l: 0, v: 1 }], [{ t: 0x21f, l: 0, v: 0 }]],
         )
 
         dev.processKeyValue(0x21f, 1)
         assert.equal(ha.getProperty(DEVICE_ID, 'display', 'state'), 'OFF')
 
-        // The old read-only sensor has to be retired, or Home Assistant keeps both.
+        // The switch it was published as in between has to be retired, or Home Assistant
+        // keeps both entities.
         assert.ok(
             ha.publishedConfigs.some(
-                (config) => (config.components.autodry as Record<string, unknown>)?.platform === 'binary_sensor',
+                (config) => (config.components.autodry as Record<string, unknown>)?.platform === 'switch',
             ),
         )
         dev.drop()
@@ -411,6 +467,167 @@ describe(MODEL_ID, () => {
         thinq.resetRecorder()
         ha.setProperty(DEVICE_ID, 'sleeptimer', 'command', '1.5')
         assert.equal(thinq.outbox.length, 0, 'sleep timer command is ignored while powered off')
+        dev.drop()
+    })
+
+    test('WINF decodes the evidence-backed fields in its 0xA8 push record', (t) => {
+        enableMockTimers(t)
+        const ha = new MockHAConnection()
+        const meta: Metadata = { ...META, modelId: 'WINF_056905_WW' }
+        const thinq = new MockThinq2Device(DEVICE_ID, meta)
+        const dev = new DUT(ha.asConnection(), thinq, meta)
+        thinq.emit('data', buf(CAPS_RESPONSE_HEX))
+        thinq.emit('data', buf(QUERY_RESPONSE_HEX))
+        tickMockTimers(t, 6000)
+
+        thinq.emit('data', buf(WINF_PUSH_HEX))
+
+        // Core state, from the labelled session that moved each control and watched both the
+        // matching TLV and this record. Mode sits at 10, not the 8 an earlier note proposed.
+        assert.equal(dev.raw_clip_state[0x1f7], 1)
+        assert.equal(dev.raw_clip_state[0x1f9], 0)
+        assert.equal(dev.raw_clip_state[0x1fa], 2)
+        assert.equal(dev.raw_clip_state[0x322], 1)
+        assert.equal(dev.raw_clip_state[0x1fe], 53)
+        assert.equal(dev.raw_clip_state[0x1fd], 52)
+        // Diagnostics, correlated earlier.
+        assert.equal(dev.raw_clip_state[0x6c], 1)
+        assert.equal(dev.raw_clip_state[0x32c], 148)
+        assert.equal(dev.raw_clip_state[0x330], 216)
+        assert.equal(dev.raw_clip_state[0x2b3], 56)
+
+        assert.equal(ha.getProperty(DEVICE_ID, 'climate', 'mode_state'), 'cool')
+        assert.equal(ha.getProperty(DEVICE_ID, 'climate', 'fan_mode_state'), 'level_1')
+        assert.equal(ha.getProperty(DEVICE_ID, 'climate', 'temperature_state'), 26.5)
+        assert.equal(ha.getProperty(DEVICE_ID, 'climate', 'current_temperature'), 26)
+        assert.equal(ha.getProperty(DEVICE_ID, 'eev', 'state'), 216)
+        assert.equal(ha.getProperty(DEVICE_ID, 'energy_current', 'state'), 56)
+        dev.drop()
+    })
+
+    test('WINF partial push does not satisfy the initial values query', () => {
+        const ha = new MockHAConnection()
+        const meta: Metadata = { ...META, modelId: 'WINF_056905_WW' }
+        const thinq = new MockThinq2Device(DEVICE_ID, meta)
+        const dev = new DUT(ha.asConnection(), thinq, meta)
+
+        thinq.emit('data', buf(CAPS_RESPONSE_HEX))
+        thinq.emit('data', buf(WINF_PUSH_HEX))
+
+        assert.equal(dev.initialValuesReceived, false)
+        dev.drop()
+    })
+
+    test('WINF partial push keeps the post-write values query', (t) => {
+        enableMockTimers(t)
+        const ha = new MockHAConnection()
+        const meta: Metadata = { ...META, modelId: 'WINF_056905_WW' }
+        const thinq = new MockThinq2Device(DEVICE_ID, meta)
+        const dev = new DUT(ha.asConnection(), thinq, meta)
+        ha.on('setProperty', (_id: string, prop: string, value: string) => dev.setProperty(prop, value))
+        thinq.emit('data', buf(CAPS_RESPONSE_HEX))
+        thinq.emit('data', buf(QUERY_RESPONSE_HEX))
+        tickMockTimers(t, 6000)
+        thinq.resetRecorder()
+
+        ha.setProperty(DEVICE_ID, 'climate', 'fan_mode_command', 'level_1')
+        assert.equal(thinq.outbox.length, 1)
+
+        // The push normally arrives about 1.2 seconds after a write, before the 1.5-second
+        // fallback. It is partial, so the full values query still has to be sent.
+        tickMockTimers(t, 1200)
+        thinq.emit('data', buf(WINF_PUSH_HEX))
+        tickMockTimers(t, 1000)
+
+        assert.equal(thinq.outbox.length, 2)
+        assert.equal(hex(thinq.outbox[1]), QUERY_REQUEST_HEX)
+        dev.drop()
+    })
+
+    test('WINF does not treat an unavailable mode as auto', (t) => {
+        enableMockTimers(t)
+        const ha = new MockHAConnection()
+        const meta: Metadata = { ...META, modelId: 'WINF_056905_WW' }
+        const thinq = new MockThinq2Device(DEVICE_ID, meta)
+        const dev = new DUT(ha.asConnection(), thinq, meta)
+        thinq.emit('data', buf(CAPS_RESPONSE_HEX))
+        thinq.emit('data', buf(QUERY_RESPONSE_HEX))
+        tickMockTimers(t, 6000)
+
+        delete dev.raw_clip_state[0x1f9]
+        dev.updateClimateAction()
+        assert.equal(ha.getProperty(DEVICE_ID, 'climate', 'action'), undefined)
+        dev.drop()
+    })
+
+    test('WINF runs its five fan levels one lower than the model data advertises', (t) => {
+        // Physical indication, the command acknowledgement, and the full state that followed
+        // all agreed: levels 1..5 are raw 2..6. On the advertised 3..7 the top level asked for
+        // raw 7, which this appliance does not have and silently ignored.
+        enableMockTimers(t)
+        const ha = new MockHAConnection()
+        const meta: Metadata = { ...META, modelId: 'WINF_056905_WW' }
+        const thinq = new MockThinq2Device(DEVICE_ID, meta)
+        const dev = new DUT(ha.asConnection(), thinq, meta)
+        ha.on('setProperty', (_id: string, prop: string, value: string) => dev.setProperty(prop, value))
+        thinq.emit('data', buf(CAPS_RESPONSE_HEX))
+        thinq.emit('data', buf(QUERY_RESPONSE_HEX))
+        tickMockTimers(t, 6000)
+
+        const climate = ha.devices[DEVICE_ID].config?.components.climate as Record<string, unknown>
+        assert.deepEqual(climate.fan_modes, ['level_1', 'level_2', 'level_3', 'level_4', 'level_5'])
+
+        dev.raw_clip_state[0x1f7] = 1
+        for (const [level, raw] of [
+            ['level_1', 2],
+            ['level_2', 3],
+            ['level_3', 4],
+            ['level_4', 5],
+            ['level_5', 6],
+        ] as const) {
+            thinq.resetRecorder()
+            ha.setProperty(DEVICE_ID, 'climate', 'fan_mode_command', level)
+            const sent = TLV.parse(thinq.outbox[0].subarray(11, thinq.outbox[0].length - 2))
+            assert.equal(sent.find(({ t: tag }) => tag === 0x1fa)?.v, raw, level)
+            dev.processKeyValue(0x1fa, raw)
+            assert.equal(ha.getProperty(DEVICE_ID, 'climate', 'fan_mode_state'), level)
+        }
+
+        dev.drop()
+    })
+
+    test('WINF exposes AI dry strength on 0x1f2 without a power guard', (t) => {
+        // Each value was written and read back in a full state report while the appliance was
+        // off, so this is stored configuration rather than an airflow command.
+        enableMockTimers(t)
+        const ha = new MockHAConnection()
+        const meta: Metadata = { ...META, modelId: 'WINF_056905_WW' }
+        const thinq = new MockThinq2Device(DEVICE_ID, meta)
+        const dev = new DUT(ha.asConnection(), thinq, meta)
+        ha.on('setProperty', (_id: string, prop: string, value: string) => dev.setProperty(prop, value))
+        thinq.emit('data', buf(CAPS_RESPONSE_HEX))
+        thinq.emit('data', buf(QUERY_RESPONSE_HEX))
+        tickMockTimers(t, 6000)
+
+        const component = ha.devices[DEVICE_ID].config?.components.ai_dry_strength as Record<string, unknown>
+        assert.equal(component.platform, 'select')
+        assert.deepEqual(component.options, ['weak_wind', 'medium_wind', 'strong_wind'])
+
+        dev.raw_clip_state[0x1f7] = 0
+        for (const [option, raw] of [
+            ['weak_wind', 2],
+            ['medium_wind', 4],
+            ['strong_wind', 6],
+        ] as const) {
+            thinq.resetRecorder()
+            ha.setProperty(DEVICE_ID, 'ai_dry_strength', 'command', option)
+            assert.deepEqual(TLV.parse(thinq.outbox[0].subarray(11, thinq.outbox[0].length - 2)), [
+                { t: 0x1f2, l: 0, v: raw },
+            ])
+            dev.processKeyValue(0x1f2, raw)
+            assert.equal(ha.getProperty(DEVICE_ID, 'ai_dry_strength', 'state'), option)
+        }
+
         dev.drop()
     })
 

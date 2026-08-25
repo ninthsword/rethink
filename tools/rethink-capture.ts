@@ -78,6 +78,17 @@ function recordWire(dir: 'fromDevice' | 'toDevice', raw: string, injected: boole
             frame: decoded.frame,
             tlv: decoded.tlv,
         })
+    } else if (decoded.protocol === 'tlv-push') {
+        emit({
+            k: 'wire',
+            dir,
+            injected,
+            hex: raw,
+            protocol: 'tlv-push',
+            crcOk: decoded.crcOk,
+            frame: decoded.frame,
+            payload: decoded.payload,
+        })
     } else if (decoded.protocol === 'aabb') {
         emit({
             k: 'wire',

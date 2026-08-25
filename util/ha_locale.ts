@@ -167,6 +167,7 @@ const KOREAN_NAMES: Record<string, string> = {
     'Air purify': '공기청정',
     'Energy saving': '절전',
     'Auto dry': '자동건조',
+    'AI dry strength': 'AI건조 바람 세기',
     'Auto dry progress': '자동건조 진행률',
     'Auto dry remaining': '자동건조 남은 시간',
     Jet: '쾌속',
@@ -419,6 +420,10 @@ const KOREAN_VALUES: Record<string, string> = {
     always: '항상',
     lowest: '최약',
     very_low: '매우 약',
+    // Window air conditioner AI dry strength, as the appliance's own remote labels it.
+    weak_wind: '약풍',
+    medium_wind: '중풍',
+    strong_wind: '강풍',
     low: '약',
     medium_low: '중약',
     medium: '중',

@@ -14,11 +14,14 @@ const MODES: Record<string, string> = {
     clothing_drying: '21',
 }
 
+/*
+ * The model data advertises four speeds; this appliance takes two. Raw 4 and 7 were written,
+ * acknowledged, and then reported back unchanged, so offering them only produced a control
+ * that lied about where the fan was.
+ */
 const FAN_SPEEDS: Record<string, string> = {
     low: '2',
-    medium: '4',
     high: '6',
-    power: '7',
 }
 
 const SENSOR_MODES: Record<string, string> = {
@@ -134,37 +137,38 @@ export default class Device extends HADevice {
                         state_topic: '$this/water_tank_light',
                         command_topic: '$this/water_tank_light/set',
                     },
+                    /*
+                     * Readings, not controls. Each of these was written and acknowledged and
+                     * then reported back at its old value — CleanDry set to 1 came back 0,
+                     * SensorMon set to 0 came back 1, OffTime set to 60 came back 0 — so the
+                     * appliance takes them only from its own panel. What it reports is still
+                     * true, which is why they are kept rather than dropped.
+                     */
                     clean_dry: {
-                        platform: 'switch',
+                        platform: 'binary_sensor',
                         unique_id: '$deviceid-clean-dry',
                         name: 'Clean dry',
                         icon: 'mdi:weather-windy',
                         state_topic: '$this/clean_dry',
-                        command_topic: '$this/clean_dry/set',
+                        entity_category: 'diagnostic',
                     },
                     sensor_mode: {
-                        platform: 'select',
+                        platform: 'sensor',
                         unique_id: '$deviceid-sensor-mode',
                         name: 'Humidity sensor mode',
                         icon: 'mdi:water-percent',
                         state_topic: '$this/sensor_mode',
-                        command_topic: '$this/sensor_mode/set',
-                        options: Object.keys(SENSOR_MODES),
-                        entity_category: 'config',
+                        entity_category: 'diagnostic',
                     },
                     off_timer: {
-                        platform: 'number',
+                        platform: 'sensor',
                         unique_id: '$deviceid-off-timer',
                         name: 'Turn-off reservation',
                         icon: 'mdi:timer-stop',
                         state_topic: '$this/off_timer',
-                        command_topic: '$this/off_timer/set',
                         device_class: 'duration',
                         unit_of_measurement: 'h',
-                        min: 0,
-                        max: 8,
-                        step: 1,
-                        mode: 'slider',
+                        entity_category: 'diagnostic',
                     },
                     /*
                      * The slider only moves in whole hours, so it reads 1 h whether seven
@@ -191,6 +195,14 @@ export default class Device extends HADevice {
                     },
                 },
             }),
+            {
+                // These three were published as controls before the appliance was shown to
+                // ignore every write to them. Home Assistant keeps an entity it was told
+                // about until it is told otherwise, so the writable versions are named here.
+                clean_dry: { platform: 'switch' },
+                sensor_mode: { platform: 'select' },
+                off_timer: { platform: 'number' },
+            },
         )
 
         thinq.on('data', (buf) => this.processData(buf))
@@ -333,25 +345,6 @@ export default class Device extends HADevice {
                 CmdOpt: 'Set',
                 Value: { WatertankLight: mqttValue === 'ON' ? '1' : '0' },
             })
-            this.scheduleMonitorSnapshot()
-        } else if (prop === 'clean_dry' && (mqttValue === 'ON' || mqttValue === 'OFF')) {
-            this.thinq.send({
-                Cmd: 'Control',
-                CmdOpt: 'Set',
-                Value: { CleanDry: mqttValue === 'ON' ? '1' : '0' },
-            })
-            this.scheduleMonitorSnapshot()
-        } else if (prop === 'off_timer') {
-            const requested = Number(mqttValue)
-            if (mqttValue === '' || !Number.isFinite(requested)) return
-            // Observed on the appliance: a reservation set while it is powered off is
-            // acknowledged and then reported back as 0.
-            if (this.lastPowerState === 'OFF') return
-            const hours = Math.min(MAX_OFF_TIMER_HOURS, Math.max(0, Math.round(requested)))
-            this.thinq.send({ Cmd: 'Control', CmdOpt: 'Set', Value: { OffTime: String(hours * 60) } })
-            this.scheduleMonitorSnapshot()
-        } else if (prop === 'sensor_mode' && SENSOR_MODES[mqttValue] !== undefined) {
-            this.thinq.send({ Cmd: 'Config', CmdOpt: 'Set', Value: { SensorMon: SENSOR_MODES[mqttValue] } })
             this.scheduleMonitorSnapshot()
         }
     }

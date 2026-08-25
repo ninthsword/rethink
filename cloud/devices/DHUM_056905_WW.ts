@@ -62,12 +62,18 @@ const WATER_TANK_FULL = 256
 /** Both of these read 0 for on and 1 for off, the opposite way round to the others. */
 const BUTTON_SOUND = 0x3a0
 /*
- * Both tags come from the `_tlv_NNN` labels in LG's model JSON for this appliance, which is
- * also where every tag already read here matches. The cloud reports both for this unit.
+ * From the `_tlv_NNN` label in LG's model JSON for this appliance, which is also where every
+ * tag already read here matches.
+ *
+ * Air removal on 0x360 was published as a switch alongside this and has been withdrawn: the
+ * appliance acknowledges the write and leaves the value at 0, so the switch could only ever
+ * report back what it had been told.
  */
-const AIR_REMOVAL = 0x360
 const MELODY = 0x3b9
 const STATUS_DISPLAY = 0x21f
+
+const PUSH_PAYLOAD_LENGTH = 76
+const PUSH_SIGNATURE = Buffer.from([0x01, 0x49, 0x0a, 0x01, 0x0d])
 
 /* The twelve tunes this model's melody table names, in its own order. */
 const MELODIES: Record<number, string> = {
@@ -158,13 +164,6 @@ export default class Device extends TLVDevice {
                     unique_id: '$deviceid-uvnano',
                     name: 'UVnano',
                     icon: 'mdi:auto-fix',
-                    entity_category: 'config',
-                },
-                air_removal: {
-                    platform: 'switch',
-                    unique_id: '$deviceid-air-removal',
-                    name: 'Air removal',
-                    icon: 'mdi:weather-windy',
                     entity_category: 'config',
                 },
                 melody: {
@@ -333,14 +332,6 @@ export default class Device extends TLVDevice {
         })
 
         this.addField(config, {
-            id: AIR_REMOVAL,
-            name: '',
-            comp: 'air_removal',
-            read_xform: (raw) => (raw ? 'ON' : 'OFF'),
-            write_xform: (value) => (value === 'ON' ? 1 : 0),
-        })
-
-        this.addField(config, {
             id: MELODY,
             name: '',
             comp: 'melody',
@@ -423,6 +414,9 @@ export default class Device extends TLVDevice {
         this.setConfig(config, {
             operation_mode: { platform: 'sensor' },
             fan_speed: { platform: 'sensor' },
+            // Written, acknowledged, and ignored: 0x360 never left 0. Home Assistant keeps an
+            // entity it was told about until it is told otherwise.
+            air_removal: { platform: 'switch' },
         })
     }
 
@@ -465,6 +459,34 @@ export default class Device extends TLVDevice {
     protected override writeHeader() {
         // Live ThinQ captures for this model use transaction byte 0x00.
         return [1, 1, 2, 1, 0]
+    }
+
+    /**
+     * Decode the DQ203PECA's fixed-layout 0xA8 snapshot.
+     *
+     * These offsets were correlated against labelled timer changes and paired 0xA7 TLV
+     * snapshots. Other bytes remain deliberately uninterpreted until they move in a
+     * labelled capture.
+     */
+    protected override decodePushData(payload: Buffer): TLV.TLV[] | undefined {
+        if (payload.length !== PUSH_PAYLOAD_LENGTH || !payload.subarray(1, 6).equals(PUSH_SIGNATURE)) return undefined
+
+        return [
+            { t: 0x1f7, v: payload[8] },
+            { t: 0x1f9, v: payload[9] },
+            { t: TARGET_HUMIDITY, v: payload[10] },
+            { t: 0x1fa, v: payload[11] },
+            // Bytes 12..13 retain the configured duration; 14..15 count down.
+            { t: OFF_TIMER, v: payload.readUInt16BE(14) },
+            { t: 0x1fd, v: payload[47] },
+            { t: 0x336, v: payload[48] },
+        ]
+    }
+
+    protected override isCompletePushSnapshot(_tlvArray: TLV.TLV[]): boolean {
+        // The record has only seven evidence-backed fields, so it cannot confirm initial
+        // values or a write to any field still absent from the partial decoder.
+        return false
     }
 
     isCapsResponse(tlvArray: TLV.TLV[]) {

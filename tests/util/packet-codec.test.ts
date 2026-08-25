@@ -10,6 +10,12 @@ const FROM_DEVICE = '000004000000870204690b8ca036458cd059ace001de6ac9'
 const TO_DEVICE = '00010400000065020201027d416a0d'
 // AABB frame
 const AABB = 'aa16f0263a03ff040100000000000300000000004fbb'
+// DHUM_056905_WW after setting a one-hour turn-off reservation.
+const TLV_PUSH =
+    '000004000000a8670601490a010d06ed01113206003c003b010001000001030100002100000000040d0006903a0600ffff02d002da0258343f00fa000fe00000000000000000022200fd011c2f082f2f479bc1001b9a'
+// Real value response from the same newer modem family, kind 0xA7.
+const FROM_DEVICE_A7 =
+    '000004000000A70204B15A7DC07E50117E8694D0377F503886C087008980C900D8008781CD90448840CE80AB00A88187C1E801EE408C808CC0B5D011B600B646B5D012B600B646B5D013B600B642B5D014B600B646B5D015B600B646B5D016B600B646FA8097F7'
 
 test('decode: fromDevice TLV packet, CRC valid', () => {
     const d = decodePacket(FROM_DEVICE)
@@ -31,6 +37,39 @@ test('decode: toDevice TLV packet, CRC valid', () => {
     assert.equal(d.frame.kind, 0x65)
     assert.equal(d.a, 0x00)
     assert.equal(d.s, 0x01)
+})
+
+test('decode: newer 0xA7 fromDevice TLV packet', () => {
+    const d = decodePacket(FROM_DEVICE_A7)
+    assert.equal(d.protocol, 'tlv')
+    if (d.protocol !== 'tlv') return
+    assert.equal(d.direction, 'fromDevice')
+    assert.equal(d.crcOk, true)
+    assert.equal(d.frame.kind, 0xa7)
+})
+
+test('decode: 0xA8 fixed-layout push exposes its envelope and raw payload', () => {
+    const d = decodePacket(TLV_PUSH)
+    assert.equal(d.protocol, 'tlv-push')
+    if (d.protocol !== 'tlv-push') return
+    assert.equal(d.direction, 'fromDevice')
+    assert.equal(d.crcOk, true)
+    assert.deepEqual(d.frame, {
+        kind: 0xa8,
+        variant: 0x67,
+        marker: 0x06,
+        sequence: 0xed,
+        signature: '01490a010d',
+        len: 76,
+    })
+    assert.equal(d.payload.length, 152)
+})
+
+test('decode: corrupted 0xA8 CRC is reported, not thrown', () => {
+    const d = decodePacket(`${TLV_PUSH.slice(0, -2)}00`)
+    assert.equal(d.protocol, 'tlv-push')
+    if (d.protocol !== 'tlv-push') return
+    assert.equal(d.crcOk, false)
 })
 
 test('decode: AABB frame, checksum valid', () => {

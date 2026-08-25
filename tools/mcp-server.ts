@@ -103,11 +103,12 @@ type WireEvent = {
     injected: boolean
     hex?: string
     raw?: string
-    protocol?: 'tlv' | 'aabb' | 'unknown'
+    protocol?: 'tlv' | 'tlv-push' | 'aabb' | 'unknown'
     crcOk?: boolean
     checksumOk?: boolean
     frame?: unknown
     tlv?: unknown
+    payload?: string
     body?: string
 }
 
@@ -124,6 +125,8 @@ function pushWire(deviceId: string, dir: 'fromDevice' | 'toDevice', hex: string,
     } else {
         const d = decodePacket(hex)
         if (d.protocol === 'tlv') event = { ...base, hex, protocol: 'tlv', crcOk: d.crcOk, frame: d.frame, tlv: d.tlv }
+        else if (d.protocol === 'tlv-push')
+            event = { ...base, hex, protocol: 'tlv-push', crcOk: d.crcOk, frame: d.frame, payload: d.payload }
         else if (d.protocol === 'aabb')
             event = { ...base, hex, protocol: 'aabb', checksumOk: d.checksumOk, body: d.body }
         else event = { ...base, hex, protocol: 'unknown' }

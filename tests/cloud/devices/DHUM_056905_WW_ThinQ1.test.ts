@@ -35,11 +35,13 @@ describe('ThinQ1 DHUM_056905_WW', () => {
         assert.equal(components.target_humidity.step, 5)
         assert.equal(components.target_humidity.min, 30)
         assert.equal(components.target_humidity.max, 70)
-        // SupportReserve advertises @AP_SIMPLE_TIMER_DHUM_8, so the slider stops at eight
-        // hours and moves an hour at a time.
-        assert.equal(components.off_timer.min, 0)
-        assert.equal(components.off_timer.max, 8)
-        assert.equal(components.off_timer.step, 1)
+        // The reservation is a reading here: writes to it were acknowledged and reported back
+        // as zero, so there is no slider to bound.
+        assert.equal(components.off_timer.platform, 'sensor')
+        assert.equal(components.clean_dry.platform, 'binary_sensor')
+        assert.equal(components.sensor_mode.platform, 'sensor')
+        for (const name of ['off_timer', 'clean_dry', 'sensor_mode'])
+            assert.equal(components[name].command_topic, undefined, `${name} must take no commands`)
         assert.deepEqual(components.dehumidifier.modes, [
             'smart',
             'fast',
@@ -49,7 +51,8 @@ describe('ThinQ1 DHUM_056905_WW', () => {
         ])
         assert.equal(components.dehumidifier.min_humidity, 30)
         assert.equal(components.dehumidifier.max_humidity, 70)
-        assert.deepEqual(components.fan_speed.options, ['low', 'medium', 'high', 'power'])
+        // Raw 4 and 7 are advertised by the model and ignored by the appliance.
+        assert.deepEqual(components.fan_speed.options, ['low', 'high'])
     })
 
     test('start requests a one-shot monitor snapshot', () => {
@@ -100,8 +103,10 @@ describe('ThinQ1 DHUM_056905_WW', () => {
         dev.setProperty('power', 'OFF')
         dev.setProperty('target_humidity', '53')
         dev.setProperty('operation_mode', 'silent')
-        dev.setProperty('fan_speed', 'power')
+        dev.setProperty('fan_speed', 'high')
         dev.setProperty('water_tank_light', 'OFF')
+        // Nothing may go out for these three: the appliance acknowledged and then ignored
+        // every write to them, so they are readings now.
         dev.setProperty('clean_dry', 'ON')
         dev.setProperty('sensor_mode', 'operating_only')
         dev.setProperty('off_timer', '2')
@@ -110,34 +115,35 @@ describe('ThinQ1 DHUM_056905_WW', () => {
             { Cmd: 'Control', CmdOpt: 'Operation', Value: 'Stop' },
             { Cmd: 'Control', CmdOpt: 'Set', Value: { HumidityCfg: '55' } },
             { Cmd: 'Control', CmdOpt: 'Set', Value: { OpMode: '19' } },
-            { Cmd: 'Control', CmdOpt: 'Set', Value: { WindStrength: '7' } },
+            { Cmd: 'Control', CmdOpt: 'Set', Value: { WindStrength: '6' } },
             { Cmd: 'Control', CmdOpt: 'Set', Value: { WatertankLight: '0' } },
-            { Cmd: 'Control', CmdOpt: 'Set', Value: { CleanDry: '1' } },
-            { Cmd: 'Config', CmdOpt: 'Set', Value: { SensorMon: '0' } },
-            // The schema documents OffTime in minutes: "1시간일 경우 60으로 데이터 받음".
-            { Cmd: 'Control', CmdOpt: 'Set', Value: { OffTime: '120' } },
         ])
+    })
+
+    test('a fan speed the appliance ignores is not offered or sent', () => {
+        // Raw 4 and 7 are in the model data. Each was written, acknowledged, and reported
+        // back unchanged, so offering them produced a control that misreported the fan.
+        const { thinq, dev } = makeDevice()
+        thinq.resetRecorder()
+        dev.setProperty('fan_speed', 'medium')
+        dev.setProperty('fan_speed', 'power')
+        assert.deepEqual(thinq.sent, [])
     })
 
     test('the turn-off reservation reads back as the hour it has left', () => {
         const { ha, thinq, dev } = makeDevice()
 
         // The appliance counts the reservation down every minute, so 119 minutes left is
-        // still the two hours the slider can show.
+        // still the two hours the reading shows.
         thinq.emit('data', Buffer.from(JSON.stringify({ Operation: '1', OffTime: '119' })))
         assert.equal(ha.devices[DEVICE_ID].properties.off_timer, 2)
-        // The slider cannot say 119, so the companion sensor carries the minutes it drops.
+        // The hour figure cannot say 119, so the companion sensor carries the minutes.
         assert.equal(ha.devices[DEVICE_ID].properties.off_time, 119)
         thinq.resetRecorder()
 
-        // The appliance offers eight hours, so a larger request is clamped rather than
-        // dropped, which would have left Home Assistant showing a value it never took.
-        dev.setProperty('off_timer', '12')
-        assert.deepEqual(thinq.sent[thinq.sent.length - 1], {
-            Cmd: 'Control',
-            CmdOpt: 'Set',
-            Value: { OffTime: '480' },
-        })
+        // Setting it is not offered: OffTime written as 60 came back as 0.
+        dev.setProperty('off_timer', '2')
+        assert.deepEqual(thinq.sent, [])
     })
 
     test('invalid values are ignored', () => {

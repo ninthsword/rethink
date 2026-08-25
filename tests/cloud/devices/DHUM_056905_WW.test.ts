@@ -3,6 +3,7 @@ import { describe, test } from 'node:test'
 import DUT from '@/cloud/devices/DHUM_056905_WW'
 import type { Metadata } from '@/cloud/thinq'
 import { buf, hex, MockHAConnection, MockThinq2Device } from '@/tests/helpers/mocks'
+import { enableMockTimers, tickMockTimers } from '@/tests/helpers/timers'
 import * as TLV from '@/util/tlv'
 
 const DEVICE_ID = 'test-id'
@@ -39,6 +40,9 @@ const WRITE_OFF_TIMER_CANCEL_HEX = '010104000000650201000286C0BCF9'
 const WRITE_SENSOR_OPERATING_HEX = '0101040000006502010002CDC06DCF'
 const WRITE_BUTTON_SOUND_ON_HEX = '0101040000006502010002E8004D90'
 const WRITE_STATUS_DISPLAY_ON_HEX = '010104000000650201000287C08FC8'
+// Fixed-layout 0xA8 snapshot emitted after accepting a one-hour reservation.
+const PUSH_RESPONSE_1H_HEX =
+    '000004000000a8670601490a010d06ed01113206003c003b010001000001030100002100000000040d0006903a0600ffff02d002da0258343f00fa000fe00000000000000000022200fd011c2f082f2f479bc1001b9a'
 
 function makeDevice() {
     const ha = new MockHAConnection()
@@ -103,6 +107,26 @@ describe(MODEL_ID, () => {
             (ha.devices[DEVICE_ID].config?.components.operation_mode as Record<string, unknown>) ?? undefined,
             undefined,
             'the mode sensor must not survive in the published config',
+        )
+        dev.drop()
+    })
+
+    test('withdraws the air removal switch the appliance ignored', () => {
+        // 0x360 is in the model JSON and the appliance reports it, but every write to it was
+        // acknowledged and left the value at 0. A switch that only reports back what it was
+        // told is worse than no switch at all.
+        const { ha, dev } = buildReadyDevice()
+
+        assert.equal(
+            (ha.devices[DEVICE_ID].config?.components.air_removal as Record<string, unknown>) ?? undefined,
+            undefined,
+            'air removal must not be published as a control',
+        )
+        assert.ok(
+            ha.publishedConfigs.some(
+                (config) => (config.components.air_removal as Record<string, unknown>)?.platform === 'switch',
+            ),
+            'the switch it was published as has to be retired by name',
         )
         dev.drop()
     })
@@ -211,6 +235,83 @@ describe(MODEL_ID, () => {
         // one hour the slider shows.
         dev.processKeyValue(0x21b, 59)
         assert.equal(ha.getProperty(DEVICE_ID, 'off_timer', 'state'), 1)
+        dev.drop()
+    })
+
+    test('decodes the captured 0xA8 push snapshot', () => {
+        const { ha, thinq, dev } = buildReadyDevice()
+
+        thinq.emit('data', buf(PUSH_RESPONSE_1H_HEX))
+
+        assert.equal(ha.getProperty(DEVICE_ID, 'dehumidifier', 'state'), 'ON')
+        assert.equal(ha.getProperty(DEVICE_ID, 'dehumidifier', 'mode_state'), 'smart')
+        assert.equal(ha.getProperty(DEVICE_ID, 'dehumidifier', 'target_humidity_state'), 50)
+        assert.equal(ha.getProperty(DEVICE_ID, 'target_humidity', 'state'), 50)
+        assert.equal(ha.getProperty(DEVICE_ID, 'fan_speed', 'state'), 'high')
+        assert.equal(ha.getProperty(DEVICE_ID, 'off_timer', 'state'), 1)
+        assert.equal(ha.getProperty(DEVICE_ID, 'off_time', 'state'), 59)
+        assert.equal(ha.getProperty(DEVICE_ID, 'temperature', 'state'), 26)
+        assert.equal(ha.getProperty(DEVICE_ID, 'dehumidifier', 'current_humidity'), 63)
+        dev.drop()
+    })
+
+    test('ignores an 0xA8 push with a bad CRC', () => {
+        const { ha, thinq, dev } = buildReadyDevice()
+        const damaged = Buffer.from(buf(PUSH_RESPONSE_1H_HEX))
+        damaged[damaged.length - 1] ^= 0xff
+
+        thinq.emit('data', damaged)
+
+        assert.equal(ha.getProperty(DEVICE_ID, 'dehumidifier', 'state'), 'OFF')
+        assert.equal(ha.getProperty(DEVICE_ID, 'dehumidifier', 'target_humidity_state'), 55)
+        dev.drop()
+    })
+
+    test('keeps retrying initial values after a partial 0xA8 push', (t) => {
+        enableMockTimers(t)
+        const { thinq, dev } = makeDevice()
+
+        thinq.emit('data', buf(CAPS_RESPONSE_HEX))
+        thinq.resetRecorder()
+        thinq.emit('data', buf(PUSH_RESPONSE_1H_HEX))
+        tickMockTimers(t, 15_000)
+
+        assert.deepEqual(thinq.outbox.map(hex), [QUERY_REQUEST_HEX])
+        dev.drop()
+    })
+
+    test('keeps the post-write fallback query after a partial 0xA8 push with the timer field', (t) => {
+        enableMockTimers(t)
+        const { ha, thinq, dev } = buildReadyDevice()
+        dev.raw_clip_state[0x1f7] = 1
+
+        ha.setProperty(DEVICE_ID, 'off_timer', 'command', '1')
+        assert.deepEqual(thinq.outbox.map(hex), [WRITE_OFF_TIMER_1H_HEX])
+
+        // Captures put the snapshot about 1.2 seconds after the write, just before the
+        // 1.5-second query fallback. It includes the timer but is still incomplete, so the
+        // full query remains necessary.
+        tickMockTimers(t, 1200)
+        thinq.emit('data', buf(PUSH_RESPONSE_1H_HEX))
+        tickMockTimers(t, 1000)
+
+        assert.deepEqual(thinq.outbox.map(hex), [WRITE_OFF_TIMER_1H_HEX, QUERY_REQUEST_HEX])
+        assert.equal(ha.getProperty(DEVICE_ID, 'off_time', 'state'), 59)
+        dev.drop()
+    })
+
+    test('keeps the post-write fallback query after a partial 0xA8 push missing UVnano', (t) => {
+        enableMockTimers(t)
+        const { ha, thinq, dev } = buildReadyDevice()
+
+        ha.setProperty(DEVICE_ID, 'uvnano', 'command', 'ON')
+        assert.deepEqual(thinq.outbox.map(hex), [WRITE_UVNANO_ON_HEX])
+
+        tickMockTimers(t, 1200)
+        thinq.emit('data', buf(PUSH_RESPONSE_1H_HEX))
+        tickMockTimers(t, 1000)
+
+        assert.deepEqual(thinq.outbox.map(hex), [WRITE_UVNANO_ON_HEX, QUERY_REQUEST_HEX])
         dev.drop()
     })
 

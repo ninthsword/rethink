@@ -13,18 +13,57 @@ import TLVDevice, { type FieldDefinition, marksCapsResponse } from './tlv_device
 type PowerModeChangeHook = () => void
 type CheckMode = (arg: number) => boolean
 
-const FAN_LEVELS = ['level_1', 'level_2', 'level_3', 'level_4', 'level_5']
-const FAN_LEVEL_TO_RAW: Record<string, number> = {
-    level_1: 3,
-    level_2: 4,
-    level_3: 5,
-    level_4: 6,
-    level_5: 7,
-    natural: 9,
+/**
+ * Fan and mode encodings, per model.
+ *
+ * These appliances share a handler but not their raw values. The model data advertises five
+ * fan levels on raw 3..7, which is what this file assumed for every model; live captures of
+ * the two installed units show otherwise. The window unit runs its five levels one lower, on
+ * raw 2..6, which is why a request for raw 7 was silently ignored. The wall unit has three
+ * levels plus natural wind on raw 2/4/6/8 and names its fourth mode AI rather than heat.
+ *
+ * Anything not named here keeps the advertised table: the European RAC_0B0001_WW variant maps
+ * to this handler and has not been captured, so it is not moved on the strength of a
+ * different appliance's evidence.
+ */
+type ModelEncoding = {
+    fanLevels: readonly string[]
+    fanToRaw: Readonly<Record<string, number>>
+    modeToRaw: Readonly<Record<string, number>>
+    /** Raw value of the mode Home Assistant shows as `auto`, when the model has one. */
+    autoRaw?: number
 }
-const FAN_RAW_TO_LEVEL: Record<number, string> = Object.fromEntries(
-    Object.entries(FAN_LEVEL_TO_RAW).map(([name, raw]) => [raw, name]),
-)
+
+function invert(table: Readonly<Record<string, number>>): Record<number, string> {
+    return Object.fromEntries(Object.entries(table).map(([name, raw]) => [raw, name]))
+}
+
+const ADVERTISED: ModelEncoding = {
+    fanLevels: ['level_1', 'level_2', 'level_3', 'level_4', 'level_5', 'natural'],
+    fanToRaw: { level_1: 3, level_2: 4, level_3: 5, level_4: 6, level_5: 7, natural: 9 },
+    modeToRaw: { cool: 0, dry: 1, fan_only: 2, heat: 4, auto: 6 },
+    autoRaw: 6,
+}
+
+const MODEL_ENCODINGS: Readonly<Record<string, ModelEncoding>> = {
+    WINF_056905_WW: {
+        fanLevels: ['level_1', 'level_2', 'level_3', 'level_4', 'level_5'],
+        fanToRaw: { level_1: 2, level_2: 3, level_3: 4, level_4: 5, level_5: 6 },
+        // This unit advertises no auto mode and none was captured, so only the three it
+        // already offered are listed; the fan values are the only part the capture moved.
+        modeToRaw: { cool: 0, dry: 1, fan_only: 2 },
+    },
+    RAC_056905_WW: {
+        fanLevels: ['level_1', 'level_2', 'level_3', 'natural'],
+        fanToRaw: { level_1: 2, level_2: 4, level_3: 6, natural: 8 },
+        modeToRaw: { cool: 0, dry: 1, fan_only: 2, auto: 3 },
+        autoRaw: 3,
+    },
+}
+
+function encodingFor(modelId: string): ModelEncoding {
+    return MODEL_ENCODINGS[modelId] ?? ADVERTISED
+}
 
 const VERTICAL_SWING_MODES = [
     'off',
@@ -64,10 +103,26 @@ const HORIZONTAL_RAW_TO_SWING: Record<number, string> = Object.fromEntries(
     Object.entries(HORIZONTAL_SWING_TO_RAW).map(([name, raw]) => [raw, name]),
 )
 
+/**
+ * The window unit's AI dry strength, on ordinary TLV 0x1f2.
+ *
+ * Each value was written and then read back in a full state report, and the appliance was off
+ * throughout, so this is stored configuration rather than an airflow command: it does not take
+ * the power guard the fan and vane controls need.
+ */
+const AI_DRY_STRENGTH: Record<string, number> = {
+    weak_wind: 2,
+    medium_wind: 4,
+    strong_wind: 6,
+}
+
 const TEMPERATURE_STEPS: Record<number, string> = {
     0: 'half_degree',
     1: 'one_degree',
 }
+
+const WINF_PUSH_PAYLOAD_LENGTH = 237
+const WINF_PUSH_SIGNATURE = Buffer.from([0x01, 0xea, 0x0a, 0x01, 0x14])
 
 export default class Device extends TLVDevice {
     meta: Metadata
@@ -131,6 +186,43 @@ export default class Device extends TLVDevice {
 
     processPrivDataCmdResp(success: boolean, _buf1: number, cmd: number, data: Buffer) {
         if (cmd === 0x2) this.processFilterCmdResp(success, data)
+    }
+
+    /**
+     * Decode the WINF fixed-record fields that moved with the corresponding TLV in repeated
+     * paired captures. A later labelled session exercised the core controls, so power, mode,
+     * fan, the horizontal vane and both temperatures are correlated too; mode turned out to
+     * sit at 10 rather than the 8 the earlier documentation had proposed. Offsets no capture
+     * has moved stay in the documentation rather than becoming executable guesses.
+     */
+    protected override decodePushData(payload: Buffer): TLV.TLV[] | undefined {
+        if (
+            this.meta.modelId !== 'WINF_056905_WW' ||
+            payload.length !== WINF_PUSH_PAYLOAD_LENGTH ||
+            !payload.subarray(1, 6).equals(WINF_PUSH_SIGNATURE)
+        )
+            return undefined
+
+        return [
+            // Core state, each offset correlated with the matching TLV in a labelled capture.
+            // Mode is at 10, not the 8 the earlier documentation proposed as a candidate.
+            { t: 0x1f7, v: payload[9] },
+            { t: 0x1f9, v: payload[10] },
+            { t: 0x1fa, v: payload[12] },
+            { t: 0x322, v: payload[14] },
+            { t: 0x1fe, v: payload[25] },
+            { t: 0x1fd, v: payload[26] },
+            // Diagnostics, correlated earlier.
+            { t: 0x6c, v: payload[143] },
+            { t: 0x32c, v: payload[107] },
+            { t: 0x330, v: payload[146] },
+            { t: 0x2b3, v: payload.readUInt16BE(233) },
+        ]
+    }
+
+    /** WINF pushes contain only the fields with evidence-backed offsets, not a full state. */
+    protected override isCompletePushSnapshot(_tlvArray: TLV.TLV[]): boolean {
+        return false
     }
 
     sendFilterQuery() {
@@ -270,13 +362,15 @@ export default class Device extends TLVDevice {
         }
 
         const modes2ha = ['cooling', 'drying', 'fan', undefined, 'heating']
+        const { autoRaw } = encodingFor(this.meta.modelId)
+        const autoMode = autoRaw !== undefined && modeTLV === autoRaw
         let action: string | undefined
         let increaseQueryInterval = false
         if (this.getPowerTLV() === 0) {
             action = 'off'
-        } else if ((modeTLV === 0 || modeTLV === 1 || modeTLV === 4 || modeTLV === 6) && !iduRunning) {
+        } else if ((modeTLV === 0 || modeTLV === 1 || modeTLV === 4 || autoMode) && !iduRunning) {
             action = 'idle'
-        } else if (modeTLV === 6) {
+        } else if (autoMode) {
             // TODO: figure out how to detect the actual running mode in Auto
             // For now, clear the reported action.
             action = 'None'
@@ -343,6 +437,7 @@ export default class Device extends TLVDevice {
 
     initMakeSetConfig() {
         const isWinf = this.meta.modelId === 'WINF_056905_WW'
+        const encoding = encodingFor(this.meta.modelId)
         const config: DeviceDiscovery & { components: { climate: ClimateComponent } } = allowExtendedType({
             ...HADevice.config(this.meta, { name: 'LG Air Conditioner' }),
             components: {
@@ -363,7 +458,7 @@ export default class Device extends TLVDevice {
                     modes: isWinf ? ['off', 'cool', 'dry', 'fan_only'] : ['off', 'cool', 'dry', 'fan_only', 'auto'],
                     // The Korean RAC/WINF model data advertises raw 3..7 as five fan levels.
                     // RAC additionally advertises raw 9 (natural wind); WINF does not.
-                    fan_modes: isWinf ? FAN_LEVELS : [...FAN_LEVELS, 'natural'],
+                    fan_modes: [...encoding.fanLevels],
                     /* TODO: get allowed op modes from 0x2c1 */
                 } satisfies ClimateComponent,
             },
@@ -413,9 +508,8 @@ export default class Device extends TLVDevice {
             name: 'mode',
             comp: 'climate',
             read_xform: (raw) => {
-                const modes2ha = ['cool', 'dry', 'fan_only', undefined, 'heat', undefined, 'auto']
                 if (this.getPowerTLV() === 0) return 'off'
-                return modes2ha[raw]
+                return invert(encoding.modeToRaw)[raw]
             },
             read_callback: (val) => {
                 if (typeof val !== 'string') return true
@@ -427,23 +521,35 @@ export default class Device extends TLVDevice {
                 return true
             },
             write_xform: (val) => {
-                const modes2clip: Record<string, number> = { cool: 0, dry: 1, fan_only: 2, heat: 4, auto: 6 }
                 if (val === 'off') {
                     // Call function power (0x1f7) with value OFF
                     this.setProperty('climate-power', 'OFF')
                     return null
                 }
-                return modes2clip[val]
+                return encoding.modeToRaw[val]
             },
-            write_attach: [0x1fa, 0x1fe],
+            /*
+             * The appliance ignores a mode written while it is off: the frame carries no 0x1f7
+             * and it stays off, so the card snaps back to off. Powering on in the same frame
+             * is what makes choosing a mode from off do what the card implies.
+             *
+             * The power value has to be put into raw_clip_state here rather than in a
+             * write_callback, because the callback runs first and would make this test of the
+             * old state look like the appliance was already on.
+             */
+            write_attach: () => {
+                if (this.getPowerTLV() !== 0) return [0x1fa, 0x1fe]
+                this.raw_clip_state[0x1f7] = 1
+                return [0x1f7, 0x1fa, 0x1fe]
+            },
         })
 
         this.addField(config, {
             id: 0x1fa,
             name: 'fan_mode',
             comp: 'climate',
-            read_xform: (raw) => FAN_RAW_TO_LEVEL[raw],
-            write_xform: (val) => FAN_LEVEL_TO_RAW[val],
+            read_xform: (raw) => invert(encoding.fanToRaw)[raw],
+            write_xform: (val) => encoding.fanToRaw[val],
             write_attach: [0x1f9, 0x1fe],
             write_callback: () => this.allowAirflowWriteWhilePowered(),
         })
@@ -736,6 +842,25 @@ export default class Device extends TLVDevice {
             this.addJetField(config, 0x323, 'jet', 'Jet', 'mdi:wind-power', jetCool, jetHeat)
         }
 
+        if (isWinf) {
+            config.components.ai_dry_strength = allowExtendedType({
+                platform: 'select',
+                unique_id: '$deviceid-ai-dry-strength',
+                name: 'AI dry strength',
+                icon: 'mdi:weather-windy',
+                options: Object.keys(AI_DRY_STRENGTH),
+                entity_category: 'config',
+            })
+
+            this.addField(config, {
+                id: 0x1f2,
+                name: '',
+                comp: 'ai_dry_strength',
+                read_xform: (raw) => invert(AI_DRY_STRENGTH)[raw],
+                write_xform: (val) => AI_DRY_STRENGTH[val],
+            })
+        }
+
         const sleepCountdown = { component: 'sleep_time', name: 'Sleep time', icon: 'mdi:weather-night' }
         if (isWinf) {
             // WINF reports and accepts the sleep countdown on 0x21a even though its extended
@@ -773,12 +898,20 @@ export default class Device extends TLVDevice {
         }
 
         if (this.raw_clip_state[0x2cc] & 4) {
+            /*
+             * Read-only on purpose. Both rethink and the SmartThinQ cloud path wrote 0x20e and
+             * both writes were acknowledged on the wire, yet the appliance's state did not
+             * move; only holding the remote's automatic-dry button for three seconds changed
+             * it. A switch that reports back whatever it was set to is worse than a sensor
+             * that tells the truth, so this stays a reading until a distinct network command
+             * for it is actually captured.
+             */
             const compADry = {
-                platform: 'switch',
+                platform: 'binary_sensor',
                 unique_id: '$deviceid-autodry',
                 name: 'Auto dry',
                 icon: 'mdi:hair-dryer',
-                entity_category: 'config',
+                entity_category: 'diagnostic',
             }
             const compADryRem = {
                 platform: 'sensor',
@@ -796,8 +929,8 @@ export default class Device extends TLVDevice {
                 id: 0x20e,
                 name: '',
                 comp: 'autodry',
+                writable: false,
                 read_xform: (raw) => (raw ? 'ON' : 'OFF'),
-                write_xform: (value) => (value === 'ON' ? 1 : 0),
             })
 
             this.addField(config, {
@@ -962,9 +1095,10 @@ export default class Device extends TLVDevice {
         // old select for every variant before publishing the number entity. Home Assistant
         // does not remove an entity merely because the component platform changed.
         this.setConfig(config, {
-            // Auto dry used to be a read-only sensor on this id, and Home Assistant keeps
-            // the old entity when a component changes platform.
-            autodry: { platform: 'binary_sensor' },
+            // Auto dry is a reading again, because the appliance ignores writes to it. Home
+            // Assistant keeps the old entity when a component changes platform, so the switch
+            // it was published as in between has to be retired by name.
+            autodry: { platform: 'switch' },
             sleeptimer: { platform: 'select' },
             // A head on a shared outdoor unit had a total of its own before the group took
             // it over; left alone it would sit there counting the same compressor again.

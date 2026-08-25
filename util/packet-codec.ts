@@ -14,7 +14,7 @@
 import crc16 from './crc16'
 import * as TLV from './tlv'
 
-export type Protocol = 'tlv' | 'aabb'
+export type Protocol = 'tlv' | 'tlv-push' | 'aabb'
 export type Direction = 'fromDevice' | 'toDevice'
 
 // ── Encode inputs ──────────────────────────────────────────────────────────
@@ -70,13 +70,28 @@ export type DecodedAabb = {
     body: string // inner body, hex
 }
 
+export type DecodedTlvPush = {
+    protocol: 'tlv-push'
+    direction: 'fromDevice'
+    crcOk: boolean
+    payload: string
+    frame: {
+        kind: 0xa8
+        variant: number
+        marker: number
+        sequence: number
+        signature: string
+        len: number
+    }
+}
+
 export type DecodedUnknown = {
     protocol: 'unknown'
     hex: string
     reason: string
 }
 
-export type Decoded = DecodedTlv | DecodedAabb | DecodedUnknown
+export type Decoded = DecodedTlv | DecodedTlvPush | DecodedAabb | DecodedUnknown
 
 // ── AABB checksum (mirrors aabb_device.ts) ─────────────────────────────────
 
@@ -158,9 +173,37 @@ export function decodePacket(hex: string): Decoded {
         }
     }
 
+    // Fixed-layout ThinQ2 push snapshot. Its payload layout is model-specific, so this
+    // generic codec exposes the envelope and raw payload instead of pretending it is TLV.
+    if (
+        buf.length >= 18 &&
+        buf[2] === 0x04 &&
+        buf[3] === 0x00 &&
+        buf[4] === 0x00 &&
+        buf[5] === 0x00 &&
+        buf[6] === 0xa8 &&
+        (buf[7] === 0x66 || buf[7] === 0x67)
+    ) {
+        const payload = buf.subarray(8, buf.length - 2)
+        return {
+            protocol: 'tlv-push',
+            direction: 'fromDevice',
+            crcOk: crc16(buf.subarray(2)) === 0,
+            payload: payload.toString('hex'),
+            frame: {
+                kind: 0xa8,
+                variant: buf[7],
+                marker: payload[0],
+                sequence: payload[7],
+                signature: payload.subarray(1, 6).toString('hex'),
+                len: payload.length,
+            },
+        }
+    }
+
     // TLV: identify by the uart "kind" byte at index 6
-    if (buf.length >= 13 && buf[2] === 0x04 && (buf[6] === 0x87 || buf[6] === 0x65)) {
-        const fromDevice = buf[6] === 0x87
+    if (buf.length >= 13 && buf[2] === 0x04 && (buf[6] === 0x87 || buf[6] === 0xa7 || buf[6] === 0x65)) {
+        const fromDevice = buf[6] !== 0x65
         const len = buf[10]
         if (11 + len + 2 > buf.length) {
             return { protocol: 'unknown', hex, reason: 'TLV length field overruns buffer' }

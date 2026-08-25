@@ -241,6 +241,8 @@ export default class TLVDevice extends HADevice {
     }
 
     processData(buf: Buffer) {
+        if (this.processPushFrame(buf)) return
+
         if (
             buf[2] === 0x04 &&
             buf[3] === 0x00 &&
@@ -297,6 +299,48 @@ export default class TLVDevice extends HADevice {
         ) {
             this.processPrivDataCmdResp(buf[0] === 0x02, buf[1], buf[12], buf.subarray(13, buf.length - 2))
         }
+    }
+
+    /**
+     * Decode the fixed-layout push snapshot used by newer ThinQ2 modules.
+     *
+     * 0xA8 is framing, not a universal state layout: dehumidifiers and window air
+     * conditioners have already been observed with different payload signatures and
+     * lengths. The base class therefore verifies the envelope and lets the model handler
+     * opt in only when it recognises its own layout.
+     */
+    private processPushFrame(buf: Buffer) {
+        if (
+            buf.length < 12 ||
+            buf[2] !== 0x04 ||
+            buf[3] !== 0x00 ||
+            buf[4] !== 0x00 ||
+            buf[5] !== 0x00 ||
+            buf[6] !== 0xa8 ||
+            (buf[7] !== 0x66 && buf[7] !== 0x67) ||
+            crc16(buf.subarray(2)) !== 0
+        )
+            return false
+
+        const payload = buf.subarray(8, buf.length - 2)
+        const tlv = this.decodePushData(payload)
+        if (tlv === undefined) return false
+        const completeSnapshot = this.isCompletePushSnapshot(tlv)
+
+        log('status', this.id, 'received fixed-layout push packet')
+        log('exchange', this.id, `push seq=${payload[7] ?? 'unknown'}`, `${tlv.length} decoded tags`)
+        this.heard()
+        this.processTLV(tlv, completeSnapshot)
+
+        // A recognised full snapshot is stronger confirmation than the fallback query
+        // scheduled after a write, and normally reaches us just before that query fires.
+        // A model may deliberately decode only evidence-backed fields from a larger record;
+        // that partial view must not suppress the query that confirms the fields still unknown.
+        if (this.write_refresh_timeout !== undefined && completeSnapshot) {
+            clearTimeout(this.write_refresh_timeout)
+            this.write_refresh_timeout = undefined
+        }
+        return true
     }
 
     send(header: number[], tlv: TLV.TLV[]) {
@@ -358,7 +402,20 @@ export default class TLVDevice extends HADevice {
         /* To be overridden */
     }
 
-    processTLV(tlvArray: TLV.TLV[]) {
+    protected decodePushData(_payload: Buffer): TLV.TLV[] | undefined {
+        // 0xA8 payloads are model-specific; handlers opt in after checking their signature.
+        return undefined
+    }
+
+    /**
+     * A handler that decodes only a subset of a fixed-layout push record overrides this to
+     * keep the normal full-values lifecycle (and its confirming write query) intact.
+     */
+    protected isCompletePushSnapshot(tlvArray: TLV.TLV[]): boolean {
+        return this.isValuesResponse(tlvArray)
+    }
+
+    processTLV(tlvArray: TLV.TLV[], canSatisfyValuesResponse: boolean = true) {
         tlvArray.forEach(({ t, v }) => {
             this.processKeyValue(t, v)
         })
@@ -388,7 +445,7 @@ export default class TLVDevice extends HADevice {
 
         // values are expected to be received also post-init time
         // but don't process them until capabilities are received
-        if (this.query_caps_timeout === undefined && this.isValuesResponse(tlvArray)) {
+        if (canSatisfyValuesResponse && this.query_caps_timeout === undefined && this.isValuesResponse(tlvArray)) {
             if (this.query_values_timeout !== undefined) {
                 log('status', this.id, 'received initial values key')
                 clearInterval(this.query_values_timeout)
