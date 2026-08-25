@@ -38,6 +38,6 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "simple-git-hooks": {
-    "pre-commit": "npm run check -- --staged"
+    "pre-commit": "npm run check -- --staged && if command -v gitleaks >/dev/null 2>&1; then gitleaks git --staged --redact --no-banner; else echo '[pre-commit] gitleaks not installed; CI will enforce it'; fi"
   }
 }

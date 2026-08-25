@@ -1,0 +1,6 @@
+# Historical LG client-compatibility constants. Keep these fingerprint-specific so new
+# findings in the same files remain blocking.
+7a9dab46207e15fa92e31afb44df66a195c3cc69:bridge/thinq1connection.ts:generic-api-key:64
+a96fc88c75bf3341a29c9009b22c3b5739ded28d:rethink/bridge/thinqApi.ts:generic-api-key:121
+8c4535162b3dd3e735bc1eb950dadcfba01b2bce:rethink/bridge/thinq1connection.ts:generic-api-key:36
+d984fd4521ea00eacd4d307755d96237013f3247:rethink/experimental/bridge/thinq2api.ts:generic-api-key:116
