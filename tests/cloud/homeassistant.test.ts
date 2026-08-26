@@ -156,10 +156,24 @@ test('korean language localizes Korean appliance course values', () => {
     const { connection, published } = fakeConnection({ language: 'korean' })
 
     connection.publishProperty('dishwasher-id', 'current_download_course', 'FISH_DISH')
+    connection.publishProperty('dishwasher-id', 'course', 'STEAM_TUB_CLEAN')
     connection.publishProperty('dryer-id', 'downloaded_course', 'SELFCLEANING')
 
     assert.equal(published[0].payload, '생선 요리')
-    assert.equal(published[1].payload, '자가 세척')
+    assert.equal(published[1].payload, '스팀통살균')
+    assert.equal(published[2].payload, '통살균')
+})
+
+test('korean dishwasher half-load text localizes without changing binary sensor protocol values', () => {
+    const { connection, published } = fakeConnection({ language: 'korean' })
+
+    connection.publishProperty('dishwasher-id', 'half_load_zone', 'disabled')
+    connection.publishProperty('dishwasher-id', 'dual_zone', 'ON')
+    connection.publishProperty('dishwasher-id', 'dual_zone', 'OFF')
+
+    assert.equal(published[0].payload, '꺼짐')
+    assert.equal(published[1].payload, 'ON')
+    assert.equal(published[2].payload, 'OFF')
 })
 
 test('clearRetainedProperty removes the broker value with an empty retained payload', () => {

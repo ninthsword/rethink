@@ -31,6 +31,80 @@ describe('korean appliance value localization', () => {
         assert.equal(localizeValue('30_MIN', undefined), '30_MIN')
     })
 
+    test('translates confirmed dishwasher labels and course values', () => {
+        const expected: Record<string, string> = {
+            SOAK: '불림',
+            NORMAL: '표준',
+            STEAM_TUB_CLEAN: '스팀통살균',
+            STEAM_REFRESH: '스팀리프레시',
+            disabled: '꺼짐',
+            UPPER: '위',
+            LOWER: '아래',
+        }
+        for (const [value, korean] of Object.entries(expected))
+            assert.equal(localizeValue(value, 'korean'), korean, value)
+
+        const config = {
+            device: { name: 'LG Dishwasher' },
+            components: {
+                stored: { platform: 'sensor', name: 'Stored download course' },
+                chime: { platform: 'binary_sensor', name: 'Product chime' },
+                reminder: { platform: 'binary_sensor', name: 'Tub sterilization reminder' },
+                display: { platform: 'binary_sensor', name: 'Front time display' },
+                rinse: { platform: 'sensor', name: 'Rinse aid level' },
+                hardness: { platform: 'sensor', name: 'Water hardness level' },
+                dual: { platform: 'binary_sensor', name: 'Dual zone' },
+                half: { platform: 'sensor', name: 'Half load zone' },
+                extra: { platform: 'binary_sensor', name: 'Safe rinse' },
+                washer_extra: { platform: 'binary_sensor', name: 'Extra rinse' },
+                steam: { platform: 'binary_sensor', name: 'Steam' },
+                sanitize: { platform: 'binary_sensor', name: 'High temperature sanitize' },
+                dry: { platform: 'binary_sensor', name: 'High temperature dry' },
+                lock: { platform: 'binary_sensor', name: 'Control lock' },
+                delay: { platform: 'binary_sensor', name: 'Delay active' },
+            },
+        } as unknown as DeviceDiscovery
+        const localized = localizeDiscovery(config, 'korean').components as Record<string, Record<string, unknown>>
+        assert.deepEqual(
+            Object.values(localized).map((component) => component.name),
+            [
+                '저장된 다운로드 코스',
+                '제품 알림음',
+                '통살균 알림등',
+                '전면 시간 표시',
+                '린스 투입량',
+                '물 경도 레벨',
+                '듀얼존',
+                '부분세척',
+                '안심헹굼',
+                '추가 헹굼',
+                '스팀',
+                '고온살균',
+                '고온건조',
+                '버튼잠금',
+                '예약 활성',
+            ],
+        )
+    })
+
+    test('translates confirmed dryer panel labels and tub sterilization', () => {
+        assert.equal(localizeValue('SELFCLEANING', 'korean'), '통살균')
+
+        const config = {
+            device: { name: 'LG Dryer' },
+            components: {
+                anti_crease: { platform: 'binary_sensor', name: 'Anti crease' },
+                smart_care: { platform: 'binary_sensor', name: 'Smart Care' },
+                reservation: { platform: 'binary_sensor', name: 'Reservation active' },
+            },
+        } as unknown as DeviceDiscovery
+        const localized = localizeDiscovery(config, 'korean').components as Record<string, Record<string, unknown>>
+        assert.deepEqual(
+            Object.values(localized).map((component) => component.name),
+            ['구김 방지', '스마트케어', '예약 활성'],
+        )
+    })
+
     test('leaves a climate entity its Home Assistant HVAC modes', () => {
         // Home Assistant accepts only its own HVAC modes here and drops the rest, so a
         // translated "off" left the air conditioners with no way to be turned off.

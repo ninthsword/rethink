@@ -17,30 +17,25 @@ const STATUS: Record<number, string> = {
 }
 const DRY_LEVEL = ['NO', 'DAMP', 'LESS', 'IRON', 'CUPBOARD', 'VERY_DRY']
 const ECO_HYBRID = ['NONE', 'ECO', 'NORMAL', 'TURBO']
-/*
- * Captured by turning the course dial one position at a time with the appliance
- * reporting: fourteen positions that close back on 표준, matching the panel one for one.
- * The order is nothing like the model schema's, which is why a single reading could not
- * be extrapolated. The schema names four more courses — 선반건조, 시간건조, 콘덴서케어 and
- * 통살균 — which this appliance selects with its own buttons rather than the dial. They
- * report their own raw values, so they stay unmapped until one is read off the appliance.
- */
+// Labelled RH16_N_KR panel capture. Raw 4 is 이불, except for the active downloaded
+// compound state below; downloaded_course remains the independently stored rec[25].
 const COURSE: Record<number, string> = {
     0: 'NONE',
-    2: 'BULKYITEM',
-    4: 'COOLAIR',
-    5: 'COTTONNORMAL',
-    7: 'PADDINGREFRESH',
-    8: 'QUICKDRY',
-    9: 'BEDDING_BRUSH',
-    11: 'ALLERGYCARE',
-    13: 'WOOL',
-    14: 'EASYCARE',
-    15: 'WARMAIR',
-    16: 'WATERREPELLENT',
-    17: 'TOWELS',
-    20: 'SPORTWEAR',
-    22: 'DOWNLOADED',
+    2: 'TOWELS',
+    4: 'BULKYITEM',
+    5: 'EASYCARE',
+    7: 'COTTONNORMAL',
+    8: 'SPORTWEAR',
+    9: 'QUICKDRY',
+    11: 'WOOL',
+    12: 'RACKDRY',
+    13: 'COOLAIR',
+    14: 'WARMAIR',
+    15: 'BEDDING_BRUSH',
+    16: 'ALLERGYCARE',
+    19: 'SELFCLEANING',
+    20: 'PADDINGREFRESH',
+    22: 'WATERREPELLENT',
 }
 /*
  * Codes read straight off `f0 25` download commands captured while the owner picked each
@@ -177,6 +172,20 @@ export default class Device extends AABBDevice {
                         name: 'Anti crease',
                         icon: 'mdi:iron-outline',
                     },
+                    smart_care: {
+                        platform: 'binary_sensor',
+                        unique_id: '$deviceid-smart_care',
+                        state_topic: '$this/smart_care',
+                        name: 'Smart Care',
+                        icon: 'mdi:stethoscope',
+                    },
+                    reservation_active: {
+                        platform: 'binary_sensor',
+                        unique_id: '$deviceid-reservation_active',
+                        state_topic: '$this/reservation_active',
+                        name: 'Reservation active',
+                        icon: 'mdi:calendar-clock',
+                    },
                 },
             }),
         )
@@ -194,14 +203,20 @@ export default class Device extends AABBDevice {
         this.publishProperty('process_status', isOff ? 'NONE' : mapped(PROCESS, rec[21]))
         this.publishProperty('remaining_time', rec[3] * 60 + rec[4])
         this.publishProperty('initial_time', rec[5] * 60 + rec[6])
-        this.publishProperty('reserve_time', rec[13] * 60 + rec[14])
-        this.publishProperty('course', mapped(COURSE, rec[7]))
+        const downloadedActive = rec[7] === 4 && rec[22] !== 0 && rec[22] === rec[25]
+        const reservationActive = (rec[16] & 0x01) !== 0
+        const reservationTime = rec[12] >= 3 && rec[12] <= 19 && rec[13] <= 59 ? rec[12] * 60 + rec[13] : 0
+        this.publishProperty('reserve_time', reservationActive ? reservationTime : 0)
+        this.publishProperty('reservation_active', reservationActive ? 'ON' : 'OFF')
+        this.publishProperty('course', downloadedActive ? 'DOWNLOADED' : mapped(COURSE, rec[7]))
         this.publishProperty('downloaded_course', mapped(DOWNLOADED_COURSE, rec[25]))
         this.publishProperty('dry_level', DRY_LEVEL[rec[9]] ?? `RAW_${rec[9]}`)
         this.publishProperty('eco_hybrid', ECO_HYBRID[rec[10]] ?? `RAW_${rec[10]}`)
-        this.publishProperty('anti_crease', rec[11] === 1 ? 'ON' : 'OFF')
-        this.publishProperty('error', rec[22] === 0 ? 'OFF' : 'ON')
-        this.publishProperty('error_message', mapped(ERROR, rec[22]))
+        this.publishProperty('anti_crease', (rec[16] & 0x02) !== 0 ? 'ON' : 'OFF')
+        this.publishProperty('smart_care', (rec[17] & 0x20) !== 0 ? 'ON' : 'OFF')
+        const error = downloadedActive ? 0 : rec[22]
+        this.publishProperty('error', error === 0 ? 'OFF' : 'ON')
+        this.publishProperty('error_message', mapped(ERROR, error))
     }
 
     processAABB(buf: Buffer) {
