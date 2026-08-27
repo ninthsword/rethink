@@ -29,14 +29,11 @@ const COURSE: Record<number, string> = {
     1: 'AUTO',
     2: 'INTENSIVE',
     3: 'DELICATE',
-    4: 'TURBO',
-    5: 'NORMAL_ECO',
-    6: 'RINSE',
-    7: 'REFRESH',
+    5: 'NORMAL',
+    6: 'SOAK',
+    7: 'STEAM_REFRESH',
     8: 'EXPRESS',
-    9: 'MACHINE_CLEAN',
-    10: 'SHORT_MODE',
-    11: 'DOWNLOAD_CYCLE',
+    9: 'STEAM_TUB_CLEAN',
 }
 const DOWNLOAD_COURSE: Record<number, string> = {
     0: 'NONE',
@@ -53,6 +50,17 @@ const DOWNLOAD_COURSE: Record<number, string> = {
 function sensor(name: string, icon: string, extra: object = {}) {
     return {
         platform: 'sensor',
+        unique_id: `$deviceid-${name}`,
+        state_topic: `$this/${name}`,
+        name,
+        icon,
+        ...extra,
+    }
+}
+
+function binarySensor(name: string, icon: string, extra: object = {}) {
+    return {
+        platform: 'binary_sensor',
         unique_id: `$deviceid-${name}`,
         state_topic: `$this/${name}`,
         name,
@@ -108,7 +116,32 @@ export default class Device extends AABBDevice {
                         unit_of_measurement: 'min',
                     }),
                     course: sensor('course', 'mdi:dishwasher'),
-                    current_download_course: sensor('current_download_course', 'mdi:download-circle-outline'),
+                    current_download_course: sensor('current_download_course', 'mdi:download-circle-outline', {
+                        name: 'Stored download course',
+                    }),
+                    chime_enabled: binarySensor('chime_enabled', 'mdi:volume-high', { name: 'Product chime' }),
+                    tub_sterilization_reminder: binarySensor('tub_sterilization_reminder', 'mdi:bell-ring-outline', {
+                        name: 'Tub sterilization reminder',
+                    }),
+                    front_time_display: binarySensor('front_time_display', 'mdi:clock-digital', {
+                        name: 'Front time display',
+                    }),
+                    rinse_aid_level: sensor('rinse_aid_level', 'mdi:cup-water', { name: 'Rinse aid level' }),
+                    water_hardness_level: sensor('water_hardness_level', 'mdi:water-opacity', {
+                        name: 'Water hardness level',
+                    }),
+                    dual_zone: binarySensor('dual_zone', 'mdi:table-split-cell', { name: 'Dual zone' }),
+                    half_load_zone: sensor('half_load_zone', 'mdi:arrow-up-down-bold', { name: 'Half load zone' }),
+                    extra_rinse: binarySensor('extra_rinse', 'mdi:water-plus', { name: 'Safe rinse' }),
+                    steam: binarySensor('steam', 'mdi:kettle-steam', { name: 'Steam' }),
+                    high_temp_sanitize: binarySensor('high_temp_sanitize', 'mdi:thermometer-high', {
+                        name: 'High temperature sanitize',
+                    }),
+                    high_temp_dry: binarySensor('high_temp_dry', 'mdi:thermometer-high', {
+                        name: 'High temperature dry',
+                    }),
+                    control_lock: binarySensor('control_lock', 'mdi:lock', { name: 'Control lock' }),
+                    delay_active: binarySensor('delay_active', 'mdi:timer-sand', { name: 'Delay active' }),
                     tub_clean_count: sensor('tub_clean_count', 'mdi:dishwasher', {
                         state_class: 'total',
                         suggested_display_precision: 0,
@@ -135,8 +168,25 @@ export default class Device extends AABBDevice {
         this.publishProperty('remaining_time', isOff ? 0 : rec[9] * 60 + rec[10])
         this.publishProperty('initial_time', rec[5] * 60 + rec[6])
         this.publishProperty('reserve_time', rec[11] * 60 + rec[12])
-        this.publishProperty('course', mapped(COURSE, rec[7]))
+        // A download cycle reuses the INTENSIVE raw course. It is distinguishable only by
+        // its own marker and non-zero active-download byte; the stored download selection
+        // alone (rec[25]) must not turn a normal intensive cycle into a download cycle.
+        const isDownloadCycle = rec[7] === 2 && rec[8] === 1 && rec[22] !== 0
+        this.publishProperty('course', isDownloadCycle ? 'DOWNLOAD_CYCLE' : mapped(COURSE, rec[7]))
         this.publishProperty('current_download_course', mapped(DOWNLOAD_COURSE, rec[25]))
+        this.publishProperty('chime_enabled', (rec[13] & 0x10) !== 0 ? 'ON' : 'OFF')
+        this.publishProperty('tub_sterilization_reminder', (rec[13] & 0x20) !== 0 ? 'ON' : 'OFF')
+        this.publishProperty('front_time_display', (rec[17] & 0x08) !== 0 ? 'ON' : 'OFF')
+        this.publishProperty('rinse_aid_level', rec[15])
+        this.publishProperty('water_hardness_level', rec[16])
+        this.publishProperty('dual_zone', (rec[14] & 0x10) !== 0 ? 'ON' : 'OFF')
+        this.publishProperty('half_load_zone', mapped({ 0: 'disabled', 32: 'LOWER', 64: 'UPPER' }, rec[14] & 0x60))
+        this.publishProperty('extra_rinse', (rec[17] & 0x04) !== 0 ? 'ON' : 'OFF')
+        this.publishProperty('steam', (rec[14] & 0x80) !== 0 ? 'ON' : 'OFF')
+        this.publishProperty('high_temp_sanitize', (rec[14] & 0x08) !== 0 ? 'ON' : 'OFF')
+        this.publishProperty('high_temp_dry', (rec[14] & 0x04) !== 0 ? 'ON' : 'OFF')
+        this.publishProperty('control_lock', (rec[13] & 0x01) !== 0 ? 'ON' : 'OFF')
+        this.publishProperty('delay_active', (rec[14] & 0x01) !== 0 ? 'ON' : 'OFF')
     }
 
     /*
@@ -155,7 +205,7 @@ export default class Device extends AABBDevice {
         if (buf[0] !== 0x32) return
         if (buf[1] === 0xeb && buf.length === 28) this.processRecord(buf.subarray(2, 28))
         else if (buf[1] === 0xec && buf.length === 54) this.processRecord(buf.subarray(28, 54))
-        else if (buf[1] === 0xbf) this.processLongRecord(buf, 43)
-        else if (buf[1] === 0xcf) this.processLongRecord(buf, 42)
+        else if (buf[1] === 0xbf && buf.length === 102) this.processLongRecord(buf, 43)
+        else if (buf[1] === 0xcf && buf.length === 101) this.processLongRecord(buf, 42)
     }
 }

@@ -3,6 +3,7 @@ import { test } from 'node:test'
 import DUT from '@/cloud/devices/RH16KR'
 import type { Metadata } from '@/cloud/thinq'
 import { buf, MockHAConnection, MockThinq2Device } from '@/tests/helpers/mocks'
+import { localizeDiscovery } from '@/util/ha_locale'
 
 const META: Metadata = { modelId: 'RH16KR', modelName: 'RH16KR', swVersion: '1.0' }
 const LIVE_POWER_OFF = buf('AA2130EB001900000000000000000000000000000000000000010000008300D6BB')
@@ -22,7 +23,13 @@ test('RH16KR decodes the live dryer snapshot', () => {
     assert.equal(p.dry_level, 'NO')
     assert.equal(p.eco_hybrid, 'NONE')
     assert.equal(p.anti_crease, 'OFF')
+    assert.equal(p.control_lock, 'OFF')
     assert.equal(p.downloaded_course, 'SELFCLEANING')
+
+    const config = ha.devices['dryer-id'].config
+    assert.ok(config)
+    assert.equal(localizeDiscovery(config, 'korean').components.eco_hybrid.name, '절약건조')
+    assert.equal(localizeDiscovery(config, 'korean').components.control_lock.name, '버튼잠금')
 })
 
 test('RH16KR reads the newer of the two records a 0xEC packet carries', () => {
@@ -137,25 +144,25 @@ test('RH16KR handles the model id the dryer reports after a fresh registration',
     assert.equal(ha.devices['dryer-id'].properties.power, 'ON')
 })
 
-test('RH16KR names every course its dial reaches', () => {
-    // Read off the appliance by turning the dial one position at a time: fourteen
-    // positions that close back on 표준. The order bears no relation to the model
-    // schema's, which is why the table could not be derived from a single reading.
+test('RH16KR maps each labelled panel course and preserves unknown values', () => {
     const dial: Array<[number, string]> = [
-        [5, 'COTTONNORMAL'],
-        [11, 'ALLERGYCARE'],
-        [8, 'QUICKDRY'],
-        [17, 'TOWELS'],
-        [14, 'EASYCARE'],
-        [13, 'WOOL'],
-        [20, 'SPORTWEAR'],
-        [22, 'DOWNLOADED'],
-        [15, 'WARMAIR'],
-        [4, 'COOLAIR'],
-        [7, 'PADDINGREFRESH'],
-        [16, 'WATERREPELLENT'],
-        [9, 'BEDDING_BRUSH'],
-        [2, 'BULKYITEM'],
+        [2, 'TOWELS'],
+        [4, 'BULKYITEM'],
+        [5, 'EASYCARE'],
+        [7, 'COTTONNORMAL'],
+        [8, 'SPORTWEAR'],
+        [9, 'QUICKDRY'],
+        [11, 'WOOL'],
+        [12, 'RACKDRY'],
+        [13, 'COOLAIR'],
+        [14, 'WARMAIR'],
+        [15, 'BEDDING_BRUSH'],
+        [16, 'ALLERGYCARE'],
+        [18, 'CONDENSERCARE'],
+        [19, 'SELFCLEANING'],
+        [20, 'PADDINGREFRESH'],
+        [21, 'TIMEDRY'],
+        [22, 'WATERREPELLENT'],
     ]
 
     const ha = new MockHAConnection()
@@ -170,5 +177,233 @@ test('RH16KR names every course its dial reaches', () => {
         thinq.emit('data', frame)
         assert.equal(ha.devices['dryer-id'].properties.course, name, `raw ${raw}`)
     }
+    const unknown = Buffer.alloc(27)
+    unknown[1] = 0x19
+    unknown[7] = 17
+    thinq.emit('data', Buffer.concat([Buffer.from([0xaa, 0x21, 0x30, 0xeb]), unknown, Buffer.from([0, 0xbb])]))
+    assert.equal(ha.devices['dryer-id'].properties.course, 'RAW_17')
     dev.drop()
+})
+
+test('RH16KR decodes labelled dryer options and keeps unknown raw values visible', () => {
+    const ha = new MockHAConnection()
+    const thinq = new MockThinq2Device('dryer-id', META)
+    new DUT(ha.asConnection(), thinq, META)
+
+    const report = (dryLevel: number, ecoHybrid: number) => {
+        const rec = Buffer.alloc(27)
+        rec[1] = 0x19
+        rec[9] = dryLevel
+        rec[10] = ecoHybrid
+        thinq.emit('data', Buffer.concat([Buffer.from([0xaa, 0x21, 0x30, 0xeb]), rec, Buffer.from([0, 0xbb])]))
+        return ha.devices['dryer-id'].properties
+    }
+
+    for (const [raw, value] of [
+        [0, 'NO'],
+        [1, 'DAMP'],
+        [2, 'LESS'],
+        [3, 'IRON'],
+        [4, 'CUPBOARD'],
+        [5, 'VERY_DRY'],
+    ] as const)
+        assert.equal(report(raw, 0).dry_level, value, `dry level ${raw}`)
+
+    for (const [raw, value] of [
+        [0, 'NONE'],
+        [1, 'ENERGY'],
+        [2, 'NORMAL'],
+        [3, 'SPEED'],
+    ] as const)
+        assert.equal(report(0, raw).eco_hybrid, value, `Eco Hybrid ${raw}`)
+
+    const unknown = report(6, 4)
+    assert.equal(unknown.dry_level, 'RAW_6')
+    assert.equal(unknown.eco_hybrid, 'RAW_4')
+})
+
+test('RH16KR publishes raw time fields independently for labelled panel selections', () => {
+    const ha = new MockHAConnection()
+    const thinq = new MockThinq2Device('dryer-id', META)
+    new DUT(ha.asConnection(), thinq, META)
+
+    const report = (
+        course: number,
+        remainingHours: number,
+        remainingMinutes: number,
+        initialHours: number,
+        initialMinutes: number,
+    ) => {
+        const rec = Buffer.alloc(27)
+        rec[1] = 0x19
+        rec[7] = course
+        rec[3] = remainingHours
+        rec[4] = remainingMinutes
+        rec[5] = initialHours
+        rec[6] = initialMinutes
+        thinq.emit('data', Buffer.concat([Buffer.from([0xaa, 0x21, 0x30, 0xeb]), rec, Buffer.from([0, 0xbb])]))
+        return ha.devices['dryer-id'].properties
+    }
+
+    // Synthetic selection-stage regressions lock the labelled raw fields; they do not
+    // assert how total time behaves during live dryer operation.
+    let p = report(7, 1, 20, 2, 0)
+    assert.equal(p.remaining_time, 80)
+    assert.equal(p.initial_time, 120)
+
+    p = report(21, 0, 40, 0, 40)
+    assert.equal(p.course, 'TIMEDRY')
+    assert.equal(p.remaining_time, 40)
+    assert.equal(p.initial_time, 40)
+
+    p = report(13, 0, 50, 1, 0)
+    assert.equal(p.course, 'COOLAIR')
+    assert.equal(p.remaining_time, 50)
+    assert.equal(p.initial_time, 60)
+
+    p = report(14, 0, 30, 0, 20)
+    assert.equal(p.course, 'WARMAIR')
+    assert.equal(p.remaining_time, 30)
+    assert.equal(p.initial_time, 20)
+})
+
+test('RH16KR preserves live COOLAIR and WARMAIR time transitions', () => {
+    const ha = new MockHAConnection()
+    const thinq = new MockThinq2Device('dryer-id', META)
+    new DUT(ha.asConnection(), thinq, META)
+
+    const report = (course: number, state: number, remaining: number, initial: number) => {
+        const rec = Buffer.alloc(27)
+        rec[1] = 0x19
+        rec[2] = state
+        rec[3] = Math.floor(remaining / 60)
+        rec[4] = remaining % 60
+        rec[5] = Math.floor(initial / 60)
+        rec[6] = initial % 60
+        rec[7] = course
+        thinq.emit('data', Buffer.concat([Buffer.from([0xaa, 0x21, 0x30, 0xeb]), rec, Buffer.from([0, 0xbb])]))
+        return ha.devices['dryer-id'].properties
+    }
+
+    // Owner-labelled live sequence: selection, start, countdown, then stop/pause.
+    let p = report(13, 1, 60, 0)
+    assert.equal(p.course, 'COOLAIR')
+    assert.equal(p.status, 'INITIAL')
+    assert.equal(p.remaining_time, 60)
+    assert.equal(p.initial_time, 0)
+
+    p = report(13, 2, 60, 60)
+    assert.equal(p.status, 'RUNNING')
+    assert.equal(p.remaining_time, 60)
+    assert.equal(p.initial_time, 60)
+
+    p = report(13, 2, 59, 60)
+    assert.equal(p.remaining_time, 59)
+    assert.equal(p.initial_time, 60)
+
+    p = report(13, 3, 59, 60)
+    assert.equal(p.status, 'PAUSE')
+    assert.equal(p.remaining_time, 59)
+    assert.equal(p.initial_time, 60)
+
+    // WARMAIR inherited the displayed initial time at selection and counted down
+    // through successive status samples without changing initial_time.
+    p = report(14, 1, 60, 60)
+    assert.equal(p.course, 'WARMAIR')
+    assert.equal(p.status, 'INITIAL')
+    assert.equal(p.remaining_time, 60)
+    assert.equal(p.initial_time, 60)
+    for (const remaining of [60, 59, 58, 57]) {
+        p = report(14, 2, remaining, 60)
+        assert.equal(p.status, 'RUNNING')
+        assert.equal(p.remaining_time, remaining)
+        assert.equal(p.initial_time, 60)
+    }
+})
+
+test('RH16KR treats only the confirmed compound as a downloaded course and false error', () => {
+    const ha = new MockHAConnection()
+    const thinq = new MockThinq2Device('dryer-id', META)
+    new DUT(ha.asConnection(), thinq, META)
+
+    const report = (course: number, current: number, stored: number) => {
+        const rec = Buffer.alloc(27)
+        rec[1] = 0x19
+        rec[7] = course
+        rec[22] = current
+        rec[25] = stored
+        thinq.emit('data', Buffer.concat([Buffer.from([0xaa, 0x21, 0x30, 0xeb]), rec, Buffer.from([0, 0xbb])]))
+        return ha.devices['dryer-id'].properties
+    }
+
+    const downloaded = report(4, 113, 113)
+    assert.equal(downloaded.course, 'DOWNLOADED')
+    assert.equal(downloaded.downloaded_course, 'BIGSIZEITEM')
+    assert.equal(downloaded.error, 'OFF')
+    assert.equal(downloaded.error_message, 'NO_ERROR')
+
+    const bedding = report(4, 0, 113)
+    assert.equal(bedding.course, 'BULKYITEM')
+    assert.equal(bedding.downloaded_course, 'BIGSIZEITEM')
+    assert.equal(bedding.error, 'OFF')
+
+    const fault = report(4, 15, 113)
+    assert.equal(fault.course, 'BULKYITEM')
+    assert.equal(fault.error, 'ON')
+    assert.equal(fault.error_message, 'ERROR_DOOR')
+})
+
+test('RH16KR decodes labelled option bits and validates active reservation time', () => {
+    const ha = new MockHAConnection()
+    const thinq = new MockThinq2Device('dryer-id', META)
+    new DUT(ha.asConnection(), thinq, META)
+    const components = ha.devices['dryer-id'].config?.components as Record<string, Record<string, unknown>>
+    for (const component of Object.values(components)) assert.equal(component.command_topic, undefined)
+    assert.equal(components.remote_control, undefined)
+    assert.equal(components.remote_start, undefined)
+
+    for (const name of ['smart_care', 'reservation_active', 'control_lock'] as const) {
+        assert.equal(components[name].platform, 'binary_sensor')
+    }
+
+    const report = (flags16: number, flags17: number, hours: number, minutes: number) => {
+        const rec = Buffer.alloc(27)
+        rec[1] = 0x19
+        rec[12] = hours
+        rec[13] = minutes
+        rec[16] = flags16
+        rec[17] = flags17
+        thinq.emit('data', Buffer.concat([Buffer.from([0xaa, 0x21, 0x30, 0xeb]), rec, Buffer.from([0, 0xbb])]))
+        return ha.devices['dryer-id'].properties
+    }
+
+    let p = report(0x03, 0x20, 3, 0)
+    assert.equal(p.anti_crease, 'ON')
+    assert.equal(p.smart_care, 'ON')
+    assert.equal(p.reservation_active, 'ON')
+    assert.equal(p.reserve_time, 180)
+
+    p = report(0, 0, 3, 0)
+    assert.equal(p.anti_crease, 'OFF')
+    assert.equal(p.smart_care, 'OFF')
+    assert.equal(p.control_lock, 'OFF')
+    assert.equal(p.reservation_active, 'OFF')
+    assert.equal(p.reserve_time, 0)
+
+    p = report(0, 0x10, 3, 0)
+    assert.equal(p.smart_care, 'OFF')
+    assert.equal(p.control_lock, 'OFF')
+
+    p = report(0x08, 0, 3, 0)
+    assert.equal(p.control_lock, 'OFF')
+
+    p = report(0x18, 0, 3, 0)
+    assert.equal(p.control_lock, 'ON')
+
+    p = report(0x08, 0, 3, 0)
+    assert.equal(p.control_lock, 'OFF')
+
+    assert.equal(report(0x01, 0, 2, 0).reserve_time, 0)
+    assert.equal(report(0x01, 0, 20, 0).reserve_time, 0)
+    assert.equal(report(0x01, 0, 3, 60).reserve_time, 0)
 })

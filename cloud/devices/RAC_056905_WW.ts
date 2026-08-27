@@ -131,6 +131,7 @@ export default class Device extends TLVDevice {
     powerStatePrev?: boolean
     modeChangeHooks: PowerModeChangeHook[] = []
     modePrev?: string
+    private powerTransitionInFrame = false
     airClean: boolean = false
     jetMode: boolean = false
     energySave: boolean = false
@@ -151,6 +152,24 @@ export default class Device extends TLVDevice {
         this.outdoor = outdoorUnitFor(HA.config, thinq.id)
         if (this.outdoor?.isPrimary(thinq.id))
             this.outdoor.attachPrimary((property, value) => this.HA.publishProperty(this.id, property, value))
+    }
+
+    override processTLV(tlvArray: TLV.TLV[], canSatisfyValuesResponse: boolean = true) {
+        const powerTransitionInFrame =
+            this.powerStatePrev !== undefined &&
+            tlvArray.some(({ t, v }) => t === 0x1f7 && (v !== 0) !== this.powerStatePrev)
+        if (powerTransitionInFrame) {
+            const modeTLV = tlvArray.find(({ t }) => t === 0x1f9)?.v
+            if (modeTLV !== undefined) this.raw_clip_state[0x1f9] = modeTLV
+        }
+
+        const previousFrameState = this.powerTransitionInFrame
+        this.powerTransitionInFrame = powerTransitionInFrame
+        try {
+            super.processTLV(tlvArray, canSatisfyValuesResponse)
+        } finally {
+            this.powerTransitionInFrame = previousFrameState
+        }
     }
 
     stopTimers() {
@@ -514,8 +533,17 @@ export default class Device extends TLVDevice {
             read_callback: (val) => {
                 if (typeof val !== 'string') return true
                 // As with power: the first reading tells us where the appliance is, not that
-                // it moved. See the power branch above.
-                if (this.modePrev !== undefined && this.modePrev !== val)
+                // it moved. See the power branch above. A complete state frame can contain both
+                // a mode and power transition in either order. The raw power may already have
+                // been updated optimistically while building an HA command, so the current raw
+                // value alone cannot establish ownership; processTLV marks the frame before
+                // callbacks run and lets the power callback reapply settings once.
+                const powerTLV = this.getPowerTLV()
+                const powerStable =
+                    powerTLV !== undefined &&
+                    this.powerStatePrev !== undefined &&
+                    (powerTLV !== 0) === this.powerStatePrev
+                if (this.modePrev !== undefined && this.modePrev !== val && !this.powerTransitionInFrame && powerStable)
                     for (const hook of this.modeChangeHooks) hook()
                 this.modePrev = val
                 return true
@@ -1284,8 +1312,8 @@ export default class Device extends TLVDevice {
          * but in a separate message.
          */
         this.powerChangeHooks.push(() => {
-            if (this.getPowerTLV() === 0) return
-            this.setProperty(`${name}-`, this.jetMode ? 'ON' : 'OFF')
+            if (this.getPowerTLV() === 0 || !this.jetMode) return
+            this.setProperty(`${name}-`, 'ON')
         })
         this.modeChangeHooks.push(() => {
             this.setProperty(`${name}-`, this.jetMode ? 'ON' : 'OFF')
@@ -1419,12 +1447,12 @@ export default class Device extends TLVDevice {
         })
 
         this.powerChangeHooks.push(() => {
-            if (this.getPowerTLV() === 0) return
+            if (this.getPowerTLV() === 0 || !this[field_name]) return
             /*
              * This value needs to be written at each power up,
              * but in a separate message.
              */
-            this.setProperty(`${name}-`, this[field_name] ? 'ON' : 'OFF')
+            this.setProperty(`${name}-`, 'ON')
         })
 
         if (check_mode) {
