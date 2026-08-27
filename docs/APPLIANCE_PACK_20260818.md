@@ -9,7 +9,7 @@ confirm field meanings; Home Assistant state comes from the local appliance pack
 | Appliance           | modelId          | Local state exposed to Home Assistant                                                                                                                       |
 | ------------------- | ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Front-load washer   | `F21VDT_AKOR`    | power, current/previous state, completion, remaining/initial/reserved time, course fields, soil, spin, water temperature, rinse, dry level, tub-clean count |
-| Dryer               | `RH16KR`, `RH16_N_KR` | power, state/full process table/completion, remaining/initial/reserved time, course/downloaded course, dry level, Eco Hybrid, anti-crease, Smart Care, reservation active |
+| Dryer               | `RH16KR`, `RH16_N_KR` | power, state/full process table/completion, remaining/initial/reserved time, course/downloaded course, dry level, Eco Hybrid, anti-crease, Smart Care, control lock, reservation active |
 | Kimchi refrigerator | `2REK1G03VI1902` | top/middle/bottom room temperatures, door, display lock, one-touch filter, monitor status                                                                   |
 | Mini washer         | `Pd0F_F`         | power, current/previous state, completion, remaining/initial/reserved time, error and door lock                                                             |
 | Dishwasher          | `D121111`        | power, state/process/completion, remaining/initial/reserved time, course/stored download course, tub-clean count, confirmed read-only settings               |
@@ -20,24 +20,44 @@ model. Unknown enum values are retained as `RAW_<number>` instead of being guess
 For the installed `RH16_N_KR` dryer, a labelled panel capture confirms
 `TOWELS=2`, `BULKYITEM=4`, `EASYCARE=5`, `COTTONNORMAL=7`, `SPORTWEAR=8`,
 `QUICKDRY=9`, `WOOL=11`, `RACKDRY=12`, `COOLAIR=13`, `WARMAIR=14`,
-`BEDDING_BRUSH=15`, `ALLERGYCARE=16`, `SELFCLEANING=19`,
+`BEDDING_BRUSH=15`, `ALLERGYCARE=16`, `CONDENSERCARE=18`, `SELFCLEANING=19`,
 `PADDINGREFRESH=20`, `TIMEDRY=21`, and `WATERREPELLENT=22`. Raw `4` is a downloaded course
 only when `rec[22]` is nonzero and equals stored-download `rec[25]`; otherwise it
 remains Bedding. The stored download is always decoded from `rec[25]`. That
 compound state suppresses only its false error indication. Anti-crease is
-`rec[16] & 0x02`, Smart Care is `rec[17] & 0x20`, and reservation active is
+`rec[16] & 0x02`, Smart Care is `rec[17] & 0x20`, control lock is `rec[16] & 0x10`,
+and reservation active is
 `rec[16] & 0x01`. While active, a valid `rec[12]` hour (3--19) and `rec[13]`
 minute (0--59) publish the reservation duration; all inactive or invalid values
 publish zero. The labelled dry-level record `rec[9]` maps `DAMP=1`, `LESS=2`,
 `IRON=3`, `CUPBOARD=4`, and `VERY_DRY=5`. The labelled Eco Hybrid record
 `rec[10]` maps `NONE=0`, `ENERGY=1`, `NORMAL=2`, and `SPEED=3`. On the panel,
 TIMEDRY time selection updates both remaining `rec[3:4]` and total/initial
-`rec[5:6]`. At selection stage, COOLAIR and WARMAIR +/- showed only a remaining
-`rec[3:4]` change while total/initial `rec[5:6]` stayed unchanged. This unresolved
-discrepancy requires a live-operation capture before any synthetic total-time
-correction. The current decoder publishes the raw fields independently and does not
-normalize them.
-The specifically observed/labelled deltas—`rec[14]` and transient `rec[18]`—remain unassigned.
+`rec[5:6]`. In the owner-labelled 2026-08-27 live capture, COOLAIR raw `13`
+selection was `INITIAL` with remaining `60` and initial `0`; after start it was
+`RUNNING` at `60/60`, then a later status sample was `59/60`, and stop/pause
+retained `59/60`. WARMAIR raw `14` selection inherited displayed initial `60`,
+then `RUNNING` stayed at `60/60` before successive status samples counted down
+`59/60`, `58/60`, and `57/60`. These are state-field observations rather than an
+exact wall-clock duration; the current decoder publishes the raw fields
+independently and does not normalize or apply a source correction.
+The specifically observed/labelled deltas—`rec[14]`, `rec[16]` bit `0x08`, and transient
+`rec[18]`—remain unassigned; no meaning is inferred for the `0x08` bit.
+
+An owner-labelled RH16_N_KR panel capture on 2026-08-27 confirmed raw course `18`
+as `CONDENSERCARE`; the Korean Home Assistant display is `콘덴서 케어`. The
+contemporaneous owner-labelled capture also toggled the lock OFF→ON→OFF while
+isolating `rec[16]` bit `0x10` (`0x08` baseline versus `0x18` lock-on). The
+published `control_lock` is read-only, with no `command_topic` or remote-control
+behavior.
+
+A diagnosis-only owner-labelled capture with the door closed and Remote Control
+toggled ON→OFF observed device event `0x72 c9/c8` aligned with `rec[17]` bit `0`
+OFF→ON→OFF. `rec[17]` bit `0x10` lagged as the panel-lock consequence and is
+distinct from manual `control_lock` (`rec[16] & 0x10`). Earlier no-response occurred
+with the door open, consistent with the official LG guidance to power on, wait for
+Wi-Fi, close the door, and hold for three seconds. This records diagnosis only and
+adds no remote entity, command, or device write.
 
 ## Deferred controls and fields
 

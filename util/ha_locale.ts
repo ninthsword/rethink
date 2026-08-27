@@ -415,6 +415,7 @@ const KOREAN_VALUES: Record<string, string> = {
     TIMEDRY: '시간건조',
     COOLAIR: '송풍',
     WARMAIR: '온풍',
+    CONDENSERCARE: '콘덴서 케어',
     BEDDING_BRUSH: '침구털기',
     ALLERGYCARE: '살균',
     PADDINGREFRESH: '패딩리프레쉬',

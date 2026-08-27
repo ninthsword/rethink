@@ -33,6 +33,7 @@ const COURSE: Record<number, string> = {
     14: 'WARMAIR',
     15: 'BEDDING_BRUSH',
     16: 'ALLERGYCARE',
+    18: 'CONDENSERCARE',
     19: 'SELFCLEANING',
     20: 'PADDINGREFRESH',
     21: 'TIMEDRY',
@@ -187,6 +188,13 @@ export default class Device extends AABBDevice {
                         name: 'Reservation active',
                         icon: 'mdi:calendar-clock',
                     },
+                    control_lock: {
+                        platform: 'binary_sensor',
+                        unique_id: '$deviceid-control_lock',
+                        state_topic: '$this/control_lock',
+                        name: 'Control lock',
+                        icon: 'mdi:lock-outline',
+                    },
                 },
             }),
         )
@@ -215,6 +223,7 @@ export default class Device extends AABBDevice {
         this.publishProperty('eco_hybrid', ECO_HYBRID[rec[10]] ?? `RAW_${rec[10]}`)
         this.publishProperty('anti_crease', (rec[16] & 0x02) !== 0 ? 'ON' : 'OFF')
         this.publishProperty('smart_care', (rec[17] & 0x20) !== 0 ? 'ON' : 'OFF')
+        this.publishProperty('control_lock', (rec[16] & 0x10) !== 0 ? 'ON' : 'OFF')
         const error = downloadedActive ? 0 : rec[22]
         this.publishProperty('error', error === 0 ? 'OFF' : 'ON')
         this.publishProperty('error_message', mapped(ERROR, error))

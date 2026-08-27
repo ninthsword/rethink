@@ -23,11 +23,13 @@ test('RH16KR decodes the live dryer snapshot', () => {
     assert.equal(p.dry_level, 'NO')
     assert.equal(p.eco_hybrid, 'NONE')
     assert.equal(p.anti_crease, 'OFF')
+    assert.equal(p.control_lock, 'OFF')
     assert.equal(p.downloaded_course, 'SELFCLEANING')
 
     const config = ha.devices['dryer-id'].config
     assert.ok(config)
     assert.equal(localizeDiscovery(config, 'korean').components.eco_hybrid.name, '절약건조')
+    assert.equal(localizeDiscovery(config, 'korean').components.control_lock.name, '버튼잠금')
 })
 
 test('RH16KR reads the newer of the two records a 0xEC packet carries', () => {
@@ -156,6 +158,7 @@ test('RH16KR maps each labelled panel course and preserves unknown values', () =
         [14, 'WARMAIR'],
         [15, 'BEDDING_BRUSH'],
         [16, 'ALLERGYCARE'],
+        [18, 'CONDENSERCARE'],
         [19, 'SELFCLEANING'],
         [20, 'PADDINGREFRESH'],
         [21, 'TIMEDRY'],
@@ -264,6 +267,60 @@ test('RH16KR publishes raw time fields independently for labelled panel selectio
     assert.equal(p.initial_time, 20)
 })
 
+test('RH16KR preserves live COOLAIR and WARMAIR time transitions', () => {
+    const ha = new MockHAConnection()
+    const thinq = new MockThinq2Device('dryer-id', META)
+    new DUT(ha.asConnection(), thinq, META)
+
+    const report = (course: number, state: number, remaining: number, initial: number) => {
+        const rec = Buffer.alloc(27)
+        rec[1] = 0x19
+        rec[2] = state
+        rec[3] = Math.floor(remaining / 60)
+        rec[4] = remaining % 60
+        rec[5] = Math.floor(initial / 60)
+        rec[6] = initial % 60
+        rec[7] = course
+        thinq.emit('data', Buffer.concat([Buffer.from([0xaa, 0x21, 0x30, 0xeb]), rec, Buffer.from([0, 0xbb])]))
+        return ha.devices['dryer-id'].properties
+    }
+
+    // Owner-labelled live sequence: selection, start, countdown, then stop/pause.
+    let p = report(13, 1, 60, 0)
+    assert.equal(p.course, 'COOLAIR')
+    assert.equal(p.status, 'INITIAL')
+    assert.equal(p.remaining_time, 60)
+    assert.equal(p.initial_time, 0)
+
+    p = report(13, 2, 60, 60)
+    assert.equal(p.status, 'RUNNING')
+    assert.equal(p.remaining_time, 60)
+    assert.equal(p.initial_time, 60)
+
+    p = report(13, 2, 59, 60)
+    assert.equal(p.remaining_time, 59)
+    assert.equal(p.initial_time, 60)
+
+    p = report(13, 3, 59, 60)
+    assert.equal(p.status, 'PAUSE')
+    assert.equal(p.remaining_time, 59)
+    assert.equal(p.initial_time, 60)
+
+    // WARMAIR inherited the displayed initial time at selection and counted down
+    // through successive status samples without changing initial_time.
+    p = report(14, 1, 60, 60)
+    assert.equal(p.course, 'WARMAIR')
+    assert.equal(p.status, 'INITIAL')
+    assert.equal(p.remaining_time, 60)
+    assert.equal(p.initial_time, 60)
+    for (const remaining of [60, 59, 58, 57]) {
+        p = report(14, 2, remaining, 60)
+        assert.equal(p.status, 'RUNNING')
+        assert.equal(p.remaining_time, remaining)
+        assert.equal(p.initial_time, 60)
+    }
+})
+
 test('RH16KR treats only the confirmed compound as a downloaded course and false error', () => {
     const ha = new MockHAConnection()
     const thinq = new MockThinq2Device('dryer-id', META)
@@ -301,9 +358,12 @@ test('RH16KR decodes labelled option bits and validates active reservation time'
     const thinq = new MockThinq2Device('dryer-id', META)
     new DUT(ha.asConnection(), thinq, META)
     const components = ha.devices['dryer-id'].config?.components as Record<string, Record<string, unknown>>
-    for (const name of ['smart_care', 'reservation_active'] as const) {
+    for (const component of Object.values(components)) assert.equal(component.command_topic, undefined)
+    assert.equal(components.remote_control, undefined)
+    assert.equal(components.remote_start, undefined)
+
+    for (const name of ['smart_care', 'reservation_active', 'control_lock'] as const) {
         assert.equal(components[name].platform, 'binary_sensor')
-        assert.equal(components[name].command_topic, undefined)
     }
 
     const report = (flags16: number, flags17: number, hours: number, minutes: number) => {
@@ -326,8 +386,22 @@ test('RH16KR decodes labelled option bits and validates active reservation time'
     p = report(0, 0, 3, 0)
     assert.equal(p.anti_crease, 'OFF')
     assert.equal(p.smart_care, 'OFF')
+    assert.equal(p.control_lock, 'OFF')
     assert.equal(p.reservation_active, 'OFF')
     assert.equal(p.reserve_time, 0)
+
+    p = report(0, 0x10, 3, 0)
+    assert.equal(p.smart_care, 'OFF')
+    assert.equal(p.control_lock, 'OFF')
+
+    p = report(0x08, 0, 3, 0)
+    assert.equal(p.control_lock, 'OFF')
+
+    p = report(0x18, 0, 3, 0)
+    assert.equal(p.control_lock, 'ON')
+
+    p = report(0x08, 0, 3, 0)
+    assert.equal(p.control_lock, 'OFF')
 
     assert.equal(report(0x01, 0, 2, 0).reserve_time, 0)
     assert.equal(report(0x01, 0, 20, 0).reserve_time, 0)

@@ -98,6 +98,9 @@ describe('korean appliance value localization', () => {
             ENERGY: '에너지',
             SPEED: '스피드',
             TIMEDRY: '시간건조',
+            CONDENSERCARE: '콘덴서 케어',
+            COOLAIR: '송풍',
+            WARMAIR: '온풍',
             TURBO: '터보',
         }
         for (const [value, korean] of Object.entries(expected))
