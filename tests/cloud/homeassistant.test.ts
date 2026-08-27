@@ -158,10 +158,18 @@ test('korean language localizes Korean appliance course values', () => {
     connection.publishProperty('dishwasher-id', 'current_download_course', 'FISH_DISH')
     connection.publishProperty('dishwasher-id', 'course', 'STEAM_TUB_CLEAN')
     connection.publishProperty('dryer-id', 'downloaded_course', 'SELFCLEANING')
+    connection.publishProperty('dryer-id', 'course', 'TIMEDRY')
+    connection.publishProperty('dryer-id', 'dry_level', 'DAMP')
+    connection.publishProperty('dryer-id', 'eco_hybrid', 'ENERGY')
+    connection.publishProperty('dryer-id', 'eco_hybrid', 'RAW_4')
 
     assert.equal(published[0].payload, '생선 요리')
     assert.equal(published[1].payload, '스팀통살균')
     assert.equal(published[2].payload, '통살균')
+    assert.equal(published[3].payload, '시간건조')
+    assert.equal(published[4].payload, '섬세')
+    assert.equal(published[5].payload, '에너지')
+    assert.equal(published[6].payload, 'RAW_4')
 })
 
 test('korean dishwasher half-load text localizes without changing binary sensor protocol values', () => {

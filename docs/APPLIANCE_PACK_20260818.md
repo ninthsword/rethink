@@ -9,7 +9,7 @@ confirm field meanings; Home Assistant state comes from the local appliance pack
 | Appliance           | modelId          | Local state exposed to Home Assistant                                                                                                                       |
 | ------------------- | ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Front-load washer   | `F21VDT_AKOR`    | power, current/previous state, completion, remaining/initial/reserved time, course fields, soil, spin, water temperature, rinse, dry level, tub-clean count |
-| Dryer               | `RH16KR`         | power, state/full process table/completion, remaining/initial/reserved time, course/downloaded course, dry level, Eco Hybrid, anti-crease, Smart Care, reservation active |
+| Dryer               | `RH16KR`, `RH16_N_KR` | power, state/full process table/completion, remaining/initial/reserved time, course/downloaded course, dry level, Eco Hybrid, anti-crease, Smart Care, reservation active |
 | Kimchi refrigerator | `2REK1G03VI1902` | top/middle/bottom room temperatures, door, display lock, one-touch filter, monitor status                                                                   |
 | Mini washer         | `Pd0F_F`         | power, current/previous state, completion, remaining/initial/reserved time, error and door lock                                                             |
 | Dishwasher          | `D121111`        | power, state/process/completion, remaining/initial/reserved time, course/stored download course, tub-clean count, confirmed read-only settings               |
@@ -21,15 +21,23 @@ For the installed `RH16_N_KR` dryer, a labelled panel capture confirms
 `TOWELS=2`, `BULKYITEM=4`, `EASYCARE=5`, `COTTONNORMAL=7`, `SPORTWEAR=8`,
 `QUICKDRY=9`, `WOOL=11`, `RACKDRY=12`, `COOLAIR=13`, `WARMAIR=14`,
 `BEDDING_BRUSH=15`, `ALLERGYCARE=16`, `SELFCLEANING=19`,
-`PADDINGREFRESH=20`, and `WATERREPELLENT=22`. Raw `4` is a downloaded course
+`PADDINGREFRESH=20`, `TIMEDRY=21`, and `WATERREPELLENT=22`. Raw `4` is a downloaded course
 only when `rec[22]` is nonzero and equals stored-download `rec[25]`; otherwise it
 remains Bedding. The stored download is always decoded from `rec[25]`. That
 compound state suppresses only its false error indication. Anti-crease is
 `rec[16] & 0x02`, Smart Care is `rec[17] & 0x20`, and reservation active is
 `rec[16] & 0x01`. While active, a valid `rec[12]` hour (3--19) and `rec[13]`
 minute (0--59) publish the reservation duration; all inactive or invalid values
-publish zero. `rec[14]`, the transient `rec[18]`, and the unlabelled `rec[10]`
-were not assigned by this capture.
+publish zero. The labelled dry-level record `rec[9]` maps `DAMP=1`, `LESS=2`,
+`IRON=3`, `CUPBOARD=4`, and `VERY_DRY=5`. The labelled Eco Hybrid record
+`rec[10]` maps `NONE=0`, `ENERGY=1`, `NORMAL=2`, and `SPEED=3`. On the panel,
+TIMEDRY time selection updates both remaining `rec[3:4]` and total/initial
+`rec[5:6]`. At selection stage, COOLAIR and WARMAIR +/- showed only a remaining
+`rec[3:4]` change while total/initial `rec[5:6]` stayed unchanged. This unresolved
+discrepancy requires a live-operation capture before any synthetic total-time
+correction. The current decoder publishes the raw fields independently and does not
+normalize them.
+The specifically observed/labelled deltas—`rec[14]` and transient `rec[18]`—remain unassigned.
 
 ## Deferred controls and fields
 

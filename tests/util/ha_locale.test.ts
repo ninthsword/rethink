@@ -88,11 +88,26 @@ describe('korean appliance value localization', () => {
     })
 
     test('translates confirmed dryer panel labels and tub sterilization', () => {
-        assert.equal(localizeValue('SELFCLEANING', 'korean'), '통살균')
+        const expected: Record<string, string> = {
+            SELFCLEANING: '통살균',
+            DAMP: '섬세',
+            LESS: '약',
+            IRON: '표준',
+            CUPBOARD: '표준+',
+            VERY_DRY: '강력',
+            ENERGY: '에너지',
+            SPEED: '스피드',
+            TIMEDRY: '시간건조',
+            TURBO: '터보',
+        }
+        for (const [value, korean] of Object.entries(expected))
+            assert.equal(localizeValue(value, 'korean'), korean, value)
 
         const config = {
             device: { name: 'LG Dryer' },
             components: {
+                eco_hybrid: { platform: 'sensor', name: 'eco_hybrid' },
+                other_model_eco_hybrid: { platform: 'sensor', name: 'EcoHybrid' },
                 anti_crease: { platform: 'binary_sensor', name: 'Anti crease' },
                 smart_care: { platform: 'binary_sensor', name: 'Smart Care' },
                 reservation: { platform: 'binary_sensor', name: 'Reservation active' },
@@ -101,7 +116,7 @@ describe('korean appliance value localization', () => {
         const localized = localizeDiscovery(config, 'korean').components as Record<string, Record<string, unknown>>
         assert.deepEqual(
             Object.values(localized).map((component) => component.name),
-            ['구김 방지', '스마트케어', '예약 활성'],
+            ['절약건조', '에코 하이브리드', '구김 방지', '스마트케어', '예약 활성'],
         )
     })
 

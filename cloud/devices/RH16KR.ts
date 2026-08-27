@@ -16,7 +16,7 @@ const STATUS: Record<number, string> = {
     100: 'RESERVED',
 }
 const DRY_LEVEL = ['NO', 'DAMP', 'LESS', 'IRON', 'CUPBOARD', 'VERY_DRY']
-const ECO_HYBRID = ['NONE', 'ECO', 'NORMAL', 'TURBO']
+const ECO_HYBRID = ['NONE', 'ENERGY', 'NORMAL', 'SPEED']
 // Labelled RH16_N_KR panel capture. Raw 4 is 이불, except for the active downloaded
 // compound state below; downloaded_course remains the independently stored rec[25].
 const COURSE: Record<number, string> = {
@@ -35,6 +35,7 @@ const COURSE: Record<number, string> = {
     16: 'ALLERGYCARE',
     19: 'SELFCLEANING',
     20: 'PADDINGREFRESH',
+    21: 'TIMEDRY',
     22: 'WATERREPELLENT',
 }
 /*
@@ -65,10 +66,10 @@ const DOWNLOADED_COURSE: Record<number, string> = {
  * util/ha_locale.ts holds a single Korean name per value.
  *
  * The byte is rec[22]. That position is inferred rather than seen in a fault: this handler
- * does not otherwise read it, it was zero across every captured record while the appliance was
- * healthy, and Hd0C_F and Pd0F_F — the two siblings whose records have this same length and
- * discriminator — both read their error there. Worth confirming against the ThinQ app the
- * first time this dryer actually faults.
+ * does not otherwise read it, and it was zero in healthy non-download captures. The healthy
+ * active-download compound instead carries the matching download code there. Hd0C_F and Pd0F_F
+ * — the two siblings whose records have this same length and discriminator — both read their
+ * error there. Worth confirming against the ThinQ app the first time this dryer actually faults.
  */
 const ERROR: Record<number, string> = {
     0: 'NO_ERROR',
