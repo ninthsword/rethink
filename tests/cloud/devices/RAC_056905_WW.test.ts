@@ -915,40 +915,153 @@ describe('RAC_056905_WW energy total', () => {
 })
 
 describe('RAC_056905_WW writes nothing just because rethink restarted', () => {
-    /** A write carries the 0x02 0x01 header; a query carries 0x02 0x02. */
-    const writesOnly = (packets: Buffer[]) =>
-        packets.map(hex).filter((h) => h.slice(14, 20) === '020100' || h.slice(14, 20) === '020101')
+    /** A write carries the 0x02 0x01 header; a query carries the 0x02 0x02. */
+    const writeTLVs = (packets: Buffer[]) =>
+        packets
+            .filter((packet) => packet[7] === 2 && packet[8] === 1)
+            .map((packet) => TLV.parse(packet.subarray(11, packet.length - 2)))
+    const combined = [
+        { t: 0x1f9, l: 0, v: 0 },
+        { t: 0x1f7, l: 0, v: 1 },
+        { t: 0x1fa, l: 0, v: 2 },
+        { t: 0x1fe, l: 1, v: 42 },
+    ]
+    const frame = (powerFirst: boolean) => {
+        const power = { t: 0x1f7, l: 0, v: 1 }
+        const mode = { t: 0x1f9, l: 0, v: 0 }
+        const state = [
+            { t: 0x1fa, l: 0, v: 2 },
+            { t: 0x1fe, l: 1, v: 42 },
+            { t: 0x323, l: 0, v: 0 },
+            { t: 0x20d, l: 0, v: 0 },
+        ]
+        return powerFirst ? [power, mode, ...state] : [mode, power, ...state]
+    }
+    const trackHooks = (dev: DUT) => {
+        const modeCounts = dev.modeChangeHooks.map(() => 0)
+        const powerCounts = dev.powerChangeHooks.map(() => 0)
+        dev.modeChangeHooks = dev.modeChangeHooks.map((hook, i) => () => {
+            modeCounts[i]++
+            hook()
+        })
+        dev.powerChangeHooks = dev.powerChangeHooks.map((hook, i) => () => {
+            powerCounts[i]++
+            hook()
+        })
+        return { modeCounts, powerCounts }
+    }
+    const resetCounts = (...counts: number[][]) => {
+        counts.forEach((count) => {
+            count.fill(0)
+        })
+    }
+    const assertHooks = (counts: number[], expected: number, message: string) => {
+        assert.ok(counts.length, `${message}: no hooks registered`)
+        assert.deepEqual(
+            counts,
+            counts.map(() => expected),
+            message,
+        )
+    }
+    const establishOff = (dev: DUT, remembered = false, oldDry = false) => {
+        dev.processKeyValue(0x1f9, 0)
+        if (remembered) {
+            dev.processKeyValue(0x323, 1)
+            dev.processKeyValue(0x20d, 1)
+        }
+        if (oldDry) dev.processKeyValue(0x1f9, 1)
+        dev.processKeyValue(0x1f7, 0)
+        dev.raw_clip_state[0x1fa] = 2
+        dev.raw_clip_state[0x1fe] = 42
+    }
 
     test('coming up against a running appliance sends it nothing', (t) => {
-        // Air purify, energy saving and jet are re-applied whenever the appliance powers up,
-        // because it forgets them. rethink starting is not the appliance powering up: it
-        // finds the appliance already running with its own settings. Treating the first
-        // reading as a change sent five writes at once — five beeps from a bedroom air
-        // conditioner in the middle of the night — and every one of them OFF, because the
-        // values being re-applied had not been read back yet.
+        // The first reading records the appliance's state; it is not an appliance power-up.
         enableMockTimers(t)
         const { thinq, dev } = makeDevice()
         try {
             thinq.emit('data', buf(CAPS_RESPONSE_HEX))
             thinq.emit('data', buf(QUERY_RESPONSE_HEX))
             tickMockTimers(t, 6000)
-
-            assert.deepEqual(writesOnly(thinq.outbox), [], 'only queries, never a setting')
+            assert.deepEqual(writeTLVs(thinq.outbox), [], 'only queries, never a setting')
         } finally {
             dev.drop()
         }
     })
 
-    test('a power-up the appliance actually made still re-applies them', (t) => {
+    test('an appliance-initiated power-up restores remembered settings once', (t) => {
         const { thinq, dev } = buildReadyDevice(t)
         try {
-            // rethink now knows where the appliance was, so switching off and on again is a
-            // change it can see — and the settings the appliance forgets are put back.
-            dev.processKeyValue(0x1f7, 0)
+            establishOff(dev, true, true)
             thinq.resetRecorder()
-            dev.processKeyValue(0x1f7, 1)
+            const { modeCounts, powerCounts } = trackHooks(dev)
+            // No HA write preceded this full power-before-mode response.
+            dev.processTLV(frame(true))
+            assertHooks(modeCounts, 0, 'mode hooks stay suppressed')
+            assertHooks(powerCounts, 1, 'each power hook runs once')
+            assert.deepEqual(writeTLVs(thinq.outbox), [[{ t: 0x323, l: 0, v: 1 }], [{ t: 0x20d, l: 0, v: 1 }]])
+        } finally {
+            dev.drop()
+        }
+    })
 
-            assert.ok(writesOnly(thinq.outbox).length > 0, 'the appliance forgets these, so they are re-sent')
+    for (const remembered of [false, true]) {
+        test(
+            remembered
+                ? 'an off-to-cool command restores remembered settings in either tag order'
+                : 'an off-to-cool command does not reapply default-off settings',
+            (t) => {
+                const { thinq, dev, ha } = buildReadyDevice(t)
+                try {
+                    establishOff(dev, remembered)
+                    const { modeCounts, powerCounts } = trackHooks(dev)
+                    for (const [n, powerFirst] of [false, true].entries()) {
+                        if (n) {
+                            if (remembered) {
+                                dev.processKeyValue(0x323, 1)
+                                dev.processKeyValue(0x20d, 1)
+                            }
+                            dev.processKeyValue(0x1f7, 0)
+                            resetCounts(modeCounts, powerCounts)
+                            thinq.resetRecorder()
+                        } else {
+                            thinq.resetRecorder()
+                        }
+                        ha.setProperty(DEVICE_ID, 'climate', 'mode_command', 'cool')
+                        const before = writeTLVs(thinq.outbox)
+                        assert.deepEqual(before, [combined], 'the original combined command is one frame')
+                        dev.processTLV(frame(powerFirst))
+                        assertHooks(modeCounts, 0, 'mode hooks stay suppressed')
+                        assertHooks(powerCounts, 1, 'each power hook runs once')
+                        const expected = remembered
+                            ? [combined, [{ t: 0x323, l: 0, v: 1 }], [{ t: 0x20d, l: 0, v: 1 }]]
+                            : [combined]
+                        assert.deepEqual(writeTLVs(thinq.outbox), expected)
+                    }
+                } finally {
+                    dev.drop()
+                }
+            },
+        )
+    }
+
+    test('stable-power mode frames invoke mode hooks only', (t) => {
+        const { thinq, dev } = buildReadyDevice(t)
+        try {
+            dev.processKeyValue(0x1f9, 1)
+            dev.processKeyValue(0x1f7, 1)
+            const { modeCounts, powerCounts } = trackHooks(dev)
+            for (const [n, powerFirst] of [true, false].entries()) {
+                if (n) {
+                    dev.processKeyValue(0x1f9, 1)
+                    resetCounts(modeCounts, powerCounts)
+                    thinq.resetRecorder()
+                }
+                dev.processTLV(frame(powerFirst))
+                assertHooks(modeCounts, 1, 'each mode hook runs once')
+                assertHooks(powerCounts, 0, 'each power hook stays unused')
+                assert.deepEqual(writeTLVs(thinq.outbox), [[{ t: 0x323, l: 0, v: 0 }], [{ t: 0x20d, l: 0, v: 0 }]])
+            }
         } finally {
             dev.drop()
         }
