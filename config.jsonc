@@ -91,12 +91,10 @@
   // specify anything you like. Removing this parameter disables the management interface
   "management_port": 44401,
 
-  // The management interface has no authentication, so it binds to 127.0.0.1 and is reachable
-  // only from this host. To open it to the LAN for the life of the container, deploy with
-  //   RETHINK_MGMT_HOST=0.0.0.0 scripts/deploy.sh
-  // which needs no edit here. Uncomment below instead to make it the standing default; the
-  // environment variable wins when both are set.
-  // "management_host": "0.0.0.0",
+  // The unauthenticated management interface must remain on loopback. Use "localhost"
+  // (normalized to 127.0.0.1), 127/8, or an IPv6 loopback spelling only when a local bind
+  // override is needed.
+  // "management_host": "127.0.0.1",
 
   "bridge": {
     "storage_path": "./state",

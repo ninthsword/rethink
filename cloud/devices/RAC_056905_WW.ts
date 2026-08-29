@@ -62,7 +62,7 @@ const MODEL_ENCODINGS: Readonly<Record<string, ModelEncoding>> = {
 }
 
 function encodingFor(modelId: string): ModelEncoding {
-    return MODEL_ENCODINGS[modelId] ?? ADVERTISED
+    return Object.getOwnPropertyDescriptor(MODEL_ENCODINGS, modelId) ? MODEL_ENCODINGS[modelId] : ADVERTISED
 }
 
 const VERTICAL_SWING_MODES = [

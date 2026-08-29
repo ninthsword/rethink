@@ -75,4 +75,37 @@ describe('ThinQ2 device message forwarding', () => {
 
         assert.deepEqual(received, [response])
     })
+
+    it('retains prototype-like identifiers through provisioning', () => {
+        const acceptor = new DeviceAcceptor(new Broker())
+        const clients = new Map<string, Record<string, unknown>>()
+
+        for (const id of ['__proto__', 'toString']) {
+            const client: Record<string, unknown> = { deviceObj: undefined, deployMsg: undefined }
+            clients.set(id, client)
+            acceptor.mqtt(
+                `clip/provisioning/devices/${id}`,
+                {
+                    did: id,
+                    kind: 'TEST_DEVICE',
+                    cmd: id === '__proto__' ? 'preDeploy' : 'deploy',
+                    data: { appInfo: { modelName: 'TEST_DEVICE' } },
+                } as never,
+                client as never,
+            )
+            acceptor.mqtt(
+                `clip/message/devices/${id}`,
+                { did: id, cmd: 'completeProvisioning_ack' } as never,
+                client as never,
+            )
+        }
+
+        assert.equal(acceptor.clientsById.get('__proto__'), clients.get('__proto__'))
+        assert.equal(acceptor.clientsById.get('toString'), clients.get('toString'))
+        assert.equal(acceptor.clientsById.size, 2)
+
+        acceptor.disconnected(clients.get('__proto__') as never)
+        assert.equal(acceptor.clientsById.has('__proto__'), false)
+        assert.equal(acceptor.clientsById.has('toString'), true)
+    })
 })

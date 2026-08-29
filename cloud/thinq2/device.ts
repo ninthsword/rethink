@@ -3,6 +3,7 @@
 
 import { TypedEmitter } from 'tiny-typed-emitter'
 import log from '@/util/logging'
+import { isSafeDeviceId } from '../device_id'
 import type { Broker, Client, PublishPacket } from '../mqtt-broker'
 import type { Metadata } from '../thinq'
 import type { ClipDeployMessage, ClipMessage } from './clip'
@@ -101,6 +102,52 @@ function trimNull(buf: Buffer) {
     return buf.subarray(0, buf.length - 1)
 }
 
+const MAX_PROVISIONING_TEXT_LENGTH = 128
+
+function boundedText(value: unknown): value is string {
+    return (
+        typeof value === 'string' &&
+        value.length > 0 &&
+        value.length <= MAX_PROVISIONING_TEXT_LENGTH &&
+        value.trim().length > 0
+    )
+}
+
+function boundedOptionalText(value: unknown): value is string {
+    return value === '' || boundedText(value)
+}
+
+function objectRecord(value: unknown): Record<string, unknown> | undefined {
+    return value !== null && typeof value === 'object' && !Array.isArray(value)
+        ? (value as Record<string, unknown>)
+        : undefined
+}
+
+function topicDeviceId(topic: string, kind: 'message' | 'provisioning') {
+    const prefix = `clip/${kind}/devices/`
+    if (!topic.startsWith(prefix)) return undefined
+    const deviceId = topic.slice(prefix.length)
+    return isSafeDeviceId(deviceId) ? deviceId : undefined
+}
+
+function validMessage(payload: unknown, expectedDeviceId: string) {
+    const message = objectRecord(payload)
+    return message && message.did === expectedDeviceId ? (message as ClipMessage) : undefined
+}
+
+function validDeployMessage(payload: unknown, expectedDeviceId: string) {
+    const message = validMessage(payload, expectedDeviceId)
+    if (!message || (message.cmd !== 'preDeploy' && message.cmd !== 'deploy') || !boundedText(message.kind)) return
+
+    const data = objectRecord(message.data)
+    const appInfo = objectRecord(data?.appInfo)
+    if (!appInfo || !boundedText(appInfo.modelName)) return
+    for (const field of ['softVer', 'DeviceType']) {
+        if (appInfo[field] !== undefined && !boundedOptionalText(appInfo[field])) return
+    }
+    return message as ClipDeployMessage
+}
+
 type ClientWithExtra = Client & {
     deviceObj: undefined | Device
     deployMsg: undefined | ClipDeployMessage
@@ -112,7 +159,7 @@ type DeviceAcceptorEvents = {
 }
 
 export class DeviceAcceptor extends TypedEmitter<DeviceAcceptorEvents> {
-    clientsById: Record<string, Client> = {}
+    clientsById = new Map<string, Client>()
     constructor(readonly broker: Broker) {
         super()
 
@@ -135,58 +182,74 @@ export class DeviceAcceptor extends TypedEmitter<DeviceAcceptorEvents> {
         broker.on('disconnect', this.disconnected.bind(this))
     }
 
-    mqtt(topic: string, payload: ClipMessage, client: ClientWithExtra) {
+    mqtt(topic: string, payload: unknown, client: ClientWithExtra) {
         // experiment: try to support devices which use other topic formats
         topic = topic.replace(/^.*\/clip/, 'clip')
 
-        if (topic === `clip/message/devices/${payload.did}`) {
-            if (payload.cmd === 'completeProvisioning_ack') {
-                this.completeProvisioning(payload.did, payload, client)
+        const messageDeviceId = topicDeviceId(topic, 'message')
+        const message = messageDeviceId ? validMessage(payload, messageDeviceId) : undefined
+        if (message) {
+            if (message.cmd === 'completeProvisioning_ack') {
+                this.completeProvisioning(message.did, message, client)
                 return
             }
 
-            if (payload.cmd === 'req_timesync' && client.deviceObj && payload.did === client.deviceObj.id) {
+            if (message.cmd === 'req_timesync' && client.deviceObj && message.did === client.deviceObj.id) {
                 this.timeSyncRequest(client)
                 return
             }
 
-            if (client.deviceObj && payload.did === client.deviceObj.id) {
-                if (payload.cmd === 'device_packet' && typeof payload.data === 'string') {
-                    const buf = Buffer.from(payload.data, 'hex')
+            if (client.deviceObj && message.did === client.deviceObj.id) {
+                if (message.cmd === 'device_packet' && typeof message.data === 'string') {
+                    const buf = Buffer.from(message.data, 'hex')
                     client.deviceObj.emit('data', buf)
                 }
 
                 // Preserve the complete device JSON for the cloud bridge. Commands such as
                 // modem_cmd cannot be represented by the legacy raw-buffer data event.
-                client.deviceObj.emitBridgeMessage(payload)
+                client.deviceObj.emitBridgeMessage(message)
             }
         }
 
-        if (topic === `clip/provisioning/devices/${payload.did}`) {
-            if (payload.cmd === 'undeploy') {
+        const provisioningDeviceId = topicDeviceId(topic, 'provisioning')
+        if (!provisioningDeviceId) return
+        const provisioning = validMessage(payload, provisioningDeviceId)
+        if (provisioning) {
+            if (provisioning.cmd === 'undeploy') {
+                if (
+                    (client.deployMsg && client.deployMsg.did !== provisioning.did) ||
+                    (client.deviceObj && client.deviceObj.id !== provisioning.did)
+                )
+                    return
+
                 // The appliance is dropping its provisioning with us. Everything tied to it
                 // has to go: completeProvisioning refuses a second registration while the
                 // device object is still around, so leaving it would make the appliance's
                 // next deploy a no-op and it would never come back. It also stops sending
                 // state records in the meantime, so keeping the device would leave Home
                 // Assistant showing an appliance that has quietly gone silent.
-                log('status', payload.did, 'undeployed itself; dropping its registration')
+                log('status', provisioning.did, 'undeployed itself; dropping its registration')
                 this.disconnected(client)
                 client.deployMsg = undefined
                 return
             }
 
-            if (payload.cmd === 'preDeploy' || payload.cmd === 'deploy') {
-                client.deployMsg = payload as ClipDeployMessage
+            const deploy = validDeployMessage(provisioning, provisioningDeviceId)
+            if (
+                deploy &&
+                (!client.deployMsg || client.deployMsg.did === deploy.did) &&
+                (!client.deviceObj || client.deviceObj.id === deploy.did)
+            ) {
+                client.deployMsg = deploy
                 // The appliance re-announces itself periodically; keep the latest, so a
                 // bridge that connects later describes the appliance as it is now.
-                if (client.deviceObj) client.deviceObj.deployProfile = payload as ClipDeployMessage
+                if (client.deviceObj) client.deviceObj.deployProfile = deploy
                 const packet = {
-                    topic: `lime/devices/${payload.did}`,
+                    topic: `lime/devices/${deploy.did}`,
                     retain: false,
                     qos: 0 as const,
                     dup: false,
-                    payload: JSON.stringify(generateDeployResponse(payload as ClipDeployMessage)),
+                    payload: JSON.stringify(generateDeployResponse(deploy)),
                 }
                 traceMqtt('rethink->device', packet)
                 this.broker.publish(packet, null)
@@ -194,23 +257,28 @@ export class DeviceAcceptor extends TypedEmitter<DeviceAcceptorEvents> {
         }
     }
 
-    completeProvisioning(deviceId: string, _payload: ClipMessage, client: ClientWithExtra) {
+    completeProvisioning(deviceId: unknown, payload: unknown, client: ClientWithExtra) {
+        if (!isSafeDeviceId(deviceId)) return
+        const ack = validMessage(payload, deviceId)
+        if (ack?.cmd !== 'completeProvisioning_ack') return
         if (!client.deployMsg) {
             log('status', `${deviceId} acknowledged provisioning it never started; it will not be registered`)
             return
         }
+        if (client.deployMsg.did !== deviceId) return
 
         if (client.deviceObj) {
             log('status', `${deviceId} acknowledged provisioning twice; keeping the registration it already has`)
             return
         }
 
-        if (this.clientsById[deviceId]) {
+        const existing = this.clientsById.get(deviceId)
+        if (existing) {
             log('status', `${deviceId} connected again; dropping its previous connection`)
-            this.clientsById[deviceId].destroy()
+            existing.destroy()
         }
 
-        this.clientsById[deviceId] = client
+        this.clientsById.set(deviceId, client)
 
         const meta: Metadata = {
             modelId: client.deployMsg.kind,
@@ -244,7 +312,7 @@ export class DeviceAcceptor extends TypedEmitter<DeviceAcceptorEvents> {
         if (client.deviceObj) {
             // A replacement connection may already have claimed this id before the old
             // socket's close event arrives. Do not let the old close delete the new index.
-            if (this.clientsById[client.deviceObj.id] === client) delete this.clientsById[client.deviceObj.id]
+            if (this.clientsById.get(client.deviceObj.id) === client) this.clientsById.delete(client.deviceObj.id)
             this.emit('dropDevice', client.deviceObj.id)
             client.deviceObj.emit('close')
             client.deviceObj = undefined

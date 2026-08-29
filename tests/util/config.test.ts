@@ -67,36 +67,37 @@ describe('reading config.json', () => {
         )
     })
 
-    test('the management API binds to loopback unless the owner opens it', () => {
+    test('the management API binds to loopback by default', () => {
         // It has no authentication, so reaching it must take either being on this host or a
-        // deliberate edit. Defaulting to every interface would publish it to the whole LAN.
+        // deliberate loopback-only configuration. Defaulting to every interface would publish
+        // it to the whole LAN.
         assert.equal(normalize(minimal()).management_host, '127.0.0.1')
     })
 
-    test('a management host written in the configuration is kept as given', () => {
-        const config = normalize({ ...minimal(), management_host: '0.0.0.0' } as RawConfig)
-        assert.equal(config.management_host, '0.0.0.0')
+    test('accepts localhost and IPv4/IPv6 loopback spellings', () => {
+        for (const [host, expected] of [
+            ['localhost', '127.0.0.1'],
+            ['LOCALHOST', '127.0.0.1'],
+            ['  localhost  ', '127.0.0.1'],
+            ['127.0.0.1', '127.0.0.1'],
+            [' 127.255.255.255 ', '127.255.255.255'],
+            ['127.255.255.255', '127.255.255.255'],
+            ['::1', '::1'],
+            ['::0001', '::0001'],
+            [' 0:0:0:0:0:0:0:0001 ', '0:0:0:0:0:0:0:0001'],
+        ]) {
+            const config = normalize({ ...minimal(), management_host: host } as RawConfig)
+            assert.equal(managementHost(config), expected)
+        }
     })
 
-    test('RETHINK_MGMT_HOST opens the management interface without editing the file', () => {
-        // The deployed configuration lives in the data directory, not in this repository, so
-        // opening the interface used to mean editing a file the operator does not otherwise
-        // touch. The variable makes it an argument to scripts/deploy.sh instead.
-        const config = normalize(minimal())
-        assert.equal(managementHost(config, { RETHINK_MGMT_HOST: '0.0.0.0' }), '0.0.0.0')
-    })
-
-    test('without the variable the configured host wins', () => {
-        const config = normalize({ ...minimal(), management_host: '10.0.0.5' } as RawConfig)
-        assert.equal(managementHost(config, {}), '10.0.0.5')
-        assert.equal(managementHost(normalize(minimal()), {}), '127.0.0.1')
-    })
-
-    test('an empty variable is treated as unset rather than as every interface', () => {
-        // Docker passes `-e RETHINK_MGMT_HOST` through as an empty string when the variable is
-        // unset on the host, and Node would hand that straight to listen(), which reads it as
-        // 0.0.0.0 -- the one value this setting exists to avoid choosing by accident.
-        assert.equal(managementHost(normalize(minimal()), { RETHINK_MGMT_HOST: '' }), '127.0.0.1')
+    test('rejects wildcard, LAN, and arbitrary host values', () => {
+        for (const host of ['', '0.0.0.0', '::', '10.0.0.5', 'rethink.lan', '::ffff:127.0.0.1', '::1.2.3.4']) {
+            assert.throws(
+                () => normalize({ ...minimal(), management_host: host } as RawConfig),
+                (err: Error) => err.message.includes('management_host'),
+            )
+        }
     })
 
     test('the optional settings stay optional', () => {

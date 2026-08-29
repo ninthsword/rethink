@@ -1,3 +1,4 @@
+# Build and package noise
 .git
 node_modules
 dist
@@ -5,3 +6,27 @@ npm-debug.log*
 yarn-error.log*
 *.tsbuildinfo
 .DS_Store
+
+# Local credentials and runtime state (config.jsonc is a public template).
+.claude/
+.agents/
+.codex/
+CLAUDE.md
+CLAUDE.local.md
+AGENTS.md
+.env
+.env.*
+!.env.example
+!.env.sample
+config.json
+router-dnat.json
+oauth.json
+oauth2.json
+thinq1-metadata.json
+state/
+captures/
+*.key
+*.pem
+*.cert
+*.csr
+*.crt

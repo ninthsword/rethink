@@ -27,7 +27,7 @@ get('status_mqtt').innerHTML = STATUS_UNKNOWN
 get('status_bridge').innerHTML = STATUS_UNKNOWN
 get('status_bridge_text').innerText = 'Unknown'
 
-const devices = {}
+const devices = new Map()
 
 function formatStartedAt(value) {
     const date = new Date(value)
@@ -72,11 +72,18 @@ class DeviceEntry {
         children.push(td)
 
         td = document.createElement('td')
-        let model = this.remoteState.model
+        const modelText = document.createElement('span')
+        modelText.textContent = this.remoteState.model || '-'
+        td.appendChild(modelText)
         if (!this.remoteState.mapped) {
-            model += ` <i class="material-icons tooltipped tiny" data-position="bottom" data-tooltip="This device is not supported by rethink. It will not be mapped to HomeAssistant">warning</i>`
+            td.appendChild(document.createTextNode(' '))
+            const warning = document.createElement('i')
+            warning.className = 'material-icons tooltipped tiny'
+            warning.dataset.position = 'bottom'
+            warning.dataset.tooltip = 'This device is not supported by rethink. It will not be mapped to HomeAssistant'
+            warning.textContent = 'warning'
+            td.appendChild(warning)
         }
-        td.innerHTML = model
         children.push(td)
 
         td = document.createElement('td')
@@ -152,7 +159,14 @@ class DeviceEntry {
         }
 
         td = document.createElement('td')
-        td.innerHTML = `<a class="btn waves-effect waves-light" href="monitor?id=${this.id}"><i class="material-icons">troubleshoot</i></a>`
+        const monitor = document.createElement('a')
+        monitor.className = 'btn waves-effect waves-light'
+        monitor.href = `monitor?id=${encodeURIComponent(this.id)}`
+        const monitorIcon = document.createElement('i')
+        monitorIcon.className = 'material-icons'
+        monitorIcon.textContent = 'troubleshoot'
+        monitor.appendChild(monitorIcon)
+        td.appendChild(monitor)
         children.push(td)
 
         this.row.replaceChildren(...children)
@@ -207,18 +221,19 @@ function connect() {
                 get('management_started').innerText = formatStartedAt(json.system.startedAt)
             }
 
-            if (typeof json.devices === 'object') {
-                const deletedDevices = Object.keys(devices).filter((id) => !json.devices[id])
-                deletedDevices.forEach((id) => {
-                    devices[id].destroy()
-                    delete devices[id]
-                })
+            if (json.devices && typeof json.devices === 'object' && !Array.isArray(json.devices)) {
+                const incomingDevices = new Map(Object.entries(json.devices))
+                for (const [id, device] of devices) {
+                    if (!incomingDevices.has(id)) {
+                        device.destroy()
+                        devices.delete(id)
+                    }
+                }
 
-                for (const id in json.devices) {
-                    const j = json.devices[id]
-
-                    if (!devices[id]) devices[id] = new DeviceEntry(id, j, get('devices_body'))
-                    else devices[id].update(j)
+                for (const [id, j] of incomingDevices) {
+                    const device = devices.get(id)
+                    if (!device) devices.set(id, new DeviceEntry(id, j, get('devices_body')))
+                    else device.update(j)
                 }
             }
 
@@ -238,11 +253,11 @@ function connect() {
                     get('status_bridge_text').innerText = 'Not configured'
                 }
 
-                for (const id in devices) devices[id].refreshUI()
+                for (const device of devices.values()) device.refreshUI()
             }
 
             if (typeof json.status === 'string') {
-                M.toast({ html: json.status })
+                toastText(json.status)
             }
         }
     }
@@ -276,6 +291,12 @@ function get(id) {
     return document.getElementById(id)
 }
 
+function toastText(value) {
+    const escaped = document.createElement('span')
+    escaped.textContent = String(value)
+    M.toast({ html: escaped.innerHTML })
+}
+
 async function fetchWrapper(path, body, options) {
     if (options.method !== 'GET') {
         if (!options.headers) options.headers = {}
@@ -284,11 +305,11 @@ async function fetchWrapper(path, body, options) {
     options.body = JSON.stringify(body)
     try {
         const response = await fetch(`${baseUrl}${path}`, options)
-        if (response.status >= 300) M.toast({ html: `HTTP error ${response.status}: ${await response.text()}` })
+        if (response.status >= 300) toastText(`HTTP error ${response.status}: ${await response.text()}`)
 
         return response
     } catch (err) {
-        M.toast({ html: `FETCH error: ${err}` })
+        toastText(`FETCH error: ${err}`)
     }
 }
 connect()

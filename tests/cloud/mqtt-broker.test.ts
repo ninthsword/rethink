@@ -1,7 +1,23 @@
 import assert from 'node:assert/strict'
 import type { Socket } from 'node:net'
 import { test } from 'node:test'
-import { Broker, idleTimeoutFor } from '@/cloud/mqtt-broker'
+import { Broker, idleTimeoutFor, mqttTopicMatches } from '@/cloud/mqtt-broker'
+
+test('MQTT filters match complete levels without treating regex syntax specially', () => {
+    assert.equal(mqttTopicMatches('home/kitchen/state', 'home/+/state'), true)
+    assert.equal(mqttTopicMatches('home/kitchen/state/extra', 'home/+/state'), false)
+    assert.equal(mqttTopicMatches('home', 'home/#'), true)
+    assert.equal(mqttTopicMatches('home/kitchen/state', 'home/#'), true)
+    assert.equal(mqttTopicMatches('home/kitchen/state', 'other/#'), false)
+    assert.equal(mqttTopicMatches('device[1].state', 'device[1].state'), true)
+    assert.equal(mqttTopicMatches('device[1].state', 'device[1].*'), false)
+})
+
+test('MQTT filters reject invalid wildcard placement and remain bounded', () => {
+    assert.equal(mqttTopicMatches('home/kitchen', 'home/kit+hen'), false)
+    assert.equal(mqttTopicMatches('home/kitchen', 'home/#/state'), false)
+    assert.equal(mqttTopicMatches(`home/${'x'.repeat(10000)}`, 'home/+'), true)
+})
 
 function fakeSocket(record: string[]): Socket {
     const handlers: Record<string, (packet: unknown) => void> = {}
