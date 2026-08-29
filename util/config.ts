@@ -1,3 +1,5 @@
+import { isIP } from 'node:net'
+
 export type RawConfig = {
     hostname: string
     homeassistant: HAConfig
@@ -109,17 +111,40 @@ function required<T>(value: T | undefined, name: string): T {
     return value
 }
 
-/**
- * Where the management interface listens, with an environment override.
- *
- * The configuration rethink actually runs from lives in the data directory, not in this
- * repository, so opening the interface to the LAN otherwise means editing a file the operator
- * never touches for anything else. `RETHINK_MGMT_HOST=0.0.0.0 scripts/deploy.sh` says the same
- * thing in one command. An empty value counts as unset: Docker turns a `-e VAR` with nothing
- * behind it into an empty string, and listen('') means every interface.
- */
-export function managementHost(config: Config, env: NodeJS.ProcessEnv = process.env): string {
-    return env.RETHINK_MGMT_HOST || config.management_host
+function isLoopbackHost(value: string): boolean {
+    const host = value.trim().toLowerCase()
+    if (host === 'localhost') return true
+    if (isIP(host) === 4) {
+        const octets = host.split('.').map(Number)
+        return octets[0] === 127
+    }
+    if (isIP(host) !== 6) return false
+    if (host.includes('.')) return false
+
+    const [head, tail] = host.split('::')
+    if (host.split('::').length > 2) return false
+    const left = head ? head.split(':').filter(Boolean) : []
+    const right = tail ? tail.split(':').filter(Boolean) : []
+    if (head && !host.includes('::') && left.length !== 8) return false
+    const groups = host.includes('::') ? [...left, ...Array(8 - left.length - right.length).fill('0'), ...right] : left
+    return (
+        groups.length === 8 &&
+        groups.slice(0, 7).every((group) => Number.parseInt(group, 16) === 0) &&
+        Number.parseInt(groups[7], 16) === 1
+    )
+}
+
+function validatedManagementHost(value: unknown): string {
+    if (typeof value !== 'string' || !isLoopbackHost(value)) {
+        throw new Error('config.json: management_host must be localhost or a loopback address')
+    }
+    const normalized = value.trim().toLowerCase()
+    return normalized === 'localhost' ? '127.0.0.1' : normalized
+}
+
+/** Return the validated loopback address for the unauthenticated management API. */
+export function managementHost(config: Config): string {
+    return validatedManagementHost(config.management_host)
 }
 
 export function normalize(config: RawConfig): Config {
@@ -146,9 +171,8 @@ export function normalize(config: RawConfig): Config {
         /*
          * The management API has no authentication: anything that can reach it can
          * release DNAT, edit the router credentials, or turn a bridge off. Loopback keeps
-         * that behind SSH to this host. Widen it only onto a network you trust.
+         * that behind SSH to this host; non-loopback bindings are rejected.
          */
-        management_host: '127.0.0.1',
         ...config,
         homeassistant,
         bridge: config.bridge
@@ -164,6 +188,7 @@ export function normalize(config: RawConfig): Config {
         mqtts_port: required(parsePort(config.mqtts_port), 'mqtts_port'),
         mqtt_port: required(parsePort(config.mqtt_port), 'mqtt_port'),
         management_port: parsePort(config.management_port),
+        management_host: validatedManagementHost(config.management_host ?? '127.0.0.1'),
         thinq1_https_port: required(parsePort(config.thinq1_https_port ?? 46030), 'thinq1_https_port'),
         thinq1_port: required(parsePort(config.thinq1_port ?? 47878), 'thinq1_port'),
     }

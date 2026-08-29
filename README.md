@@ -226,13 +226,7 @@ nano ~/docker/rethink-data/config.json
 - `https_port.bind`: rethink가 실제로 대기할 HTTPS 포트. 이 안내에서는 `4433`
 - `https_port.advertise`: LG 기기에 안내할 원래 HTTPS 포트. `443`
 - `management_port`: 웹 관리 화면 포트. 이 안내에서는 `44401`
-- `management_host`: 관리 화면이 대기할 주소. 기본값은 `127.0.0.1`이라 이 서버에서만 열립니다. **관리 화면에는 로그인이 없어서** 접근할 수 있는 사람은 누구나 DNAT를 해제하고 공유기 자격증명을 바꾸고 bridge를 끌 수 있기 때문입니다. 집 안 다른 기기에서 열려면 배포할 때 한 줄이면 됩니다.
-
-    ```sh
-    RETHINK_MGMT_HOST=0.0.0.0 scripts/deploy.sh
-    ```
-
-    이 값은 컨테이너가 살아 있는 동안 유지되고, 되돌리려면 변수 없이 `scripts/deploy.sh`를 다시 실행하면 됩니다. 데이터 폴더의 `config.json`에 `"management_host"`를 적어 고정할 수도 있으며, 환경변수가 있으면 그쪽이 우선합니다. 어느 쪽이든 신뢰할 수 있는 망에서만 여시기 바랍니다.
+- `management_host`: 관리 화면이 대기할 주소. 기본값은 `127.0.0.1`이며, 인증이 없는 관리 화면은 `localhost`(사용 시 `127.0.0.1`로 정규화), `127/8`, 또는 IPv6 loopback 주소만 허용합니다. LAN 주소·와일드카드·임의 호스트 이름은 설정 오류로 거부됩니다.
 
 - `bridge.storage_path`: 인증서와 bridge 상태를 보관할 위치. 데이터 폴더 내부의 `./state`
 - `bridge.preserve_existing_devices`: bridge 사용 중 기존 LG ThinQ Home 등록과 별칭을 유지하려면 `true`. 이 옵션은 완전 원복 시 Wi-Fi 재등록을 생략하게 해 주는 옵션이 아닙니다.
