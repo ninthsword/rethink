@@ -3,12 +3,30 @@ import { dirname, resolve } from 'node:path'
 import { type Request, type Response, Router } from 'express'
 import { XMLBuilder, XMLParser } from 'fast-xml-parser'
 import type { Config } from '@/util/config'
+import { isSafeDeviceId } from '../device_id'
 import type { Metadata } from '../thinq'
 
 const XML_HEADER = '<?xml version="1.0" encoding="utf-8" standalone="yes"?>'
+const MAX_METADATA_TEXT_LENGTH = 128
 
-const deviceMeta: Record<string, Metadata> = {}
+const deviceMeta = new Map<string, Metadata>()
 let metadataFile: string | undefined
+
+function isBoundedMetadataText(value: unknown): value is string {
+    return (
+        typeof value === 'string' &&
+        value.length > 0 &&
+        value.length <= MAX_METADATA_TEXT_LENGTH &&
+        value.trim().length > 0
+    )
+}
+
+export { isSafeDeviceId } from '../device_id'
+
+function scalarHeader(req: Request, name: string) {
+    const value = req.headers[name]
+    return Array.isArray(value) ? undefined : value
+}
 
 function configureMetadataStorage(config: Config) {
     const filename = config.bridge?.storage_path
@@ -19,7 +37,14 @@ function configureMetadataStorage(config: Config) {
     try {
         const saved = JSON.parse(readFileSync(filename, 'utf-8')) as Record<string, Metadata>
         for (const [id, meta] of Object.entries(saved)) {
-            if (meta && typeof meta.modelId === 'string' && typeof meta.modelName === 'string') deviceMeta[id] = meta
+            if (!isSafeDeviceId(id)) continue
+            if (
+                meta &&
+                isBoundedMetadataText(meta.modelId) &&
+                isBoundedMetadataText(meta.modelName) &&
+                (meta.deviceType === undefined || isBoundedMetadataText(meta.deviceType))
+            )
+                deviceMeta.set(id, meta)
         }
     } catch {
         // The file is optional and is created after the first metadata request.
@@ -30,12 +55,12 @@ function persistMetadata() {
     if (!metadataFile) return
     mkdirSync(dirname(metadataFile), { recursive: true })
     const temporary = `${metadataFile}.tmp`
-    writeFileSync(temporary, JSON.stringify(deviceMeta, null, 2), { mode: 0o600 })
+    writeFileSync(temporary, JSON.stringify(Object.fromEntries(deviceMeta), null, 2), { mode: 0o600 })
     renameSync(temporary, metadataFile)
 }
 
 export function getDeviceMetadata(id: string) {
-    return deviceMeta[id]
+    return deviceMeta.get(id)
 }
 
 function xmlParser(req: Request, res: Response, next: () => void) {
@@ -73,17 +98,18 @@ export function routes(config: Config) {
             returnMsg: 'OK',
         }
 
-        const deviceId = req.header('x-lgedm-deviceid')
-        const deviceType = req.header('x-lgedm-devicetype')
+        const rawDeviceId = scalarHeader(req, 'x-lgedm-deviceid')
+        const deviceId = isSafeDeviceId(rawDeviceId) ? rawDeviceId : undefined
+        const deviceType = scalarHeader(req, 'x-lgedm-devicetype')
         const modelName = req.body?.lgedmRoot?.modelName
         if (!deviceId) return res.status(400).end()
 
-        if (modelName && deviceType) {
-            deviceMeta[deviceId] = {
+        if (isBoundedMetadataText(modelName) && isBoundedMetadataText(deviceType)) {
+            deviceMeta.set(deviceId, {
                 deviceType,
                 modelId: modelName,
                 modelName,
-            }
+            })
             persistMetadata()
         }
 

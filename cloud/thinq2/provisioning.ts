@@ -1,9 +1,15 @@
-import { spawn } from 'node:child_process'
+import { type ChildProcessWithoutNullStreams, spawn } from 'node:child_process'
 import { Router } from 'express'
 import type { CA, Config } from '@/util/config'
+import { isSafeDeviceId } from '../device_id'
 import type { ClipDeployMessage } from './clip'
 
-export function routes(config: Config, ca: CA) {
+const MAX_CSR_LENGTH = 64 * 1024
+const CERTIFICATE_ERROR = 'Certificate generation failed'
+
+type CertificateSpawner = (command: string, args: string[]) => ChildProcessWithoutNullStreams
+
+export function routes(config: Config, ca: CA, spawnCertificate: CertificateSpawner = spawn) {
     const router = Router()
     router.get('/route', (_req, res) => {
         // Naming rethink here only works if that name resolves for the appliance, which is
@@ -26,28 +32,60 @@ export function routes(config: Config, ca: CA) {
     })
 
     router.post('/device/:deviceId/certificate', (req, res) => {
-        const x509 = spawn('openssl', [
-            'x509',
-            '-req',
-            '-in',
-            '-',
-            '-days',
-            '3650',
-            '-CA',
-            config.ca_cert_file,
-            '-CAkey',
-            config.ca_key_file,
-            '-set_serial',
-            '0100',
-            '-out',
-            '-',
-        ])
+        const csr = req.body?.csr
+        if (
+            !isSafeDeviceId(req.params.deviceId) ||
+            typeof csr !== 'string' ||
+            csr.length === 0 ||
+            csr.length > MAX_CSR_LENGTH
+        )
+            return res.status(400).end()
+
+        let responded = false
+        let x509: ChildProcessWithoutNullStreams | undefined
+        const respondError = () => {
+            if (responded) return
+            responded = true
+            x509?.kill()
+            res.status(500).json({ resultCode: '1000', resultMsg: CERTIFICATE_ERROR })
+        }
+
+        try {
+            x509 = spawnCertificate('openssl', [
+                'x509',
+                '-req',
+                '-in',
+                '-',
+                '-days',
+                '3650',
+                '-CA',
+                config.ca_cert_file,
+                '-CAkey',
+                config.ca_key_file,
+                '-set_serial',
+                '0100',
+                '-out',
+                '-',
+            ])
+        } catch {
+            respondError()
+            return
+        }
+
         const out: Buffer[] = []
         x509.stdout.on('data', (data: Buffer) => {
             out.push(data)
         })
         x509.stderr.on('data', () => {})
-        x509.on('close', (_code) => {
+        x509.on('error', respondError)
+        x509.stdin.on('error', respondError)
+        x509.on('close', (code) => {
+            if (code !== 0) {
+                respondError()
+                return
+            }
+            if (responded) return
+            responded = true
             // Warning: we don't supply MQTT topics at this point. Maybe we should?
             // OTOH, the firmware seems to ignore it outright...
             res.json({
@@ -55,7 +93,11 @@ export function routes(config: Config, ca: CA) {
                 result: { certificatePem: Buffer.concat(out).toString('utf-8').replace(/\r/g, '') },
             })
         })
-        x509.stdin.end(req.body.csr)
+        try {
+            x509.stdin.end(csr)
+        } catch {
+            respondError()
+        }
     })
     return router
 }

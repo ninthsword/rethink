@@ -23,7 +23,7 @@ export class RouterAPI {
         this.store = new RouterConfigStore(filename)
         manager.on('newDevice', (device) => this.syncDevice(device))
         bridge?.on('deviceNamesChanged', () => this.syncAllDevices())
-        Object.values(manager.allDevices).forEach((device) => {
+        manager.allDevices.forEach((device) => {
             this.syncDevice(device)
         })
         this.reconciler = new DNATReconciler(this.store, () => new DNATManager(this.store.router()))
@@ -105,7 +105,7 @@ export class RouterAPI {
             '/api/router/devices/:entryId/link',
             this.wrap(async (req, res) => {
                 const deviceId = `${req.body?.deviceId || ''}`
-                const device = this.manager.allDevices[deviceId]
+                const device = this.manager.allDevices.get(deviceId)
                 if (!device) throw new Error('Rethink device is not connected')
                 res.json(
                     this.store.linkDevice(
@@ -218,7 +218,7 @@ export class RouterAPI {
                 if (!started) {
                     if (!this.bridge.isLoggedIn())
                         throw new ConflictError('Sign in to the LG account before starting Bridge')
-                    if (!this.manager.allDevices[entry.deviceId])
+                    if (!this.manager.allDevices.has(entry.deviceId))
                         throw new ConflictError(
                             'The appliance has not connected to rethink, so there is nothing to bridge yet. ' +
                                 'It reaches rethink when it next has something to report — run it, or switch it off and on again.',
@@ -306,7 +306,7 @@ export class RouterAPI {
             error,
             router: this.store.publicRouter(),
             devices: entries.map((entry) => {
-                const device = entry.deviceId ? this.manager.allDevices[entry.deviceId] : undefined
+                const device = entry.deviceId ? this.manager.allDevices.get(entry.deviceId) : undefined
                 return {
                     ...entry,
                     name: entry.customName || entry.detectedName || '-',
@@ -320,7 +320,7 @@ export class RouterAPI {
                     bridgeArchived: !!(entry.deviceId && this.bridge?.hasArchivedState(entry.deviceId)),
                 }
             }),
-            unassigned: Object.values(this.manager.allDevices)
+            unassigned: Array.from(this.manager.allDevices.values())
                 .filter((device) => !linkedIds.has(device.id))
                 .map((device) => ({
                     deviceId: device.id,
@@ -332,7 +332,7 @@ export class RouterAPI {
     }
 
     private syncAllDevices() {
-        Object.values(this.manager.allDevices).forEach((device) => {
+        this.manager.allDevices.forEach((device) => {
             this.syncDevice(device)
         })
     }

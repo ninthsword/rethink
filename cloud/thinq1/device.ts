@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import type { Duplex } from 'node:stream'
 import { TypedEmitter } from 'tiny-typed-emitter'
+import { isSafeDeviceId } from '../device_id'
 import type { Metadata } from '../thinq'
 import { Connection } from './connection'
 import { getDeviceMetadata } from './http'
@@ -60,13 +61,18 @@ type DeviceAcceptorEvents = {
 }
 
 export class DeviceAcceptor extends TypedEmitter<DeviceAcceptorEvents> {
-    connectionsById: Record<string, Connection> = {}
+    connectionsById = new Map<string, Connection>()
 
     accept(socket: Duplex) {
         const con = new Connection(socket) as ConWithExtra
         con.on('error', () => {}) // ignore errors at this stage
         con.on('init', (deviceId) => {
             console.log('here', deviceId)
+            if (!isSafeDeviceId(deviceId)) {
+                console.warn(`device ${deviceId} id is invalid`)
+                con.destroy()
+                return
+            }
             const meta = getDeviceMetadata(deviceId)
             if (!meta) {
                 console.warn(`device ${deviceId} metadata not known, send HTTP POST first!`)
@@ -74,16 +80,17 @@ export class DeviceAcceptor extends TypedEmitter<DeviceAcceptorEvents> {
                 return
             }
 
-            if (this.connectionsById[deviceId]) {
+            const existing = this.connectionsById.get(deviceId)
+            if (existing) {
                 console.warn(`device ${deviceId} already connected, dropping the old one`)
-                this.connectionsById[deviceId].destroy()
+                existing.destroy()
             }
 
-            this.connectionsById[deviceId] = con
+            this.connectionsById.set(deviceId, con)
 
             con.on('close', () => {
-                if (this.connectionsById[deviceId] === con) {
-                    delete this.connectionsById[deviceId]
+                if (this.connectionsById.get(deviceId) === con) {
+                    this.connectionsById.delete(deviceId)
                     this.emit('dropDevice', deviceId)
                 }
             })

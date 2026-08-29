@@ -21,6 +21,15 @@ export type ConnectionOptions = {
 
 const DEFAULT_CONNECT_TIMEOUT_MS = 30_000
 
+export function escapeXmlText(value: string) {
+    return value
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&apos;')
+}
+
 export class Connection extends TypedEmitter<ConnectionEvents> {
     device: Thinq1Device
     socket?: tls.TLSSocket
@@ -67,7 +76,7 @@ export class Connection extends TypedEmitter<ConnectionEvents> {
                     'x-lgedm-deviceid': this.device.deviceId,
                     'x-lgedm-devicetype': deviceType,
                 },
-                body: `<lgedmRoot><countryCode>WW</countryCode><modelName>${this.device.meta.modelName}</modelName><itemList><item>THINQ_TIME_SYNC_URI</item><elementList><elementCode>pushDetailYn</elementCode><elementValue>Y</elementValue></elementList></itemList></lgedmRoot>`,
+                body: `<lgedmRoot><countryCode>WW</countryCode><modelName>${escapeXmlText(this.device.meta.modelName)}</modelName><itemList><item>THINQ_TIME_SYNC_URI</item><elementList><elementCode>pushDetailYn</elementCode><elementValue>Y</elementValue></elementList></itemList></lgedmRoot>`,
                 agent: new HTTPS.Agent({ keepAlive: true, rejectUnauthorized: false }),
                 signal: abort.signal,
             })

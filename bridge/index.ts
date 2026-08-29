@@ -129,7 +129,7 @@ export class Bridge extends TypedEmitter<BridgeEvents> {
         super()
         this.manager.on('newDevice', this.#start.bind(this))
         this.manager.on('dropDevice', this.#stop.bind(this))
-        Object.values(this.manager.allDevices).forEach(this.#start.bind(this))
+        this.manager.allDevices.forEach(this.#start.bind(this))
         void this.refreshDeviceNames()
     }
 
@@ -152,7 +152,7 @@ export class Bridge extends TypedEmitter<BridgeEvents> {
     }
 
     status(id: string) {
-        const dev = this.manager.allDevices[id]
+        const dev = this.manager.allDevices.get(id)
         if (!dev) return undefined
 
         if (this.bridgedDevices.has(id)) return true
@@ -203,7 +203,7 @@ export class Bridge extends TypedEmitter<BridgeEvents> {
 
         if (this.bridgedDevices.has(id)) return true
 
-        const dev = this.manager.allDevices[id]
+        const dev = this.manager.allDevices.get(id)
         if (!dev) return false
 
         const clientDevice = await this.register(dev, devType, statusCallback)

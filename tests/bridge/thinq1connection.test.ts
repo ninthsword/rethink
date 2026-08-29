@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import type * as tls from 'node:tls'
 import type fetch from 'node-fetch'
-import { Connection } from '@/bridge/thinq1connection'
+import { Connection, escapeXmlText } from '@/bridge/thinq1connection'
 import { Thinq1Device } from '@/bridge/thinqApi'
 
 function appliance() {
@@ -53,6 +53,32 @@ test('ThinQ1 bridge rejects an unsuccessful gateway response before RTI', async 
 
     await nextTurn()
     assert.equal(errors[0]?.message, 'ThinQ1 gateway metadata request failed with HTTP 503')
+    connection.destroy()
+})
+
+test('ThinQ1 bridge escapes metadata XML text', async () => {
+    let body = ''
+    const connection = new Connection(
+        new Thinq1Device(
+            'thin-q1-id',
+            { modelId: 'MODEL', modelName: `A&B<"' >`, deviceType: '403' },
+            { httpServer: 'https://thin-q1.invalid', rtiServer: 'rti.invalid:47878' },
+        ),
+        {
+            fetch: (async (_url, init) => {
+                body = String(init?.body)
+                return { ok: false, status: 503, text: async () => '' } as Awaited<ReturnType<typeof fetch>>
+            }) as typeof fetch,
+            tlsConnect: (() => {
+                throw new Error('must not connect')
+            }) as unknown as typeof tls.connect,
+        },
+    )
+    connection.on('error', () => {})
+
+    await nextTurn()
+    assert.match(body, /<modelName>A&amp;B&lt;&quot;&apos; &gt;<\/modelName>/)
+    assert.equal(escapeXmlText(`A&B<"' >`), 'A&amp;B&lt;&quot;&apos; &gt;')
     connection.destroy()
 })
 

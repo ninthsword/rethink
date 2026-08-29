@@ -12,6 +12,10 @@ import { RouterAPI } from './router-api'
 
 const MANAGEMENT_VERSION = '20260814'
 
+export function serializeDeviceEntries(entries: Array<[string, object]>) {
+    return Object.fromEntries(entries)
+}
+
 export function app(ha: HA_bridge, manager: DeviceManager, bridge: Bridge | undefined, routerConfigPath: string) {
     const app = new WebSocketExpress()
     let subscribers: ExtendedWebSocket[] = []
@@ -65,22 +69,24 @@ export function app(ha: HA_bridge, manager: DeviceManager, bridge: Bridge | unde
     })
 
     function enumDevices() {
-        const allDevices: Record<string, object> = {}
-        for (const id in manager.allDevices) {
-            const dev = manager.allDevices[id]
+        const allDevices: Array<[string, object]> = []
+        for (const [id, dev] of manager.allDevices) {
             const meta = dev.meta
             const haName = ha.haDevices.get(id)?.config?.device?.name
-            allDevices[id] = {
-                name: bridge?.name(id) || haName || meta.modelName,
-                model: meta.modelId,
-                deviceType: meta.deviceType,
-                platform: dev.platform,
-                sourceIp: 'sourceIp' in dev ? dev.sourceIp : undefined,
-                mapped: ha.haDevices.has(id),
-                bridged: bridge ? bridge.status(id) : false,
-            }
+            allDevices.push([
+                id,
+                {
+                    name: bridge?.name(id) || haName || meta.modelName,
+                    model: meta.modelId,
+                    deviceType: meta.deviceType,
+                    platform: dev.platform,
+                    sourceIp: 'sourceIp' in dev ? dev.sourceIp : undefined,
+                    mapped: ha.haDevices.has(id),
+                    bridged: bridge ? bridge.status(id) : false,
+                },
+            ])
         }
-        return allDevices
+        return serializeDeviceEntries(allDevices)
     }
 
     function refreshDevices() {
@@ -192,7 +198,7 @@ export function app(ha: HA_bridge, manager: DeviceManager, bridge: Bridge | unde
             }
 
             const checkDevicePresence = () => {
-                const dev = manager.allDevices[id]
+                const dev = manager.allDevices.get(id)
 
                 if (dev !== device) {
                     device?.removeListener('data', onDeviceRx)
@@ -225,7 +231,7 @@ export function app(ha: HA_bridge, manager: DeviceManager, bridge: Bridge | unde
                 } catch {
                     return
                 }
-                const dev = manager.allDevices[id]
+                const dev = manager.allDevices.get(id)
 
                 try {
                     if (json.sendToDevice && typeof json.sendToDevice === 'object' && dev instanceof T1Device) {

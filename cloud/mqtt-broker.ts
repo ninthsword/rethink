@@ -6,16 +6,26 @@ import log from '@/util/logging'
 
 export type PublishPacket = Omit<IPublishPacket, 'cmd'>
 
-class Subscription {
-    re: RegExp
+/** Match an MQTT topic name against a level-based topic filter. */
+export function mqttTopicMatches(topic: string, filter: string): boolean {
+    if (typeof topic !== 'string' || typeof filter !== 'string' || !topic || !filter) return false
 
-    constructor(topicPattern: string) {
-        const re = `^${topicPattern.replace(/#$/, '.*').replace(/\+/g, '[^/]*')}$`
-        this.re = new RegExp(re)
+    const topicLevels = topic.split('/')
+    const filterLevels = filter.split('/')
+    for (let index = 0; index < filterLevels.length; index++) {
+        const level = filterLevels[index]
+        if (level === '#') return index === filterLevels.length - 1
+        if (level !== '+' && (level.includes('#') || level.includes('+'))) return false
+        if (level !== '+' && level !== topicLevels[index]) return false
     }
+    return topicLevels.length === filterLevels.length
+}
+
+class Subscription {
+    constructor(readonly topicPattern: string) {}
 
     match(topic: string) {
-        return !!topic.match(this.re)
+        return mqttTopicMatches(topic, this.topicPattern)
     }
 }
 

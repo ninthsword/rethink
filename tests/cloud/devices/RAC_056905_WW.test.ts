@@ -75,6 +75,22 @@ function buildReadyDevice(t: import('node:test').TestContext) {
 }
 
 describe(MODEL_ID, () => {
+    test('prototype-like model id with a valid fallback uses advertised encoding', (t) => {
+        enableMockTimers(t)
+        const ha = new MockHAConnection()
+        const meta: Metadata = { modelId: '__proto__', modelName: MODEL_ID, swVersion: '1.0' }
+        const thinq = new MockThinq2Device(DEVICE_ID, meta)
+        const dev = new DUT(ha.asConnection(), thinq, meta)
+
+        thinq.emit('data', buf(CAPS_RESPONSE_HEX))
+        thinq.emit('data', buf(QUERY_RESPONSE_HEX))
+        tickMockTimers(t, 6000)
+
+        const climate = ha.devices[DEVICE_ID].config?.components.climate as Record<string, unknown>
+        assert.deepEqual(climate.fan_modes, ['level_1', 'level_2', 'level_3', 'level_4', 'level_5', 'natural'])
+        dev.drop()
+    })
+
     test('caps and values responses triggers config publish', (t) => {
         enableMockTimers(t)
         const { ha, thinq, dev } = makeDevice()

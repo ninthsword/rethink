@@ -81,7 +81,7 @@ async function saveRouter() {
 async function testRouter() {
     try {
         const result = await api('api/router/test', { method: 'POST' })
-        M.toast({ html: `Connected: ${result.iptables}; ${result.conntrack}` })
+        toast(`Connected: ${result.iptables}; ${result.conntrack}`)
     } catch (err) {
         toast(err)
     }

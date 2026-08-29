@@ -121,7 +121,10 @@ class Bridge {
          * always move together, so the one that still matches a handler wins.
          */
         const handlerFor = (table: Record<string, T1Factory | T2Factory>) =>
-            table[meta.modelId] ?? (meta.modelName ? table[meta.modelName] : undefined)
+            (Object.getOwnPropertyDescriptor(table, meta.modelId) ? table[meta.modelId] : undefined) ??
+            (meta.modelName && Object.getOwnPropertyDescriptor(table, meta.modelName)
+                ? table[meta.modelName]
+                : undefined)
 
         if (thinqdev.platform === 'thinq1') {
             const devclass = handlerFor(t1deviceTypes) as T1Factory | undefined

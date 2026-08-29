@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
 import Bridge from '@/cloud/ha_bridge'
 import type { Metadata } from '@/cloud/thinq'
-import { MockHAConnection, MockThinq2Device } from '@/tests/helpers/mocks'
+import { MockHAConnection, MockThinq1Device, MockThinq2Device } from '@/tests/helpers/mocks'
 import { enableMockTimers, tickMockTimers } from '@/tests/helpers/timers'
 import { normalize, type RawConfig } from '@/util/config'
 
@@ -21,6 +21,54 @@ class AvailabilityRecordingHA extends MockHAConnection {
 }
 
 describe('HA bridge device replacement', () => {
+    test('does not instantiate inherited handlers from external model metadata', () => {
+        const ha = new MockHAConnection()
+        const bridge = new Bridge(ha.asConnection())
+
+        assert.doesNotThrow(() => {
+            bridge.newDevice(
+                new MockThinq1Device('bad-thinq1', {
+                    modelId: '__proto__',
+                    modelName: 'constructor',
+                    swVersion: '1.0',
+                }),
+            )
+            bridge.newDevice(
+                new MockThinq2Device('bad-thinq2', {
+                    modelId: 'toString',
+                    modelName: '__proto__',
+                    swVersion: '1.0',
+                }),
+            )
+        })
+        assert.equal(ha.devices['bad-thinq1'], undefined)
+        assert.equal(ha.devices['bad-thinq2'], undefined)
+    })
+
+    test('still instantiates registered ThinQ1 and ThinQ2 handlers', (t) => {
+        enableMockTimers(t)
+        const ha = new MockHAConnection()
+        const bridge = new Bridge(ha.asConnection())
+
+        bridge.newDevice(
+            new MockThinq1Device('ordinary-thinq1', {
+                modelId: 'WTDN3',
+                modelName: 'WTDN3',
+                swVersion: '1.0',
+            }),
+        )
+        bridge.newDevice(
+            new MockThinq2Device('ordinary-thinq2', {
+                modelId: 'RAC_056905_WW',
+                modelName: 'RAC_056905_WW',
+                swVersion: '1.0',
+            }),
+        )
+
+        assert.ok(ha.devices['ordinary-thinq1'])
+        assert.ok(bridge.haDevices.get('ordinary-thinq2'))
+    })
+
     test('an appliance whose model id was renamed is still matched by its model name', (t) => {
         // This dryer went from RH16KR to RH16_N_KR with a firmware update and kept working
         // only because someone added the new id by hand. The two fields do not always move

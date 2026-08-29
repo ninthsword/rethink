@@ -10,13 +10,13 @@ type DeviceManagerEvents = {
 }
 
 export class DeviceManager extends TypedEmitter<DeviceManagerEvents> {
-    allDevices: Record<string, AnyDevice> = {}
+    allDevices = new Map<string, AnyDevice>()
 
     accept(device: AnyDevice) {
-        this.allDevices[device.id] = device
+        this.allDevices.set(device.id, device)
         device.on('close', () => {
-            if (this.allDevices[device.id] === device) {
-                delete this.allDevices[device.id]
+            if (this.allDevices.get(device.id) === device) {
+                this.allDevices.delete(device.id)
                 this.emit('dropDevice', device.id)
             }
         })
