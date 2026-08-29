@@ -113,6 +113,10 @@ function boundedText(value: unknown): value is string {
     )
 }
 
+function boundedOptionalText(value: unknown): value is string {
+    return value === '' || boundedText(value)
+}
+
 function objectRecord(value: unknown): Record<string, unknown> | undefined {
     return value !== null && typeof value === 'object' && !Array.isArray(value)
         ? (value as Record<string, unknown>)
@@ -139,7 +143,7 @@ function validDeployMessage(payload: unknown, expectedDeviceId: string) {
     const appInfo = objectRecord(data?.appInfo)
     if (!appInfo || !boundedText(appInfo.modelName)) return
     for (const field of ['softVer', 'DeviceType']) {
-        if (appInfo[field] !== undefined && !boundedText(appInfo[field])) return
+        if (appInfo[field] !== undefined && !boundedOptionalText(appInfo[field])) return
     }
     return message as ClipDeployMessage
 }

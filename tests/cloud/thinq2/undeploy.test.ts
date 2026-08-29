@@ -73,7 +73,12 @@ test('invalid provisioning and acknowledgement messages do not mutate registrati
         { ...valid, data: { appInfo: { modelName: {} } } },
         { ...valid, data: { appInfo: { modelName: '' } } },
         { ...valid, data: { appInfo: { modelName: 'x'.repeat(129) } } },
+        { ...valid, data: { appInfo: { modelName: 'MODEL', softVer: {} } } },
+        { ...valid, data: { appInfo: { modelName: 'MODEL', softVer: '   ' } } },
+        { ...valid, data: { appInfo: { modelName: 'MODEL', softVer: 'x'.repeat(129) } } },
         { ...valid, data: { appInfo: { modelName: 'MODEL', DeviceType: {} } } },
+        { ...valid, data: { appInfo: { modelName: 'MODEL', DeviceType: '   ' } } },
+        { ...valid, data: { appInfo: { modelName: 'MODEL', DeviceType: 'x'.repeat(129) } } },
     ]
 
     for (const payload of invalidDeployments)
@@ -112,6 +117,36 @@ test('invalid deployment does not replace an existing valid registration', () =>
     assert.equal(client.deployMsg, originalDeploy)
     assert.equal(client.deviceObj, originalDevice)
     assert.equal(acceptor.clientsById.get(DEVICE_ID), client)
+})
+
+test('empty optional deployment metadata remains compatible', () => {
+    const broker = new Broker()
+    const acceptor = new DeviceAcceptor(broker)
+    const client = {} as Record<string, unknown>
+    let added = 0
+    let responses = 0
+    broker.on('publish', () => responses++)
+    acceptor.on('newDevice', () => added++)
+
+    acceptor.mqtt(
+        `clip/provisioning/devices/${DEVICE_ID}`,
+        {
+            ...deployMessage(),
+            data: { appInfo: { modelName: 'RH16_N_KR', softVer: '', DeviceType: '' } },
+        } as never,
+        client as never,
+    )
+    acceptor.mqtt(
+        `clip/message/devices/${DEVICE_ID}`,
+        { did: DEVICE_ID, cmd: 'completeProvisioning_ack' } as never,
+        client as never,
+    )
+
+    assert.equal(responses, 1)
+    assert.equal(added, 1)
+    assert.equal(acceptor.clientsById.get(DEVICE_ID), client)
+    assert.equal((client.deviceObj as { meta: { swVersion?: string; deviceType?: string } }).meta.swVersion, '')
+    assert.equal((client.deviceObj as { meta: { swVersion?: string; deviceType?: string } }).meta.deviceType, '')
 })
 
 test('unsafe device ids are rejected before mutating an existing registration', () => {
