@@ -1061,6 +1061,52 @@ describe('RAC_056905_WW writes nothing just because rethink restarted', () => {
         )
     }
 
+    test('a delayed off-mode report does not replay mode settings', (t) => {
+        const offFrame = (powerFirst: boolean) => {
+            const power = { t: 0x1f7, l: 0, v: 0 }
+            const mode = { t: 0x1f9, l: 0, v: 0 }
+            return powerFirst ? [power, mode] : [mode, power]
+        }
+
+        const { thinq, dev } = buildReadyDevice(t)
+        try {
+            dev.processKeyValue(0x1f7, 1)
+            dev.processKeyValue(0x1f9, 0)
+            const { modeCounts, powerCounts } = trackHooks(dev)
+            for (const [n, powerFirst] of [false, true].entries()) {
+                if (n) {
+                    // Return to the running state before checking the other tag order.
+                    dev.processTLV(frame(powerFirst))
+                    resetCounts(modeCounts, powerCounts)
+                    thinq.resetRecorder()
+                }
+
+                dev.processTLV(offFrame(powerFirst))
+                assertHooks(modeCounts, 0, 'combined shutdown mode hooks stay suppressed')
+                assertHooks(powerCounts, 1, 'combined shutdown power hooks own the transition')
+                assert.deepEqual(writeTLVs(thinq.outbox), [], 'combined shutdown stays write-free')
+            }
+
+            // Keep the mode history running, then model the appliance acknowledging power off
+            // before its separate mode=off report arrives.
+            dev.processTLV(frame(true))
+            resetCounts(modeCounts, powerCounts)
+            thinq.resetRecorder()
+            dev.processTLV([{ t: 0x1f7, v: 0 }])
+            assertHooks(modeCounts, 0, 'delayed shutdown power step has no mode hook')
+            assertHooks(powerCounts, 1, 'delayed shutdown power hook owns the transition')
+            resetCounts(modeCounts, powerCounts)
+            thinq.resetRecorder()
+
+            dev.processTLV([{ t: 0x1f9, v: 0 }])
+            assertHooks(modeCounts, 0, 'delayed shutdown mode report has no mode hook')
+            assertHooks(powerCounts, 0, 'delayed shutdown mode report has no power hook')
+            assert.deepEqual(writeTLVs(thinq.outbox), [], 'delayed shutdown mode report stays write-free')
+        } finally {
+            dev.drop()
+        }
+    })
+
     test('stable-power mode frames invoke mode hooks only', (t) => {
         const { thinq, dev } = buildReadyDevice(t)
         try {
