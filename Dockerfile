@@ -23,7 +23,10 @@ COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY config.jsonc /app/config.json
 
-RUN mkdir -p /app/data
+RUN mkdir -p /app/data \
+	&& chown app:app /app/data
+
+USER app
 
 EXPOSE 443 8883 1884 46030 47878 44401
 CMD ["sh", "-c", "[ -f /app/data/config.json ] || cp /app/config.json /app/data/config.json; exec node dist/rethink-cloud.js /app/data/config.json"]

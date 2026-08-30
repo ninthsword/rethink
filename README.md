@@ -194,6 +194,12 @@ mkdir -p ~/docker/rethink-data
 cp config.jsonc ~/docker/rethink-data/config.json
 ```
 
+The new data directory and everything inside it must be owned by the non-root user running the
+deployment. `scripts/deploy.sh` stops before releasing DNAT if the directory is absent or contains
+another owner's file or directory, or any symbolic link. The image runs as the `app` user by default;
+local deployment passes the current user's numeric UID:GID to the container, so this ownership check
+is deliberate protection.
+
 권장 구조:
 
 ```text
@@ -310,11 +316,14 @@ docker run -d \
   --log-opt max-size=50m \
   --log-opt max-file=5 \
   --network host \
+  --user "$(id -u):$(id -g)" \
   -v "$HOME/docker/rethink-data:/app/data" \
   rethink-lg-bridge:local
 ```
 
 `--network host`를 사용하므로 별도의 `-p` 포트 매핑은 필요하지 않습니다.
+All current Rethink listeners use ports above 1024, so this non-root execution model is sufficient.
+Adding a port at or below 1024 requires a separate design and review for a capability or proxy.
 
 실행 상태와 로그를 확인합니다.
 
@@ -324,6 +333,31 @@ docker logs -f rethink
 ```
 
 `ca.key`와 `ca.cert`는 이미지 빌드 시가 아니라 컨테이너 최초 실행 시 `/app/data`에 자동 생성됩니다. 같은 데이터 폴더를 계속 연결하면 이미지와 컨테이너를 교체해도 기존 CA와 bridge 상태가 유지됩니다.
+
+When migrating a data directory previously created by root, first release DNAT successfully, then stop
+the container, make a backup, and change ownership once to the logged-in user's numeric UID:GID as shown
+below. Keep the backup outside the operational data directory. If symbolic links or mixed ownership
+remain, the deployment script stops before releasing DNAT; inspect and replace those entries with ordinary
+files or directories as needed.
+
+```sh
+(
+set -eu
+curl -fsS -X POST http://127.0.0.1:44401/api/router/dnat/release
+docker stop rethink
+BACKUP_DIR=$(sudo mktemp -d /var/tmp/rethink-data-backup.XXXXXX)
+BACKUP="$BACKUP_DIR/rethink-data.tar.gz"
+sudo sh -c 'umask 077; tar -C "$1" -czf "$2" "$3"' rethink-backup "$HOME/docker" "$BACKUP" rethink-data
+sudo tar -tzf "$BACKUP" >/dev/null
+printf 'Retain root-only backup at %s for rollback; do not delete it.\n' "$BACKUP_DIR"
+sudo chown -R -- "$(id -u):$(id -g)" "$HOME/docker/rethink-data"
+RETHINK_DNAT_ALREADY_RELEASED=1 scripts/deploy.sh
+)
+```
+
+The `curl -fsS` check must succeed before stopping the container; do not continue with the
+migration if the management endpoint cannot release DNAT. The deployment script then rebuilds,
+starts the container with the invoking UID:GID, and waits for DNAT reconciliation.
 
 ## 3. rethink 초기 설정
 
@@ -619,6 +653,7 @@ docker run -d \
   --log-opt max-size=50m \
   --log-opt max-file=5 \
   --network host \
+  --user "$(id -u):$(id -g)" \
   -v "$HOME/docker/rethink-data:/app/data" \
   rethink-lg-bridge:local
 ```
