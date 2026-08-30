@@ -64,8 +64,23 @@ test('build policy removes stale dist before compilation', () => {
 })
 
 test('the published image runs as app and owns its image-local data directory', () => {
+    assert.match(dockerfile, /COPY --from=build --chmod=0444 \/app\/package\.json \/app\/package-lock\.json \.\//)
+    assert.match(dockerfile, /COPY --chmod=0444 config\.jsonc \/app\/config\.json/)
+    assert.match(dockerfile, /RUN chmod -R a\+rX dist node_modules/)
     assert.match(dockerfile, /RUN mkdir -p \/app\/data[\s\S]*chown app:app \/app\/data/)
     assert.match(dockerfile, /\nUSER app\n/)
+    const user = dockerfile.indexOf('\nUSER app\n')
+    const readGate = dockerfile.indexOf(
+        'RUN bad_dirs="$(find /app/dist /app/node_modules -type d ! -perm -o+x -print -quit)"',
+    )
+    assert.ok(user >= 0 && user < readGate)
+    assert.match(dockerfile.slice(readGate), /find \/app\/dist \/app\/node_modules -type f ! -perm -o\+r -print -quit/)
+    assert.match(dockerfile.slice(readGate), /&& test -z "\$bad_dirs"[\s\\n]+&& bad_files=/)
+    assert.match(dockerfile.slice(readGate), /&& test -z "\$bad_files"[\s\\n]+&& node -e/)
+    assert.match(
+        dockerfile.slice(readGate),
+        /node -e 'if \(require\("\/app\/package\.json"\)\.type !== "module"\) process\.exit\(1\)'/,
+    )
 })
 
 test('local deployment validates operator-owned data before releasing DNAT', () => {
