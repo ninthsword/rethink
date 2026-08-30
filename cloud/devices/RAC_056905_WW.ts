@@ -160,6 +160,7 @@ export default class Device extends TLVDevice {
             tlvArray.some(({ t, v }) => t === 0x1f7 && (v !== 0) !== this.powerStatePrev)
         if (powerTransitionInFrame) {
             const modeTLV = tlvArray.find(({ t }) => t === 0x1f9)?.v
+            // Pre-apply the frame's mode so a power-first frame's power callback sees it too.
             if (modeTLV !== undefined) this.raw_clip_state[0x1f9] = modeTLV
         }
 
@@ -543,7 +544,13 @@ export default class Device extends TLVDevice {
                     powerTLV !== undefined &&
                     this.powerStatePrev !== undefined &&
                     (powerTLV !== 0) === this.powerStatePrev
-                if (this.modePrev !== undefined && this.modePrev !== val && !this.powerTransitionInFrame && powerStable)
+                if (
+                    this.modePrev !== undefined &&
+                    this.modePrev !== val &&
+                    !this.powerTransitionInFrame &&
+                    powerStable &&
+                    powerTLV !== 0
+                )
                     for (const hook of this.modeChangeHooks) hook()
                 this.modePrev = val
                 return true
