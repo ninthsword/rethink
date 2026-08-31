@@ -1,21 +1,54 @@
-export function splitter(callback: (arg: Buffer) => void, options?: { maxPayloadLength?: number }) {
-    let accum: Buffer | undefined
+export type FrameSplitter = ((buf: Buffer) => void) & {
+    end(): void
+}
 
-    return (buf: Buffer) => {
+export function splitter(callback: (arg: Buffer) => void, options?: { maxPayloadLength?: number }): FrameSplitter {
+    let accum: Buffer | undefined
+    let failed = false
+    const maxPayloadLength = options?.maxPayloadLength ?? 65536
+
+    const split = ((buf: Buffer) => {
+        if (failed) return
         accum = accum && accum.length > 0 ? Buffer.concat([accum, buf]) : buf
 
         while (accum && accum.length >= 4) {
             const payloadLen = accum.readInt32BE(0)
-            if (payloadLen > (options?.maxPayloadLength ?? 65536)) throw new Error('Payload length exceeded')
+            if (payloadLen < 0) {
+                failed = true
+                accum = undefined
+                throw new Error('Payload length cannot be negative')
+            }
+            if (payloadLen > maxPayloadLength) {
+                failed = true
+                accum = undefined
+                throw new Error('Payload length exceeded')
+            }
 
             if (accum.length >= 4 + payloadLen) {
-                callback(accum.subarray(4, 4 + payloadLen))
+                const payload = accum.subarray(4, 4 + payloadLen)
                 accum = accum.subarray(4 + payloadLen)
+                try {
+                    callback(payload)
+                } catch (error) {
+                    failed = true
+                    accum = undefined
+                    throw error
+                }
             } else {
                 break
             }
         }
+    }) as FrameSplitter
+
+    split.end = () => {
+        if (!failed && accum && accum.length > 0) {
+            failed = true
+            accum = undefined
+            throw new Error('Truncated length-prefixed frame')
+        }
     }
+
+    return split
 }
 
 export function make(input: Buffer | string) {
