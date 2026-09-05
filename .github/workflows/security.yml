@@ -33,19 +33,31 @@ jobs:
                   BASELINE_COMMIT: ${{ github.event.pull_request.base.sha || github.event.before }}
                   SEMGREP_ENABLE_VERSION_CHECK: "0"
               run: |
+                  umask 077
+                  report="${RUNNER_TEMP}/semgrep-report.json"
+                  cleanup() {
+                    rm --force -- "${report}"
+                  }
+                  trap cleanup EXIT
+
                   args=(
                     scan
                     --config p/default
-                    --error
                     --metrics=off
                     --disable-nosem
                     --no-git-ignore
                     --x-ignore-semgrepignore-files
+                    --json
+                    --output "${report}"
                   )
                   if git cat-file -e "${BASELINE_COMMIT}^{commit}"; then
                     args+=(--baseline-commit "${BASELINE_COMMIT}")
                   fi
                   uvx --from semgrep==1.174.0 semgrep "${args[@]}"
+                  python3 -B .github/security/filter-semgrep.py \
+                    --report "${report}" \
+                    --exceptions .github/security/semgrep-reviewed-exceptions.json \
+                    --root "${GITHUB_WORKSPACE}"
 
     gitleaks:
         runs-on: ubuntu-latest

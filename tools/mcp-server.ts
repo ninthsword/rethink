@@ -17,12 +17,52 @@
 
 import * as fs from 'node:fs'
 import readline from 'node:readline'
+import { pathToFileURL } from 'node:url'
 import WebSocket from 'ws'
-import { connect as cloudConnect } from '@/util/lgcloud/monitor'
+import {
+    type ConnectOptions as CloudConnectOptions,
+    type State as CloudState,
+    connect as cloudConnect,
+} from '@/util/lgcloud/monitor'
 import { loadState } from '@/util/lgcloud/state'
 import { decodePacket, type EncodeInput, encodePacket } from '@/util/packet-codec'
 
-const DEFAULT_MGMT = process.env.RETHINK_MGMT ?? 'localhost:44401'
+const DEFAULT_MGMT_PORT = 44401
+const MANAGEMENT_AUTHORITY = /^(localhost|127\.0\.0\.1|\[::1\])(?::([1-9][0-9]{0,4}))?$/
+
+export function canonicalizeManagementAuthority(authority: string): string {
+    const match = MANAGEMENT_AUTHORITY.exec(authority)
+    if (!match || match[0] !== authority) {
+        throw new Error(
+            'management authority must be localhost, 127.0.0.1, or [::1] with an optional canonical port from 1 to 65535',
+        )
+    }
+
+    const port = match[2] === undefined ? DEFAULT_MGMT_PORT : Number(match[2])
+    if (port > 65535) {
+        throw new Error(
+            'management authority must be localhost, 127.0.0.1, or [::1] with an optional canonical port from 1 to 65535',
+        )
+    }
+
+    const host = match[1] === 'localhost' ? '127.0.0.1' : match[1]
+    return `${host}:${port}`
+}
+
+type ManagementEndpoint = '/ws' | '/device'
+
+function managementWebSocketUrl(authority: string, endpoint: ManagementEndpoint, deviceId?: string): string {
+    const canonicalAuthority = canonicalizeManagementAuthority(authority)
+    const port = canonicalAuthority.slice(canonicalAuthority.lastIndexOf(':') + 1)
+    const url = canonicalAuthority.startsWith('[::1]:')
+        ? new URL(`ws://[::1]:${port}`)
+        : new URL(`ws://127.0.0.1:${port}`)
+    url.pathname = endpoint
+    if (deviceId !== undefined) url.searchParams.set('id', deviceId)
+    return url.href
+}
+
+const DEFAULT_MGMT = canonicalizeManagementAuthority(process.env.RETHINK_MGMT ?? 'localhost')
 const CLOUD_STATE_PATH = process.env.RETHINK_CLOUD_STATE
 
 // Session-level management host[:port] that the device tools connect to. Starts at
@@ -49,45 +89,102 @@ type Observation = { seq: number; ts: number; topic: string; payload: unknown | 
 const CLOUD_BUFFER_MAX = 1000
 const cloudBuffer: Observation[] = []
 let cloudSeq = 0
-let cloudClient: Awaited<ReturnType<typeof cloudConnect>> | undefined
-let cloudFeed: Promise<CloudFeedStatus> | undefined
 
-function ensureCloudFeed(): Promise<CloudFeedStatus> {
-    if (!cloudFeed) {
-        cloudFeed = (async () => {
-            const state = loadState(CLOUD_STATE_PATH)
+type CloudClient = { end(force?: boolean): unknown }
+type CloudConnector = (state: CloudState, options: CloudConnectOptions) => Promise<CloudClient>
+type CloudAttempt = {
+    generation: number
+    promise: Promise<CloudFeedStatus>
+}
+
+export class CloudFeedController {
+    private client: CloudClient | undefined
+    private attempt: CloudAttempt | undefined
+    private generation = 0
+    private settledStatus: CloudFeedStatus | 'disabled' = 'disabled'
+
+    constructor(
+        private readonly stateLoader: () => CloudState | undefined,
+        private readonly connector: CloudConnector,
+    ) {}
+
+    ensure(): Promise<CloudFeedStatus> {
+        if (this.attempt) return this.attempt.promise
+
+        let resolveAttempt!: (status: CloudFeedStatus) => void
+        const promise = new Promise<CloudFeedStatus>((resolve) => {
+            resolveAttempt = resolve
+        })
+        const attempt: CloudAttempt = {
+            generation: ++this.generation,
+            promise,
+        }
+        this.attempt = attempt
+        void this.connect(attempt).then((status) => {
+            if (this.isCurrent(attempt)) {
+                this.settledStatus = status
+                if (status === 'unavailable') this.attempt = undefined
+            }
+            resolveAttempt(status)
+        })
+        return promise
+    }
+
+    stop(): void {
+        this.generation++
+        this.attempt = undefined
+        this.settledStatus = 'disabled'
+        const client = this.client
+        this.client = undefined
+        client?.end(true)
+    }
+
+    status(): Promise<CloudFeedStatus | 'disabled'> {
+        return this.attempt?.promise ?? Promise.resolve(this.settledStatus)
+    }
+
+    private isCurrent(attempt: CloudAttempt): boolean {
+        return attempt.generation === this.generation && this.attempt?.promise === attempt.promise
+    }
+
+    private async connect(attempt: CloudAttempt): Promise<CloudFeedStatus> {
+        try {
+            const state = this.stateLoader()
             if (!state) {
                 console.error(
                     '[cloud] not logged in; run `npx tsx tools/lgcloud-monitor.ts` once to enable observation',
                 )
-                return 'unavailable' as const
+                return 'unavailable'
             }
-            cloudClient = await cloudConnect(state, {
-                log: (m) => console.error(`[cloud] ${m}`),
+
+            const client = await this.connector(state, {
+                log: (message) => console.error(`[cloud] ${message}`),
                 onMessage: ({ topic, payload, raw }) => {
+                    if (!this.isCurrent(attempt)) return
                     cloudBuffer.push({ seq: cloudSeq++, ts: Date.now(), topic, payload, raw })
                     if (cloudBuffer.length > CLOUD_BUFFER_MAX) cloudBuffer.shift()
                 },
             })
-            return 'connected' as const
-        })().catch((err) => {
-            console.error(`[cloud] feed unavailable: ${err.message}`)
-            return 'unavailable' as const
-        })
+            if (!this.isCurrent(attempt)) {
+                client.end(true)
+                return 'unavailable'
+            }
+            this.client = client
+            return 'connected'
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error)
+            console.error(`[cloud] feed unavailable: ${message}`)
+            return 'unavailable'
+        }
     }
-    return cloudFeed
 }
 
-function stopCloudFeed() {
-    cloudClient?.end(true)
-    cloudClient = undefined
-    cloudFeed = undefined
-}
+const cloudController = new CloudFeedController(() => loadState(CLOUD_STATE_PATH), cloudConnect)
+const ensureCloudFeed = () => cloudController.ensure()
+const stopCloudFeed = () => cloudController.stop()
 
 // 'disabled' = never started or explicitly stopped; otherwise the connect outcome.
-async function cloudFeedStatus(): Promise<CloudFeedStatus | 'disabled'> {
-    return cloudFeed ? await cloudFeed : 'disabled'
-}
+const cloudFeedStatus = () => cloudController.status()
 
 // ── device wire capture ─────────────────────────────────────────────────────
 // Subscribe to a device's management /device WS and buffer its wire packets (rx =
@@ -115,7 +212,24 @@ type WireEvent = {
 const DEVICE_BUFFER_MAX = 2000
 const deviceBuffer: WireEvent[] = []
 let deviceSeq = 0
-const deviceSubs = new Map<string, WebSocket>()
+
+type ManagementSocket = {
+    on(event: 'message', listener: (data: WebSocket.RawData) => void): unknown
+    on(event: 'error', listener: (error: Error) => void): unknown
+    on(event: 'close', listener: () => void): unknown
+    on(event: 'open', listener: () => void): unknown
+    close(): void
+    send(data: string): void
+}
+
+type CaptureEntry = {
+    socket: ManagementSocket
+    timer: ReturnType<typeof setTimeout> | undefined
+    settled: boolean
+    closeRequested: boolean
+    resolve(status: string): void
+    reject(error: Error): void
+}
 
 function pushWire(deviceId: string, dir: 'fromDevice' | 'toDevice', hex: string, injected: boolean) {
     const base = { seq: deviceSeq++, ts: Date.now(), deviceId, dir, injected }
@@ -136,53 +250,118 @@ function pushWire(deviceId: string, dir: 'fromDevice' | 'toDevice', hex: string,
 }
 
 // Resolves with the device status ('online'/'offline') once the WS reports it. Idempotent.
-function deviceCaptureStart(host: string, deviceId: string): Promise<string> {
-    if (deviceSubs.has(deviceId)) return Promise.resolve('already-capturing')
-    const h = host.includes(':') ? host : `${host}:44401`
-    return new Promise((resolve, reject) => {
-        const ws = new WebSocket(`ws://${h}/device?id=${encodeURIComponent(deviceId)}`)
-        deviceSubs.set(deviceId, ws)
-        let settled = false
-        const done = (status: string) => {
-            if (!settled) {
-                settled = true
-                resolve(status)
-            }
-        }
-        ws.on('message', (data: WebSocket.RawData) => {
-            let msg: JsonObject
-            try {
-                const parsed: unknown = JSON.parse(data.toString())
-                if (!isJsonObject(parsed)) return
-                msg = parsed
-            } catch {
-                return
-            }
-            if (typeof msg.rx === 'string') pushWire(deviceId, 'fromDevice', msg.rx, !!msg.injected)
-            else if (typeof msg.tx === 'string') pushWire(deviceId, 'toDevice', msg.tx, !!msg.injected)
-            else if (typeof msg.status === 'string') done(msg.status)
-        })
-        ws.on('error', (err) => {
-            deviceSubs.delete(deviceId)
-            if (!settled) {
-                settled = true
-                reject(err)
-            }
-        })
-        ws.on('close', () => deviceSubs.delete(deviceId))
-        setTimeout(() => done('unknown'), 5000)
-    })
-}
+export class DeviceCaptureController {
+    private readonly subscriptions = new Map<string, CaptureEntry>()
 
-function deviceCaptureStop(deviceId?: string) {
-    if (deviceId) {
-        deviceSubs.get(deviceId)?.close()
-        deviceSubs.delete(deviceId)
-    } else {
-        for (const ws of deviceSubs.values()) ws.close()
-        deviceSubs.clear()
+    constructor(
+        private readonly socketFactory: (url: string) => ManagementSocket = (url) => new WebSocket(url),
+        private readonly timeoutMs = 5000,
+    ) {}
+
+    start(host: string, deviceId: string): Promise<string> {
+        const authority = canonicalizeManagementAuthority(host)
+        if (this.subscriptions.has(deviceId)) return Promise.resolve('already-capturing')
+
+        return new Promise((resolve, reject) => {
+            const socket = this.socketFactory(managementWebSocketUrl(authority, '/device', deviceId))
+            const entry: CaptureEntry = {
+                socket,
+                timer: undefined,
+                settled: false,
+                closeRequested: false,
+                resolve,
+                reject,
+            }
+            this.subscriptions.set(deviceId, entry)
+            entry.timer = setTimeout(() => this.release(deviceId, entry, 'unknown', undefined, true), this.timeoutMs)
+
+            socket.on('message', (data) => {
+                if (!this.isCurrent(deviceId, entry)) return
+                let msg: JsonObject
+                try {
+                    const parsed: unknown = JSON.parse(data.toString())
+                    if (!isJsonObject(parsed)) return
+                    msg = parsed
+                } catch {
+                    return
+                }
+                if (typeof msg.rx === 'string') pushWire(deviceId, 'fromDevice', msg.rx, !!msg.injected)
+                else if (typeof msg.tx === 'string') pushWire(deviceId, 'toDevice', msg.tx, !!msg.injected)
+                else if (typeof msg.status === 'string') this.settle(entry, msg.status)
+            })
+            socket.on('error', (error) => this.release(deviceId, entry, 'error', error, true))
+            socket.on('close', () => this.release(deviceId, entry, 'closed'))
+        })
+    }
+
+    stop(deviceId?: string): void {
+        let entries: CaptureEntry[]
+        if (deviceId) {
+            const entry = this.subscriptions.get(deviceId)
+            if (!entry) return
+            this.subscriptions.delete(deviceId)
+            entries = [entry]
+        } else {
+            entries = [...this.subscriptions.values()]
+            this.subscriptions.clear()
+        }
+
+        for (const entry of entries) {
+            this.settle(entry, 'stopped')
+            this.close(entry)
+        }
+    }
+
+    has(deviceId: string): boolean {
+        return this.subscriptions.has(deviceId)
+    }
+
+    ids(): string[] {
+        return [...this.subscriptions.keys()]
+    }
+
+    snapshot(host: string): Promise<ManagementSnapshot> {
+        return mgmtSnapshot(host, this.socketFactory, this.timeoutMs)
+    }
+
+    inject(host: string, deviceId: string, direction: 'fromDevice' | 'toDevice', hex: string): Promise<void> {
+        return injectOnce(host, deviceId, direction, hex, this.socketFactory, this.timeoutMs)
+    }
+
+    private isCurrent(deviceId: string, entry: CaptureEntry): boolean {
+        return this.subscriptions.get(deviceId) === entry
+    }
+
+    private release(deviceId: string, entry: CaptureEntry, status: string, error?: Error, close = false): void {
+        if (!this.isCurrent(deviceId, entry)) return
+        this.subscriptions.delete(deviceId)
+        this.settle(entry, status, error)
+        if (close) this.close(entry)
+    }
+
+    private settle(entry: CaptureEntry, status: string, error?: Error): void {
+        if (entry.settled) return
+        entry.settled = true
+        if (entry.timer !== undefined) {
+            clearTimeout(entry.timer)
+            entry.timer = undefined
+        }
+        if (error) entry.reject(error)
+        else entry.resolve(status)
+    }
+
+    private close(entry: CaptureEntry): void {
+        if (entry.closeRequested) return
+        entry.closeRequested = true
+        try {
+            entry.socket.close()
+        } catch {}
     }
 }
+
+const deviceCaptures = new DeviceCaptureController()
+const deviceCaptureStart = (host: string, deviceId: string) => deviceCaptures.start(host, deviceId)
+const deviceCaptureStop = (deviceId?: string) => deviceCaptures.stop(deviceId)
 
 // ── tool implementations ───────────────────────────────────────────────────
 
@@ -199,7 +378,7 @@ const tools: Record<
             required: ['host'],
         },
         handler: async (args) => {
-            mgmtHost = String(args.host)
+            mgmtHost = canonicalizeManagementAuthority(String(args.host))
             return { mgmtHost }
         },
     },
@@ -212,7 +391,7 @@ const tools: Record<
             properties: {},
         },
         handler: async () => {
-            const snap = await mgmtSnapshot(mgmtHost)
+            const snap = await deviceCaptures.snapshot(mgmtHost)
             return { ha: snap.ha, bridge: snap.bridge, devices: snap.devices ?? {} }
         },
     },
@@ -402,7 +581,7 @@ const tools: Record<
                         if (deviceBuffer[i].deviceId === deviceId) deviceBuffer.splice(i, 1)
                 } else deviceBuffer.length = 0
             }
-            return { capturing: [...deviceSubs.keys()], buffered: deviceBuffer.length }
+            return { capturing: deviceCaptures.ids(), buffered: deviceBuffer.length }
         },
     },
 
@@ -434,7 +613,7 @@ const tools: Record<
             const fromCursor = filtered.filter((e) => e.seq >= cursor)
             const page = fromCursor.slice(0, limit)
             const nextCursor = fromCursor.length > page.length ? page[page.length - 1].seq + 1 : null
-            return { capturing: [...deviceSubs.keys()], total: filtered.length, nextCursor, events: page }
+            return { capturing: deviceCaptures.ids(), total: filtered.length, nextCursor, events: page }
         },
     },
 
@@ -456,7 +635,7 @@ const tools: Record<
                 throw new Error('direction must be fromDevice or toDevice')
             if (args.direction === 'toDevice' && args.confirm !== true)
                 throw new Error('toDevice injection actuates hardware; pass confirm:true to proceed')
-            await injectOnce(mgmtHost, String(args.deviceId), args.direction, String(args.hex))
+            await deviceCaptures.inject(mgmtHost, String(args.deviceId), args.direction, String(args.hex))
             return { ok: true, acked: true, direction: args.direction, hex: args.hex }
         },
     },
@@ -510,7 +689,7 @@ const tools: Record<
 
                 let delivered = true
                 try {
-                    await injectOnce(mgmtHost, deviceId, 'fromDevice', hex)
+                    await deviceCaptures.inject(mgmtHost, deviceId, 'fromDevice', hex)
                 } catch {
                     delivered = false
                 }
@@ -547,14 +726,17 @@ function applyMutation(base: EncodeInput, mutate: Mutation, value: number): Enco
 // Open the management /ws, grab the snapshot it sends on connect ({ha, bridge, devices}), close.
 type ManagementSnapshot = { ha?: unknown; bridge?: unknown; devices?: Record<string, unknown> }
 
-function mgmtSnapshot(host: string): Promise<ManagementSnapshot> {
-    const h = host.includes(':') ? host : `${host}:44401`
+function mgmtSnapshot(
+    host: string,
+    socketFactory: (url: string) => ManagementSocket,
+    timeoutMs: number,
+): Promise<ManagementSnapshot> {
     return new Promise((resolve, reject) => {
-        const ws = new WebSocket(`ws://${h}/ws`)
+        const ws = socketFactory(managementWebSocketUrl(host, '/ws'))
         const timer = setTimeout(() => {
             ws.close()
             reject(new Error('timed out connecting to the management /ws'))
-        }, 5000)
+        }, timeoutMs)
         ws.on('message', (data: WebSocket.RawData) => {
             clearTimeout(timer)
             try {
@@ -578,13 +760,19 @@ function mgmtSnapshot(host: string): Promise<ManagementSnapshot> {
 // hex) — confirming rethink actually accepted and dispatched it. Rejects on timeout, so an
 // unknown id / offline device / dropped packet becomes a real error rather than a silent
 // no-op. (The echo proves delivery into rethink's pipeline, not that the cloud reacted.)
-function injectOnce(host: string, deviceId: string, direction: 'fromDevice' | 'toDevice', hex: string): Promise<void> {
-    const h = host.includes(':') ? host : `${host}:44401`
+function injectOnce(
+    host: string,
+    deviceId: string,
+    direction: 'fromDevice' | 'toDevice',
+    hex: string,
+    socketFactory: (url: string) => ManagementSocket,
+    timeoutMs: number,
+): Promise<void> {
     const sendKey = direction === 'fromDevice' ? 'sendFromDevice' : 'sendToDevice'
     const echoKey = direction === 'fromDevice' ? 'rx' : 'tx'
     const want = hex.toLowerCase()
     return new Promise((resolve, reject) => {
-        const ws = new WebSocket(`ws://${h}/device?id=${encodeURIComponent(deviceId)}`)
+        const ws = socketFactory(managementWebSocketUrl(host, '/device', deviceId))
         let settled = false
         let timer: ReturnType<typeof setTimeout>
         const finish = (err?: Error) => {
@@ -597,7 +785,7 @@ function injectOnce(host: string, deviceId: string, direction: 'fromDevice' | 't
         timer = setTimeout(
             () =>
                 finish(new Error('inject not acknowledged (unknown device id, device offline, or rethink dropped it)')),
-            5000,
+            timeoutMs,
         )
         ws.on('open', () => ws.send(JSON.stringify({ [sendKey]: hex })))
         ws.on('message', (data: WebSocket.RawData) => {
@@ -682,21 +870,25 @@ async function handle(req: JsonRpcRequest) {
     }
 }
 
-const rl = readline.createInterface({ input: process.stdin })
-rl.on('line', async (line) => {
-    const text = line.trim()
-    if (!text) return
-    let req: JsonRpcRequest
-    try {
-        const parsed: unknown = JSON.parse(text)
-        if (!isJsonObject(parsed)) return
-        req = parsed as JsonRpcRequest
-    } catch {
-        return
-    }
-    const res = await handle(req)
-    if (res) send(res)
-})
-rl.on('close', () => process.exit(0))
+function main() {
+    const rl = readline.createInterface({ input: process.stdin })
+    rl.on('line', async (line) => {
+        const text = line.trim()
+        if (!text) return
+        let req: JsonRpcRequest
+        try {
+            const parsed: unknown = JSON.parse(text)
+            if (!isJsonObject(parsed)) return
+            req = parsed as JsonRpcRequest
+        } catch {
+            return
+        }
+        const res = await handle(req)
+        if (res) send(res)
+    })
+    rl.on('close', () => process.exit(0))
 
-console.error('rethink-agent MCP server ready on stdio')
+    console.error('rethink-agent MCP server ready on stdio')
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) main()
