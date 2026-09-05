@@ -17,8 +17,13 @@
 
 import * as fs from 'node:fs'
 import readline from 'node:readline'
+import { pathToFileURL } from 'node:url'
 import WebSocket from 'ws'
-import { connect as cloudConnect } from '@/util/lgcloud/monitor'
+import {
+    type ConnectOptions as CloudConnectOptions,
+    type State as CloudState,
+    connect as cloudConnect,
+} from '@/util/lgcloud/monitor'
 import { loadState } from '@/util/lgcloud/state'
 import { decodePacket, type EncodeInput, encodePacket } from '@/util/packet-codec'
 
@@ -49,45 +54,102 @@ type Observation = { seq: number; ts: number; topic: string; payload: unknown | 
 const CLOUD_BUFFER_MAX = 1000
 const cloudBuffer: Observation[] = []
 let cloudSeq = 0
-let cloudClient: Awaited<ReturnType<typeof cloudConnect>> | undefined
-let cloudFeed: Promise<CloudFeedStatus> | undefined
 
-function ensureCloudFeed(): Promise<CloudFeedStatus> {
-    if (!cloudFeed) {
-        cloudFeed = (async () => {
-            const state = loadState(CLOUD_STATE_PATH)
+type CloudClient = { end(force?: boolean): unknown }
+type CloudConnector = (state: CloudState, options: CloudConnectOptions) => Promise<CloudClient>
+type CloudAttempt = {
+    generation: number
+    promise: Promise<CloudFeedStatus>
+}
+
+export class CloudFeedController {
+    private client: CloudClient | undefined
+    private attempt: CloudAttempt | undefined
+    private generation = 0
+    private settledStatus: CloudFeedStatus | 'disabled' = 'disabled'
+
+    constructor(
+        private readonly stateLoader: () => CloudState | undefined,
+        private readonly connector: CloudConnector,
+    ) {}
+
+    ensure(): Promise<CloudFeedStatus> {
+        if (this.attempt) return this.attempt.promise
+
+        let resolveAttempt!: (status: CloudFeedStatus) => void
+        const promise = new Promise<CloudFeedStatus>((resolve) => {
+            resolveAttempt = resolve
+        })
+        const attempt: CloudAttempt = {
+            generation: ++this.generation,
+            promise,
+        }
+        this.attempt = attempt
+        void this.connect(attempt).then((status) => {
+            if (this.isCurrent(attempt)) {
+                this.settledStatus = status
+                if (status === 'unavailable') this.attempt = undefined
+            }
+            resolveAttempt(status)
+        })
+        return promise
+    }
+
+    stop(): void {
+        this.generation++
+        this.attempt = undefined
+        this.settledStatus = 'disabled'
+        const client = this.client
+        this.client = undefined
+        client?.end(true)
+    }
+
+    status(): Promise<CloudFeedStatus | 'disabled'> {
+        return this.attempt?.promise ?? Promise.resolve(this.settledStatus)
+    }
+
+    private isCurrent(attempt: CloudAttempt): boolean {
+        return attempt.generation === this.generation && this.attempt?.promise === attempt.promise
+    }
+
+    private async connect(attempt: CloudAttempt): Promise<CloudFeedStatus> {
+        try {
+            const state = this.stateLoader()
             if (!state) {
                 console.error(
                     '[cloud] not logged in; run `npx tsx tools/lgcloud-monitor.ts` once to enable observation',
                 )
-                return 'unavailable' as const
+                return 'unavailable'
             }
-            cloudClient = await cloudConnect(state, {
-                log: (m) => console.error(`[cloud] ${m}`),
+
+            const client = await this.connector(state, {
+                log: (message) => console.error(`[cloud] ${message}`),
                 onMessage: ({ topic, payload, raw }) => {
+                    if (!this.isCurrent(attempt)) return
                     cloudBuffer.push({ seq: cloudSeq++, ts: Date.now(), topic, payload, raw })
                     if (cloudBuffer.length > CLOUD_BUFFER_MAX) cloudBuffer.shift()
                 },
             })
-            return 'connected' as const
-        })().catch((err) => {
-            console.error(`[cloud] feed unavailable: ${err.message}`)
-            return 'unavailable' as const
-        })
+            if (!this.isCurrent(attempt)) {
+                client.end(true)
+                return 'unavailable'
+            }
+            this.client = client
+            return 'connected'
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error)
+            console.error(`[cloud] feed unavailable: ${message}`)
+            return 'unavailable'
+        }
     }
-    return cloudFeed
 }
 
-function stopCloudFeed() {
-    cloudClient?.end(true)
-    cloudClient = undefined
-    cloudFeed = undefined
-}
+const cloudController = new CloudFeedController(() => loadState(CLOUD_STATE_PATH), cloudConnect)
+const ensureCloudFeed = () => cloudController.ensure()
+const stopCloudFeed = () => cloudController.stop()
 
 // 'disabled' = never started or explicitly stopped; otherwise the connect outcome.
-async function cloudFeedStatus(): Promise<CloudFeedStatus | 'disabled'> {
-    return cloudFeed ? await cloudFeed : 'disabled'
-}
+const cloudFeedStatus = () => cloudController.status()
 
 // ── device wire capture ─────────────────────────────────────────────────────
 // Subscribe to a device's management /device WS and buffer its wire packets (rx =
@@ -115,7 +177,22 @@ type WireEvent = {
 const DEVICE_BUFFER_MAX = 2000
 const deviceBuffer: WireEvent[] = []
 let deviceSeq = 0
-const deviceSubs = new Map<string, WebSocket>()
+
+type CaptureSocket = {
+    on(event: 'message', listener: (data: WebSocket.RawData) => void): unknown
+    on(event: 'error', listener: (error: Error) => void): unknown
+    on(event: 'close', listener: () => void): unknown
+    close(): void
+}
+
+type CaptureEntry = {
+    socket: CaptureSocket
+    timer: ReturnType<typeof setTimeout> | undefined
+    settled: boolean
+    closeRequested: boolean
+    resolve(status: string): void
+    reject(error: Error): void
+}
 
 function pushWire(deviceId: string, dir: 'fromDevice' | 'toDevice', hex: string, injected: boolean) {
     const base = { seq: deviceSeq++, ts: Date.now(), deviceId, dir, injected }
@@ -136,53 +213,110 @@ function pushWire(deviceId: string, dir: 'fromDevice' | 'toDevice', hex: string,
 }
 
 // Resolves with the device status ('online'/'offline') once the WS reports it. Idempotent.
-function deviceCaptureStart(host: string, deviceId: string): Promise<string> {
-    if (deviceSubs.has(deviceId)) return Promise.resolve('already-capturing')
-    const h = host.includes(':') ? host : `${host}:44401`
-    return new Promise((resolve, reject) => {
-        const ws = new WebSocket(`ws://${h}/device?id=${encodeURIComponent(deviceId)}`)
-        deviceSubs.set(deviceId, ws)
-        let settled = false
-        const done = (status: string) => {
-            if (!settled) {
-                settled = true
-                resolve(status)
-            }
-        }
-        ws.on('message', (data: WebSocket.RawData) => {
-            let msg: JsonObject
-            try {
-                const parsed: unknown = JSON.parse(data.toString())
-                if (!isJsonObject(parsed)) return
-                msg = parsed
-            } catch {
-                return
-            }
-            if (typeof msg.rx === 'string') pushWire(deviceId, 'fromDevice', msg.rx, !!msg.injected)
-            else if (typeof msg.tx === 'string') pushWire(deviceId, 'toDevice', msg.tx, !!msg.injected)
-            else if (typeof msg.status === 'string') done(msg.status)
-        })
-        ws.on('error', (err) => {
-            deviceSubs.delete(deviceId)
-            if (!settled) {
-                settled = true
-                reject(err)
-            }
-        })
-        ws.on('close', () => deviceSubs.delete(deviceId))
-        setTimeout(() => done('unknown'), 5000)
-    })
-}
+export class DeviceCaptureController {
+    private readonly subscriptions = new Map<string, CaptureEntry>()
 
-function deviceCaptureStop(deviceId?: string) {
-    if (deviceId) {
-        deviceSubs.get(deviceId)?.close()
-        deviceSubs.delete(deviceId)
-    } else {
-        for (const ws of deviceSubs.values()) ws.close()
-        deviceSubs.clear()
+    constructor(
+        private readonly socketFactory: (url: string) => CaptureSocket = (url) => new WebSocket(url),
+        private readonly timeoutMs = 5000,
+    ) {}
+
+    start(host: string, deviceId: string): Promise<string> {
+        if (this.subscriptions.has(deviceId)) return Promise.resolve('already-capturing')
+        const h = host.includes(':') ? host : `${host}:44401`
+
+        return new Promise((resolve, reject) => {
+            const socket = this.socketFactory(`ws://${h}/device?id=${encodeURIComponent(deviceId)}`)
+            const entry: CaptureEntry = {
+                socket,
+                timer: undefined,
+                settled: false,
+                closeRequested: false,
+                resolve,
+                reject,
+            }
+            this.subscriptions.set(deviceId, entry)
+            entry.timer = setTimeout(() => this.release(deviceId, entry, 'unknown', undefined, true), this.timeoutMs)
+
+            socket.on('message', (data) => {
+                if (!this.isCurrent(deviceId, entry)) return
+                let msg: JsonObject
+                try {
+                    const parsed: unknown = JSON.parse(data.toString())
+                    if (!isJsonObject(parsed)) return
+                    msg = parsed
+                } catch {
+                    return
+                }
+                if (typeof msg.rx === 'string') pushWire(deviceId, 'fromDevice', msg.rx, !!msg.injected)
+                else if (typeof msg.tx === 'string') pushWire(deviceId, 'toDevice', msg.tx, !!msg.injected)
+                else if (typeof msg.status === 'string') this.settle(entry, msg.status)
+            })
+            socket.on('error', (error) => this.release(deviceId, entry, 'error', error, true))
+            socket.on('close', () => this.release(deviceId, entry, 'closed'))
+        })
+    }
+
+    stop(deviceId?: string): void {
+        let entries: CaptureEntry[]
+        if (deviceId) {
+            const entry = this.subscriptions.get(deviceId)
+            if (!entry) return
+            this.subscriptions.delete(deviceId)
+            entries = [entry]
+        } else {
+            entries = [...this.subscriptions.values()]
+            this.subscriptions.clear()
+        }
+
+        for (const entry of entries) {
+            this.settle(entry, 'stopped')
+            this.close(entry)
+        }
+    }
+
+    has(deviceId: string): boolean {
+        return this.subscriptions.has(deviceId)
+    }
+
+    ids(): string[] {
+        return [...this.subscriptions.keys()]
+    }
+
+    private isCurrent(deviceId: string, entry: CaptureEntry): boolean {
+        return this.subscriptions.get(deviceId) === entry
+    }
+
+    private release(deviceId: string, entry: CaptureEntry, status: string, error?: Error, close = false): void {
+        if (!this.isCurrent(deviceId, entry)) return
+        this.subscriptions.delete(deviceId)
+        this.settle(entry, status, error)
+        if (close) this.close(entry)
+    }
+
+    private settle(entry: CaptureEntry, status: string, error?: Error): void {
+        if (entry.settled) return
+        entry.settled = true
+        if (entry.timer !== undefined) {
+            clearTimeout(entry.timer)
+            entry.timer = undefined
+        }
+        if (error) entry.reject(error)
+        else entry.resolve(status)
+    }
+
+    private close(entry: CaptureEntry): void {
+        if (entry.closeRequested) return
+        entry.closeRequested = true
+        try {
+            entry.socket.close()
+        } catch {}
     }
 }
+
+const deviceCaptures = new DeviceCaptureController()
+const deviceCaptureStart = (host: string, deviceId: string) => deviceCaptures.start(host, deviceId)
+const deviceCaptureStop = (deviceId?: string) => deviceCaptures.stop(deviceId)
 
 // ── tool implementations ───────────────────────────────────────────────────
 
@@ -402,7 +536,7 @@ const tools: Record<
                         if (deviceBuffer[i].deviceId === deviceId) deviceBuffer.splice(i, 1)
                 } else deviceBuffer.length = 0
             }
-            return { capturing: [...deviceSubs.keys()], buffered: deviceBuffer.length }
+            return { capturing: deviceCaptures.ids(), buffered: deviceBuffer.length }
         },
     },
 
@@ -434,7 +568,7 @@ const tools: Record<
             const fromCursor = filtered.filter((e) => e.seq >= cursor)
             const page = fromCursor.slice(0, limit)
             const nextCursor = fromCursor.length > page.length ? page[page.length - 1].seq + 1 : null
-            return { capturing: [...deviceSubs.keys()], total: filtered.length, nextCursor, events: page }
+            return { capturing: deviceCaptures.ids(), total: filtered.length, nextCursor, events: page }
         },
     },
 
@@ -682,21 +816,25 @@ async function handle(req: JsonRpcRequest) {
     }
 }
 
-const rl = readline.createInterface({ input: process.stdin })
-rl.on('line', async (line) => {
-    const text = line.trim()
-    if (!text) return
-    let req: JsonRpcRequest
-    try {
-        const parsed: unknown = JSON.parse(text)
-        if (!isJsonObject(parsed)) return
-        req = parsed as JsonRpcRequest
-    } catch {
-        return
-    }
-    const res = await handle(req)
-    if (res) send(res)
-})
-rl.on('close', () => process.exit(0))
+function main() {
+    const rl = readline.createInterface({ input: process.stdin })
+    rl.on('line', async (line) => {
+        const text = line.trim()
+        if (!text) return
+        let req: JsonRpcRequest
+        try {
+            const parsed: unknown = JSON.parse(text)
+            if (!isJsonObject(parsed)) return
+            req = parsed as JsonRpcRequest
+        } catch {
+            return
+        }
+        const res = await handle(req)
+        if (res) send(res)
+    })
+    rl.on('close', () => process.exit(0))
 
-console.error('rethink-agent MCP server ready on stdio')
+    console.error('rethink-agent MCP server ready on stdio')
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) main()
