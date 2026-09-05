@@ -31,7 +31,7 @@ jobs:
                     exit 1
                   fi
 
-                  protected_paths='(^|/)(\.gitleaksignore|\.gitleaks\.toml|\.semgrepignore)$|^\.github/workflows/'
+                  protected_paths='(^|/)(\.gitleaksignore|\.gitleaks\.toml|\.semgrepignore)$|^\.github/(workflows|security)/'
                   if git log --format= --name-only "${BASE_SHA}..${HEAD_SHA}" | grep -E "${protected_paths}" > /dev/null; then
                     echo "Pull requests may not modify security policy files."
                     exit 1
