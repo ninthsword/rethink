@@ -47,6 +47,7 @@ jobs:
                     --disable-nosem
                     --no-git-ignore
                     --x-ignore-semgrepignore-files
+                    --exclude=.git
                     --json
                     --output "${report}"
                   )
