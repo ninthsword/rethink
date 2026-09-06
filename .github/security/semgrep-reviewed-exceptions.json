@@ -1,0 +1,24 @@
+{
+  "schema": "semgrep-reviewed-exceptions-v1",
+  "exceptions": [
+    {
+      "id": "mcp-ipv6-loopback-websocket",
+      "rule_id": "javascript.lang.security.detect-insecure-websocket.detect-insecure-websocket",
+      "path": "tools/mcp-server.ts",
+      "source_sha256": "a3d9c049634d271026d3e7993606aad860dd8924f078f03400bb08bebb4d3cbe",
+      "start": {
+        "line": 58,
+        "col": 20,
+        "offset": 2835
+      },
+      "end": {
+        "line": 58,
+        "col": 25,
+        "offset": 2840
+      },
+      "source_line_sha256": "0309207bfe1ddbb65cc28b95d20ffc72d291637ef8e43bb45d4e66557d11bb91",
+      "max_count": 1,
+      "rationale": "The unauthenticated management endpoint is restricted to the literal IPv6 loopback address and configured port, with authority validation repeated immediately before each connection."
+    }
+  ]
+}
