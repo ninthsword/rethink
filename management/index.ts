@@ -215,8 +215,18 @@ export function app(ha: HA_bridge, manager: DeviceManager, bridge: Bridge | unde
                 }
             }
 
+            const dispose = () => {
+                device?.removeListener('data', onDeviceRx)
+                device?.removeListener('sendData', onDeviceTx)
+                device = undefined
+                manager.removeListener('newDevice', checkDevicePresence)
+                manager.removeListener('dropDevice', checkDevicePresence)
+            }
+
             manager.on('newDevice', checkDevicePresence)
             manager.on('dropDevice', checkDevicePresence)
+            ws.on('close', dispose)
+            ws.on('error', dispose)
 
             checkDevicePresence()
 
@@ -279,11 +289,6 @@ export function app(ha: HA_bridge, manager: DeviceManager, bridge: Bridge | unde
                 } catch (err) {
                     log('MGMT', id, `inject error: ${err}`)
                 }
-            })
-
-            ws.on('close', () => {
-                manager.removeListener('newDevice', checkDevicePresence)
-                manager.removeListener('dropDevice', checkDevicePresence)
             })
         }, next)
     })
