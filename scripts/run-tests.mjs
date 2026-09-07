@@ -4,6 +4,7 @@ import { join } from 'node:path'
 
 const BATCH_SIZE = 12
 
+/** @param {string} directory @returns {string[]} */
 function testFiles(directory) {
     return readdirSync(directory, { withFileTypes: true })
         .flatMap((entry) => {
@@ -14,17 +15,9 @@ function testFiles(directory) {
         .sort()
 }
 
-/*
- * The build compiles tsconfig.build.json, which excludes tests, so nothing was checking the
- * types of the test files themselves. Four errors had accumulated there unnoticed. Checking
- * before running costs a few seconds and stops that happening again.
- */
+// Check all maintained TypeScript, Node tools and separate classic browser pages before tests.
 console.log('Type checking')
-const typecheck = spawnSync(
-    process.execPath,
-    [join('node_modules', 'typescript', 'bin', 'tsc'), '--noEmit', '-p', 'tsconfig.json'],
-    { stdio: 'inherit' },
-)
+const typecheck = spawnSync('npm', ['run', 'typecheck'], { stdio: 'inherit' })
 if (typecheck.error) throw typecheck.error
 if (typecheck.status !== 0) process.exit(typecheck.status ?? 1)
 

@@ -1,0 +1,9 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "checkJs": true,
+    "noEmit": true,
+    "types": ["node"]
+  },
+  "include": ["scripts/check-home-assistant.mts", "scripts/install-git-hooks.mjs", "scripts/run-tests.mjs"]
+}

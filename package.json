@@ -20,6 +20,7 @@
     "@types/express": "^5.0.6",
     "@types/node": "^24.10.1",
     "@types/ws": "^8.18.1",
+    "pyright": "1.1.413",
     "tsc-alias": "^1.8.16",
     "tsx": "^4.23.12",
     "typescript": "^5.9.3"
@@ -35,7 +36,9 @@
     "check:write": "biome check --write .",
     "postinstall": "node scripts/install-git-hooks.mjs",
     "test": "node scripts/run-tests.mjs",
-    "typecheck": "tsc --noEmit -p tsconfig.json"
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc -p tsconfig.node-tools.json && tsc -p tsconfig.browser-monitor.json && tsc -p tsconfig.browser-panel.json && tsc -p tsconfig.browser-router.json",
+    "typecheck:python": "pyright --project pyrightconfig.json",
+    "typecheck:cpp": "\"${CXX:-g++}\" -std=c++17 -Wall -Wextra -fsyntax-only tools/appliance-simulator/simulator.cpp"
   },
   "simple-git-hooks": {
     "pre-commit": "npm run check -- --staged && if command -v gitleaks >/dev/null 2>&1; then gitleaks git --staged --redact --no-banner; else echo '[pre-commit] gitleaks not installed; CI will enforce it'; fi"

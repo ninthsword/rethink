@@ -123,11 +123,28 @@ nvm use
 npm ci
 npm run check
 npm run typecheck
+python3 --version # Python 3.12
+npm run typecheck:python
+python3 -B -m unittest discover -s tests/security -p test_filter_semgrep.py -v
+"${CXX:-g++}" --version # C++17 compiler
+npm run typecheck:cpp
 npm run build
 npm test
 ```
 
 Biome이 포맷과 lint를 모두 담당합니다. `npm run format`은 전체 대상 파일을 수정하고, `npm run format:check`, `npm run lint`, `npm run check`는 각각 포맷, lint, 통합 검사를 수정 없이 수행합니다. pre-commit 훅도 staged 파일에 같은 통합 검사를 적용합니다.
+
+`npm run typecheck` checks the original TypeScript scope, Node maintenance scripts, and each
+classic browser page in a separate strict, no-emit program. `npm test` runs this complete
+TypeScript check before its existing test batches. These check configurations do not change
+the production build or load browser scripts as modules.
+
+Python 3.12 is required for the two security-filter Python files. `npm ci` installs pinned
+Pyright 1.1.413; `npm run typecheck:python` checks both files. The C++ check needs a C++17
+compiler (GCC on CI); set `CXX` to another compiler executable if needed. It only checks
+simulator syntax with warnings enabled, without linking or executing the simulator. CI
+runs the Python checks and C++ syntax check on both supported Node versions and records
+the Python and compiler versions.
 
 ## 전체 설치 순서
 
