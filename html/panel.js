@@ -1,3 +1,28 @@
+/**
+ * Fixed elements supplied by this page's HTML.
+ * @typedef {{
+ *   'btn_devicetype_continue': HTMLButtonElement,
+ *   'btn_thinq_login': HTMLButtonElement,
+ *   'btn_thinq_login_complete': HTMLButtonElement,
+ *   'btn_thinq_login_continue': HTMLButtonElement,
+ *   'btn_thinq_logout': HTMLButtonElement,
+ *   'btn_thinq_logout_continue': HTMLButtonElement,
+ *   'country_code': HTMLInputElement,
+ *   'devices_body': HTMLTableSectionElement,
+ *   'devicetype_query': HTMLDivElement,
+ *   'devtype-input': HTMLInputElement,
+ *   'login_url': HTMLInputElement,
+ *   'management_started': HTMLSpanElement,
+ *   'management_version': HTMLSpanElement,
+ *   'status_bridge': HTMLSpanElement,
+ *   'status_bridge_text': HTMLSpanElement,
+ *   'status_mqtt': HTMLSpanElement,
+ *   'status_rethink': HTMLSpanElement,
+ *   'thinq_login': HTMLDivElement,
+ *   'thinq_logout': HTMLDivElement,
+ * }} PageElements
+ */
+
 document.addEventListener('DOMContentLoaded', () => {
     M.Tooltip.init(document.querySelectorAll('.tooltipped'))
     M.Modal.init(document.querySelectorAll('.modal'))
@@ -16,6 +41,7 @@ document.addEventListener('DOMContentLoaded', () => {
 })
 
 let _ws
+/** @type {ReturnType<typeof setTimeout> | undefined} */
 let reconnectTimer
 const STATUS_OK = `<i class="tiny material-icons green-text">check</i>`
 const STATUS_ERROR = `<i class="tiny material-icons red-text">error</i>`
@@ -27,21 +53,28 @@ get('status_mqtt').innerHTML = STATUS_UNKNOWN
 get('status_bridge').innerHTML = STATUS_UNKNOWN
 get('status_bridge_text').innerText = 'Unknown'
 
+/**
+ * @typedef {{name?: string, model?: string, mapped: boolean, platform: string,
+ * deviceType?: string, bridged: boolean}} DeviceState
+ */
+/** @type {Map<string, DeviceEntry>} */
 const devices = new Map()
 
+/** @param {string} value */
 function formatStartedAt(value) {
     const date = new Date(value)
     if (Number.isNaN(date.getTime())) return '-'
 
-    const pad = (part) => String(part).padStart(2, '0')
+    const pad = (/** @type {number} */ part) => String(part).padStart(2, '0')
     return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
 }
 
-const baseUrl = new URL(window.location)
+const baseUrl = new URL(window.location.href)
 baseUrl.search = ''
 baseUrl.hash = ''
 
 class DeviceEntry {
+    /** @param {string} id @param {DeviceState} remoteState @param {HTMLElement} parent */
     constructor(id, remoteState, parent) {
         this.id = id
         this.remoteState = remoteState
@@ -54,6 +87,7 @@ class DeviceEntry {
         this.row.remove()
     }
 
+    /** @param {DeviceState} remoteState */
     update(remoteState) {
         this.remoteState = remoteState
         this.updateDom()
@@ -91,7 +125,7 @@ class DeviceEntry {
         children.push(td)
 
         td = document.createElement('td')
-        td.style = 'width: 10em'
+        td.style.cssText = 'width: 10em'
 
         td.innerHTML = `
             <div class="switch">
@@ -114,7 +148,7 @@ class DeviceEntry {
         this.bridgeDiv = td.getElementsByClassName('switch')[0]
         this.spinner = td.getElementsByClassName('preloader-wrapper')[0]
 
-        const startBridge = async (deviceType) => {
+        const startBridge = async (/** @type {string} */ deviceType) => {
             this.bridgeBusy = true
             this.refreshUI()
 
@@ -141,7 +175,8 @@ class DeviceEntry {
         }
 
         this.bridgeSwitch.onchange = () => {
-            if (this.bridgeSwitch.checked) {
+            const bridgeSwitch = /** @type {HTMLInputElement} */ (this.bridgeSwitch)
+            if (bridgeSwitch.checked) {
                 if (this.remoteState.deviceType) {
                     startBridge(this.remoteState.deviceType)
                 } else {
@@ -176,19 +211,23 @@ class DeviceEntry {
     }
 
     refreshUI() {
+        // updateDom creates all three controls synchronously before this method can run.
+        const bridgeSwitch = /** @type {HTMLInputElement} */ (this.bridgeSwitch)
+        const bridgeDiv = /** @type {Element} */ (this.bridgeDiv)
+        const spinner = /** @type {Element} */ (this.spinner)
         if (this.bridgeBusy) {
-            this.bridgeDiv.classList.add('hide')
-            this.spinner.classList.remove('hide')
+            bridgeDiv.classList.add('hide')
+            spinner.classList.remove('hide')
         } else {
-            this.spinner.classList.add('hide')
-            this.bridgeDiv.classList.remove('hide')
-            this.bridgeSwitch.checked = !!this.remoteState.bridged
+            spinner.classList.add('hide')
+            bridgeDiv.classList.remove('hide')
+            bridgeSwitch.checked = !!this.remoteState.bridged
         }
 
         if (bridge_status) {
-            this.bridgeSwitch.classList.remove('disabled')
+            bridgeSwitch.classList.remove('disabled')
         } else {
-            this.bridgeSwitch.classList.add('disabled')
+            bridgeSwitch.classList.add('disabled')
         }
     }
 }
@@ -211,6 +250,8 @@ function connect() {
 
     ws.onmessage = (ev) => {
         if (typeof ev.data === 'string') {
+            /** @type {{ha?: boolean, system?: {version?: string, startedAt: string},
+             * devices?: Record<string, DeviceState>, bridge?: {loggedIn: boolean}, status?: string}} */
             const json = JSON.parse(ev.data)
             if (typeof json.ha === 'boolean') {
                 get('status_mqtt').innerHTML = json.ha ? STATUS_OK : STATUS_ERROR
@@ -240,14 +281,14 @@ function connect() {
             if (typeof json.bridge === 'object') {
                 bridge_status = json.bridge.loggedIn
                 if (json.bridge.loggedIn === true) {
-                    document.getElementById('btn_thinq_login').classList.add('hide')
-                    document.getElementById('btn_thinq_logout').classList.remove('hide')
+                    get('btn_thinq_login').classList.add('hide')
+                    get('btn_thinq_logout').classList.remove('hide')
 
                     get('status_bridge').innerHTML = STATUS_OK
                     get('status_bridge_text').innerText = 'Ok'
                 } else {
-                    document.getElementById('btn_thinq_login').classList.remove('hide')
-                    document.getElementById('btn_thinq_logout').classList.add('hide')
+                    get('btn_thinq_login').classList.remove('hide')
+                    get('btn_thinq_logout').classList.add('hide')
 
                     get('status_bridge').innerHTML = STATUS_ERROR
                     get('status_bridge_text').innerText = 'Not configured'
@@ -287,16 +328,23 @@ get('btn_thinq_logout_continue').onclick = async () => {
     M.Modal.getInstance(get('thinq_logout')).close()
 }
 
+/** @template {keyof PageElements} K @param {K} id @returns {PageElements[K]} */
 function get(id) {
-    return document.getElementById(id)
+    return /** @type {PageElements[K]} */ (document.getElementById(id))
 }
 
+/** @param {unknown} value */
 function toastText(value) {
     const escaped = document.createElement('span')
     escaped.textContent = String(value)
     M.toast({ html: escaped.innerHTML })
 }
 
+/**
+ * @param {string} path
+ * @param {Record<string, unknown>} body
+ * @param {Omit<RequestInit, 'headers'> & {headers?: Record<string, string>}} options
+ */
 async function fetchWrapper(path, body, options) {
     if (options.method !== 'GET') {
         if (!options.headers) options.headers = {}

@@ -1,8 +1,41 @@
-const baseUrl = new URL(window.location)
+/**
+ * Fixed elements supplied by this page's HTML.
+ * @typedef {{
+ *   'device_ip': HTMLInputElement,
+ *   'device_modal': HTMLDivElement,
+ *   'device_rows': HTMLTableSectionElement,
+ *   'empty_devices': HTMLParagraphElement,
+ *   'refresh': HTMLButtonElement,
+ *   'rethink_ip': HTMLInputElement,
+ *   'router_error': HTMLSpanElement,
+ *   'router_host': HTMLInputElement,
+ *   'router_password': HTMLInputElement,
+ *   'router_port': HTMLInputElement,
+ *   'router_status': HTMLSpanElement,
+ *   'router_username': HTMLInputElement,
+ *   'save_device': HTMLButtonElement,
+ *   'save_router': HTMLButtonElement,
+ *   'test_router': HTMLButtonElement,
+ *   'toggle_router_password': HTMLButtonElement,
+ * }} PageElements
+ */
+
+const baseUrl = new URL(window.location.href)
 baseUrl.pathname = baseUrl.pathname.replace(/[^/]*$/, '')
 baseUrl.search = ''
 baseUrl.hash = ''
+/**
+ * @typedef {{entryId: string, ip: string, name: string, customName?: string, deviceId?: string,
+ * model?: string, connected: boolean, dnat: 'on' | 'off' | 'partial' | 'unknown',
+ * bridgeActive: boolean, bridgeSaved: boolean, bridgeArchived: boolean}} RouterDevice
+ * @typedef {{devices: RouterDevice[], unassigned: {deviceId: string, name?: string,
+ * model?: string, sourceIp?: string}[], connected?: boolean, configured?: boolean, error?: string}} RouterSnapshot
+ * @typedef {Omit<RequestInit, 'body' | 'headers'> & {body?: string | Record<string, unknown>,
+ * headers?: Record<string, string>}} ApiOptions
+ */
+/** @type {RouterSnapshot} */
 let snapshot = { devices: [], unassigned: [] }
+/** @type {Set<string>} */
 const busy = new Set()
 
 document.addEventListener('DOMContentLoaded', async () => {
@@ -16,8 +49,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     await refresh()
 })
 
+/** @template {keyof PageElements} K @param {K} id @returns {PageElements[K]} */
 function get(id) {
-    return document.getElementById(id)
+    return /** @type {PageElements[K]} */ (document.getElementById(id))
 }
 
 function toggleRouterPassword() {
@@ -28,16 +62,18 @@ function toggleRouterPassword() {
     button.title = visible ? 'Show password' : 'Hide password'
     button.setAttribute('aria-label', button.title)
     button.setAttribute('aria-pressed', `${!visible}`)
-    button.querySelector('i').textContent = visible ? 'visibility' : 'visibility_off'
+    const icon = /** @type {HTMLElement} */ (button.querySelector('i'))
+    icon.textContent = visible ? 'visibility' : 'visibility_off'
     input.focus()
 }
 
+/** @param {string} path @param {ApiOptions} options @returns {Promise<unknown>} */
 async function api(path, options = {}) {
     if (options.body && typeof options.body !== 'string') {
         options.headers = { ...(options.headers || {}), 'Content-Type': 'application/json' }
         options.body = JSON.stringify(options.body)
     }
-    const response = await fetch(new URL(path, baseUrl), options)
+    const response = await fetch(new URL(path, baseUrl), /** @type {RequestInit} */ (options))
     if (!response.ok) throw new Error((await response.text()) || `HTTP ${response.status}`)
     if (response.status === 204) return undefined
     return response.json()
@@ -45,9 +81,12 @@ async function api(path, options = {}) {
 
 async function loadConfig() {
     try {
-        const config = await api('api/router/config')
+        const config =
+            /** @type {{host?: string, port?: number, username?: string, passwordSaved: boolean, rethinkIp?: string}} */ (
+                await api('api/router/config')
+            )
         get('router_host').value = config.host || ''
-        get('router_port').value = config.port || 22
+        get('router_port').value = String(config.port || 22)
         get('router_username').value = config.username || ''
         get('router_password').placeholder = config.passwordSaved ? 'Saved; leave blank to keep' : ''
         get('rethink_ip').value = config.rethinkIp || ''
@@ -80,7 +119,9 @@ async function saveRouter() {
 
 async function testRouter() {
     try {
-        const result = await api('api/router/test', { method: 'POST' })
+        const result = /** @type {{iptables: string, conntrack: string}} */ (
+            await api('api/router/test', { method: 'POST' })
+        )
         toast(`Connected: ${result.iptables}; ${result.conntrack}`)
     } catch (err) {
         toast(err)
@@ -101,7 +142,7 @@ async function addDevice() {
 async function refresh() {
     get('refresh').disabled = true
     try {
-        snapshot = await api('api/router/status')
+        snapshot = /** @type {RouterSnapshot} */ (await api('api/router/status'))
         get('router_status').textContent = snapshot.connected
             ? 'Connected'
             : snapshot.configured
@@ -126,6 +167,7 @@ function renderDevices() {
     })
 }
 
+/** @param {RouterDevice} device */
 function renderDevice(device) {
     const row = document.createElement('tr')
     const name = cell(device.name || '-')
@@ -266,11 +308,12 @@ function renderDevice(device) {
     return row
 }
 
+/** @param {boolean} checked @param {(enabled: boolean) => Promise<unknown>} action @param {string} entryId */
 function toggle(checked, action, entryId) {
     const div = document.createElement('div')
     div.className = 'switch'
     div.innerHTML = '<label>Off <input type="checkbox"><span class="lever"></span> On</label>'
-    const input = div.querySelector('input')
+    const input = /** @type {HTMLInputElement} */ (div.querySelector('input'))
     input.checked = checked
     input.disabled = busy.has(entryId)
     input.onchange = async () => {
@@ -298,6 +341,7 @@ const RENEW_EXPLANATION =
     '  offline in the app and stops reporting.\n' +
     '  The appliance keeps its name and its place in your LG home.'
 
+/** @param {RouterDevice} device */
 async function registrationChoice(device) {
     const renew = () =>
         run(device.entryId, () =>
@@ -338,6 +382,7 @@ async function registrationChoice(device) {
     await renew()
 }
 
+/** @param {string} entryId @param {() => Promise<unknown>} action */
 async function run(entryId, action) {
     busy.add(entryId)
     renderDevices()
@@ -350,20 +395,24 @@ async function run(entryId, action) {
     }
 }
 
+/** @param {string} text */
 function cell(text) {
     const td = document.createElement('td')
     td.textContent = text
     return td
 }
+/** @param {string} label @param {string} icon */
 function button(label, icon) {
     const b = document.createElement('button')
     b.className = 'btn-small waves-effect waves-light'
     b.innerHTML = `${label} <i class="material-icons right">${icon}</i>`
     return b
 }
+/** @param {unknown} err */
 function toast(err) {
     M.toast({ html: escapeHtml(err instanceof Error ? err.message : `${err}`) })
 }
+/** @param {string | undefined} value */
 function escapeHtml(value) {
     const div = document.createElement('div')
     div.textContent = value || ''

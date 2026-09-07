@@ -12,7 +12,7 @@ import stat
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, NoReturn
 
 
 RESULT_SCHEMA = "semgrep-reviewed-filter-result-v1"
@@ -43,7 +43,7 @@ class PolicyError(Exception):
 
 
 class StrictArgumentParser(argparse.ArgumentParser):
-    def error(self, message: str) -> None:
+    def error(self, message: str) -> NoReturn:
         del message
         raise PolicyError("INVALID_ARGUMENTS")
 
@@ -142,6 +142,7 @@ class SourceRepository:
 
         parts = _safe_path_parts(relative_path)
         current = self.root
+        info: os.stat_result | None = None
         for index, part in enumerate(parts):
             current /= part
             try:
@@ -158,6 +159,8 @@ class SourceRepository:
             elif not stat.S_ISREG(info.st_mode):
                 raise PolicyError("UNSAFE_SOURCE")
 
+        if info is None:
+            raise PolicyError("UNSAFE_SOURCE_PATH")
         if info.st_size > MAX_SOURCE_BYTES:
             raise PolicyError("SOURCE_TOO_LARGE")
         try:
