@@ -1,5 +1,10 @@
 {
-  "include": [".github/security/filter-semgrep.py", "tests/security/test_filter_semgrep.py"],
+  "include": [
+    ".github/security/filter-semgrep.py",
+    "tests/security/test_filter_semgrep.py",
+    "scripts/deploy-status.py",
+    "tests/scripts/test_deploy_status.py"
+  ],
   "exclude": ["**/node_modules", "**/__pycache__"],
   "pythonVersion": "3.12",
   "typeCheckingMode": "standard"

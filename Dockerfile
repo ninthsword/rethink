@@ -1,8 +1,8 @@
 # Build stage
-FROM alpine:3.20 AS build
+FROM alpine:3.24.1@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b AS build
 WORKDIR /app
 
-RUN apk add --no-cache nodejs npm
+RUN apk add --no-cache nodejs=24.18.1-r0 npm=11.12.1-r0
 
 COPY package.json package-lock.json ./
 RUN npm ci --ignore-scripts
@@ -12,10 +12,10 @@ RUN npm run build && npm prune --omit=dev
 RUN chmod -R a+rX dist node_modules
 
 # Production stage
-FROM alpine:3.20 AS runtime
+FROM alpine:3.24.1@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b AS runtime
 WORKDIR /app
 
-RUN apk add --no-cache nodejs openssl \
+RUN apk add --no-cache nodejs=24.18.1-r0 openssl=3.5.8-r0 \
 	&& addgroup -S app \
 	&& adduser -S -G app app
 

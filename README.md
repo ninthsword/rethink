@@ -196,7 +196,7 @@ LG 기기 ← rethink ← LG 클라우드
 
 ## 개발 환경
 
-최소 지원 Node.js 버전은 20이며, `.nvmrc`는 재현 가능한 기본 개발 버전으로 Node 24를 지정합니다. CI는 Node 20과 24를 모두 검증합니다.
+The minimum supported Node.js version is 22. `.nvmrc` selects Node 24 for development; CI checks Node 22 and 24.
 
 ```sh
 nvm use
@@ -922,3 +922,21 @@ Rethink를 계속 사용할 계획이라면 공유기 재부팅이나 일시적�
 LG ThinQ 명칭은 식별 목적으로만 사용합니다. 이 프로젝트와 Fork는 LG전자와 제휴하거나 공식적으로 지원받는 프로젝트가 아닙니다.
 
 이 프로그램은 상품성 또는 특정 목적 적합성에 대한 어떠한 보증도 없이 제공됩니다. 사용으로 인해 발생하는 기기, 계정 또는 네트워크 문제는 사용자가 직접 복구해야 합니다.
+
+
+### Container dependency maintenance
+
+Both Docker stages pin Alpine 3.24.1 by its multi-platform image digest and pin the direct
+APK packages: Node.js 24.18.1-r0, build npm 11.12.1-r0, and runtime OpenSSL 3.5.8-r0.
+Refresh the base digest and direct APK versions together, confirming availability for amd64,
+arm64, and armv7. Indirect APK dependencies still resolve from Alpine's signed repositories;
+these pins do not promise byte-for-byte image reproduction. Removed package versions require
+an explicit coordinated refresh; signature verification must remain enabled.
+
+Weekly CI and dependency update checks cover maintenance drift. Each image platform must
+build, pass the vulnerability scan, and pass the network-disabled Node/OpenSSL and synthetic
+certificate smoke test before publication. Local deployment waits are bounded: each HTTP
+request has a five-second limit, management startup gets 30 attempts, and DNAT readiness gets
+30 attempts. Failure exits nonzero without claiming appliance health. Only desired DNAT-mode
+entries must regain forwarding; local or disabled entries and an empty desired set are valid
+no-ops. Deployment readiness does not replace the Home Assistant health check.

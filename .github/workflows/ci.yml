@@ -6,6 +6,8 @@ on:
         branches:
             - master
     pull_request:
+    schedule:
+        - cron: '17 4 * * 1'
 
 permissions:
     contents: read
@@ -22,7 +24,7 @@ jobs:
         strategy:
             fail-fast: false
             matrix:
-                node-version: [20, 24]
+                node-version: [22, 24]
 
         steps:
             - name: Checkout source
@@ -51,6 +53,7 @@ jobs:
                   python --version
                   npm run typecheck:python
                   python -B -m unittest discover -s tests/security -p test_filter_semgrep.py -v
+                  python -B -m unittest discover -s tests/scripts -p test_deploy_status.py -v
 
             - name: Check simulator syntax
               run: |
@@ -96,8 +99,18 @@ jobs:
                   "$shellcheck_dir/shellcheck" scripts/deploy.sh
 
     image-scan:
-        name: Scan amd64 image
+        name: Scan ${{ matrix.arch }} image
         needs: checks
+        strategy:
+            fail-fast: false
+            matrix:
+                include:
+                    - arch: amd64
+                      platform: linux/amd64
+                    - arch: arm64
+                      platform: linux/arm64
+                    - arch: armv7
+                      platform: linux/arm/v7
         runs-on: ubuntu-latest
         permissions:
             contents: read
@@ -106,25 +119,52 @@ jobs:
             - name: Checkout source
               uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+            - name: Set up QEMU
+              uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
+              with:
+                  platforms: arm64,arm
+
             - name: Set up Docker Buildx
               uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
 
-            - name: Build local amd64 image
+            - name: Build local ${{ matrix.arch }} image
               uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
               with:
                   context: .
                   file: ./Dockerfile
-                  platforms: linux/amd64
+                  platforms: ${{ matrix.platform }}
                   load: true
                   push: false
-                  tags: rethink-ci:${{ github.sha }}
+                  tags: rethink-ci:${{ github.sha }}-${{ matrix.arch }}
 
             - name: Scan image for vulnerabilities
               uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
               with:
-                  image-ref: rethink-ci:${{ github.sha }}
+                  image-ref: rethink-ci:${{ github.sha }}-${{ matrix.arch }}
                   version: v0.74.0
                   scanners: vuln
                   severity: HIGH,CRITICAL
                   ignore-unfixed: true
                   exit-code: '1'
+
+            - name: Smoke test runtime and synthetic certificate
+              env:
+                  IMAGE: rethink-ci:${{ github.sha }}-${{ matrix.arch }}
+                  PLATFORM: ${{ matrix.platform }}
+              run: |
+                  docker run --rm --platform "$PLATFORM" --network none --read-only \
+                      --cap-drop ALL --security-opt no-new-privileges --tmpfs /tmp \
+                      --entrypoint sh "$IMAGE" -ec '
+                          printf "%s\n" SMOKE_NODE
+                          test "$(node --version)" = v24.18.1
+                          printf "%s\n" SMOKE_OPENSSL_PACKAGE
+                          test "$(apk list --installed openssl | awk "{print \$1}")" = openssl-3.5.8-r0
+                          printf "%s\n" SMOKE_CONFIG_IMPORT
+                          node --input-type=module -e "await import(\"./dist/util/config.js\")"
+                          printf "%s\n" SMOKE_CERTIFICATE
+                          openssl req -x509 -newkey rsa:2048 -nodes \
+                              -keyout /tmp/fixture.key -out /tmp/fixture.crt -days 1 \
+                              -subj /CN=fixture.invalid >/tmp/cert.log 2>&1
+                          test -s /tmp/fixture.crt
+                          printf "%s\n" SMOKE_COMPLETE
+                      '

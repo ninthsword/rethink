@@ -65,3 +65,33 @@ describe('the certificate offered for a hostname', () => {
         assert.throws(() => provider.forServerName('../../etc/passwd'))
     })
 })
+
+test('unsafe SNI names fail before certificate generation or CA material access', () => {
+    const ca = {
+        get key(): string {
+            throw new Error('CA key must not be read')
+        },
+        get cert(): string {
+            throw new Error('CA certificate must not be read')
+        },
+    }
+    const provider = new SNICertificateProvider(ca)
+    for (const name of [
+        'a/CN=other',
+        'a\\b',
+        'a+OU=other',
+        'a\u0000b',
+        'a\nb',
+        'a..b',
+        '-a',
+        'a-',
+        'a'.repeat(64),
+        `${'a'.repeat(63)}.${'b'.repeat(63)}.${'c'.repeat(63)}.${'d'.repeat(62)}`,
+        null,
+        42,
+        {},
+    ]) {
+        assert.throws(() => provider.issue(name as string), /Invalid TLS SNI hostname/)
+    }
+    assert.equal(provider.cache.size, 0)
+})
