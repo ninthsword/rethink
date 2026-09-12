@@ -5,8 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createSecureContext, type SecureContext } from 'node:tls'
 import type { CA } from './config'
-
-const DNS_NAME = /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)*[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/
+import { isDNSHostname } from './hostname'
 
 function runOpenSSL(args: string[]) {
     const result = spawnSync('openssl', args, { encoding: 'utf-8' })
@@ -32,8 +31,9 @@ export class SNICertificateProvider {
     }
 
     issue(serverName: string): IssuedCertificate {
+        if (typeof serverName !== 'string') throw new Error('Invalid TLS SNI hostname')
         const hostname = serverName.trim().toLowerCase().replace(/\.$/, '')
-        if (!DNS_NAME.test(hostname)) throw new Error(`Invalid TLS SNI hostname: ${serverName}`)
+        if (!isDNSHostname(hostname)) throw new Error('Invalid TLS SNI hostname')
 
         const cached = this.cache.get(hostname)
         if (cached) return cached

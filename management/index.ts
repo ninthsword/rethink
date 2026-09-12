@@ -83,6 +83,9 @@ export function app(ha: HA_bridge, manager: DeviceManager, bridge: Bridge | unde
                     sourceIp: 'sourceIp' in dev ? dev.sourceIp : undefined,
                     mapped: ha.haDevices.has(id),
                     bridged: bridge ? bridge.status(id) : false,
+                    mode: bridge?.mode(id) ?? 'local',
+                    connected: true,
+                    ...bridge?.details(id),
                 },
             ])
         }
@@ -139,13 +142,16 @@ export function app(ha: HA_bridge, manager: DeviceManager, bridge: Bridge | unde
                     res.status(400).end('Invalid deviceId')
                     return
                 }
-                const deviceType = typeof req.body.deviceType === 'string' ? (req.body.deviceType as string) : undefined
-                try {
-                    if (await bridge.enable(deviceId, deviceType, statusReport)) res.status(204).end()
-                    else res.status(400).end()
-                } catch (err) {
-                    res.status(500).end(`${err}`)
-                }
+                await routerApi.store.exclusive(async () => {
+                    if (bridge.mode(deviceId) === 'dnat') {
+                        res.status(409)
+                            .type('text/plain')
+                            .end('DNAT forwarding follows DNAT. Use the router DNAT control.')
+                        return
+                    }
+                    await bridge.enable(deviceId)
+                    res.status(204).end()
+                })
             }),
         )
 
@@ -153,14 +159,45 @@ export function app(ha: HA_bridge, manager: DeviceManager, bridge: Bridge | unde
             '/bridge/:deviceId/disable',
             asyncHandler(async (req, res) => {
                 const deviceId = req.params.deviceId
-                if (Array.isArray(deviceId)) {
+                if (typeof deviceId !== 'string') {
                     res.status(400).end('Invalid deviceId')
                     return
                 }
-                await bridge.disable(deviceId)
-                res.status(204).end()
+                await routerApi.store.exclusive(async () => {
+                    if (bridge.mode(deviceId) === 'dnat') {
+                        res.status(409)
+                            .type('text/plain')
+                            .end('DNAT forwarding follows DNAT. Use the router DNAT control.')
+                        return
+                    }
+                    bridge.disable(deviceId)
+                    res.status(204).end()
+                })
             }),
         )
+
+        for (const action of ['restore', 'renew'] as const) {
+            app.post(
+                `/bridge/:deviceId/registration/${action}`,
+                asyncHandler(async (req, res) => {
+                    const id = req.params.deviceId
+                    if (typeof id !== 'string') {
+                        res.status(400).end('Invalid deviceId')
+                        return
+                    }
+                    await routerApi.store.exclusive(async () => {
+                        if (action === 'restore') await bridge.restore(id)
+                        else
+                            await bridge.renew(
+                                id,
+                                typeof req.body?.deviceType === 'string' ? req.body.deviceType : undefined,
+                                statusReport,
+                            )
+                        res.status(204).end()
+                    })
+                }),
+            )
+        }
 
         function refreshBridgeStatus() {
             broadcast({ bridge: bridgeStatus() })
@@ -171,6 +208,7 @@ export function app(ha: HA_bridge, manager: DeviceManager, bridge: Bridge | unde
         bridge.on('deviceNamesChanged', refreshDevices)
         bridge.on('started', refreshDevices)
         bridge.on('stopped', refreshDevices)
+        bridge.on('statusChanged', refreshDevices)
     }
 
     function bridgeStatus() {
@@ -300,6 +338,11 @@ export function app(ha: HA_bridge, manager: DeviceManager, bridge: Bridge | unde
 
 function asyncHandler(handler: (req: Request, res: Response) => Promise<unknown>) {
     return (req: Request, res: Response, next: (err: unknown) => void) => {
-        handler(req, res).catch(next)
+        handler(req, res).catch((error: unknown) => {
+            if (res.headersSent) return next(error)
+            res.status(400)
+                .type('text/plain')
+                .end(error instanceof Error ? error.message : 'Unexpected error')
+        })
     }
 }

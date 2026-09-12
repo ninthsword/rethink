@@ -1,5 +1,85 @@
 # rethink - LG ThinQ 로컬 브리지
 
+## Appliance modes and registration lifecycle
+
+The management pages expose **per-appliance forwarding policy** through existing router
+entries. Existing entries lazily default to **DNAT**; appliances without a linked entry use
+**Local**. A source-IP match applies the entry policy before automatic Bridge startup. No
+startup credential migration or bulk rewrite is performed.
+
+| Policy | Router forwarding | LG forwarding |
+| --- | --- | --- |
+| DNAT | Enable / Turn off controls managed DNAT rules | Automatic with DNAT intent, using saved registration; no independent Bridge switch |
+| Local | Managed DNAT is not used | Optional Bridge, usable without router SSH configuration |
+
+Local uses the appliance's **existing connection setup** to Rethink. The ThinQ2 `/route`
+response still uses deployment-wide `route_servers` or `hostname`; mode selection does not
+create per-device route destinations. Moving from DNAT to Local requires managed DNAT off
+and an existing independent appliance path to Rethink. Saving a mode changes neither Wi-Fi
+registration, routing configuration, certificates nor physical provisioning, and does not
+prove mixed-mode provisioning or cloud independence.
+
+For this supported **DNAT ↔ Local switching workflow**, the appliance certificates differ.
+Both directions require removing appliance power to reset the Wi-Fi module, restoring power,
+and repeating Wi-Fi setup and physical appliance certificate enrollment for the target mode.
+Use the appliance-specific procedure; this is not a universal firmware claim or reset-duration
+prescription. For Local, keep managed DNAT off and establish an independent path to Rethink
+with Local-mode appliance enrollment. For DNAT, use the DNAT network and target-mode appliance
+enrollment procedure. Release existing managed DNAT rules before changing policy.
+
+The named transition dialog identifies the current and target modes, explains these steps,
+and requires an initially unchecked acknowledgment plus **Approve mode change**. Cancel or
+Escape sends no update. Effective mode changes through the existing API require
+`modeTransition: {from, to, acknowledged: true}` matching the current and requested modes;
+missing or stale approval returns an actionable 409. Same-mode saves and unrelated edits
+retain their existing behavior. This acknowledgment records informed approval, not completed
+physical work. A successful update reports **policy saved; physical reset and enrollment
+unverified**. Saving policy does not perform, verify or complete physical conversion.
+
+**Bridge Restore / Set up / Renew is separate from appliance enrollment.** Those actions
+manage Rethink's upstream LG registration; they do not reset the appliance Wi-Fi module or
+enroll its physical Wi-Fi certificate for either mode.
+
+Ordinary Local enable, startup, reconnect and DNAT resume **reuse saved registration only**.
+If it is missing, the UI reports **Setup required**. Select **Set up** explicitly to contact
+LG and register, or **Restore** to reuse an archive when no current registration exists.
+**Renew** explicitly contacts LG again. DNAT registration preserves LG Home membership;
+that does not prove original appliance credential continuity. Previous local material is
+kept until a replacement succeeds, but remote LG pairing cannot be rolled back by restoring
+local files. Current registration takes precedence over an archive.
+
+Ordinary disable preserves registration bytes. Local enabled intent is persisted separately
+from account, current and archived registration. Signing out removes account login for
+setup/renewal; it does not erase saved appliance registrations or forwarding intent. Removing
+an inactive router entry archives its registration and disables its Local intent. The legacy
+credentials-delete endpoint refuses deletion and points to explicit renewal instead.
+
+Router actions, preconditions, linkage changes and periodic reconciliation share one queue.
+DNAT desired intent is saved after successful router action; disable releases rules before
+stopping forwarding. Maintenance release preserves desired intent but latches entries off
+for this process until explicit Enable or restart, including after partial release errors.
+A persistence failure is reported; a completed router action is not claimed to be rolled back.
+
+Both pages distinguish selected mode, observed local connection, LG connection, saved or
+archived registration, and requested forwarding. A Bridge object or LG account login does
+not mean an LG connection exists, and neither connection flag establishes HA entity health.
+Transport failure marks displayed state stale and disables mutations until refreshed. Native
+registration dialogs offer named Restore / Renew (or Set up) / Cancel actions with keyboard
+cancellation and focus return. No pairing occurs from a mode change or ordinary switch.
+
+Development tests use synthetic cloud DNS/TLS/MQTT failures and local transport observers.
+They verify lifecycle isolation, not physical appliance behavior during a real cloud outage.
+A rendered-browser check, production Node 20 execution, and the separate eleven-appliance
+Home Assistant runtime/outage gate are still required before runtime claims.
+
+> Historical operating notes below describe earlier software and specific observations.
+> Where older switch instructions conflict with this lifecycle, use the policy above.
+> Earlier records disagree about appliance recovery following repeated interruption: one
+> observed redeploy without deleting local certificate files; another required Wi-Fi setup
+> again after repeated restarts. Neither establishes universal credential revocation or
+> guaranteed recovery. Preserve the existing release-before-restart operational safeguard.
+
+
 LG ThinQ 가전과 로컬 네트워크에서 통신하고, 가전 프로토콜을 Home Assistant 호환 MQTT로 변환하는 프로젝트입니다.
 
 이 저장소는 [anszom/rethink](https://github.com/anszom/rethink)를 기반으로 한 Fork입니다. 원작자의 로컬 제어 및 bridge 기능에 다음 기능을 추가했습니다.
@@ -116,7 +196,7 @@ LG 기기 ← rethink ← LG 클라우드
 
 ## 개발 환경
 
-최소 지원 Node.js 버전은 20이며, `.nvmrc`는 재현 가능한 기본 개발 버전으로 Node 24를 지정합니다. CI는 Node 20과 24를 모두 검증합니다.
+The minimum supported Node.js version is 22. `.nvmrc` selects Node 24 for development; CI checks Node 22 and 24.
 
 ```sh
 nvm use
@@ -536,15 +616,13 @@ ASUS의 NAT 처리 방식 때문에 감지 목록에는 기기 IP 대신 공유�
 5. Bridge `On`
 6. LG ThinQ 앱과 Home Assistant 동작 확인
 
-### 4-7. Bridge 켜기와 끄기
+### 4-7. Bridge lifecycle
 
-Link가 끝나면 DNAT 관리 화면의 Bridge 스위치를 켤 수 있습니다. 이 스위치와 기본 Rethink 관리 화면의 Bridge 스위치는 같은 `enable()`·`disable()` 동작을 사용합니다.
-
-- Bridge `On`: LG 클라우드용 Bridge 인증서를 발급·저장하고 클라우드 중계를 시작합니다.
-- Bridge `Off`: Bridge 연결을 종료하고 저장된 해당 기기의 Bridge 인증서를 삭제합니다.
-- DNAT `Off`: Bridge가 켜져 있으면 거부됩니다. 반드시 `Bridge Off → DNAT Off` 순서로 진행합니다.
-
-Bridge를 활성화하면 rethink의 로컬 MQTT 엔티티와 LG ThinQ 앱을 함께 사용할 수 있습니다. 기기가 보이지 않으면 Bridge를 반복해서 켜기보다 DNAT 상태, `RETHINK_DNAT` 패킷 카운터, conntrack과 rethink 로그를 먼저 확인하세요.
+In **DNAT** mode, use the DNAT control; forwarding follows it automatically and there is no
+separate Bridge switch. In **Local**, the optional Bridge switch reuses saved registration
+without router SSH. Off stops forwarding and preserves registration. Missing registration
+requires explicit Set up or Restore. Renew is a separate action and retains previous local
+material on failure. See the mode and registration contract at the top of this document.
 
 ### 4-8. DNAT 끄기와 목록 제거
 
@@ -571,7 +649,7 @@ DNAT를 `On`으로 바꾸면 그 사실이 `router-dnat.json`에 함께 저장�
 3. 관리 기능이 전용 체인과 기기별 규칙을 중복 없이 다시 만들고 conntrack을 정리합니다.
 4. 1~2분 후 기기와 Bridge가 다시 연결되는지 확인합니다.
 
-공유기 장애로 기기 연결만 끊어진 경우에는 저장된 Bridge 인증서가 삭제되지 않습니다. DNAT가 복구되고 같은 기기가 다시 접속하면 저장된 상태로 Bridge 연결을 재개할 수 있습니다. 사용자가 Bridge 스위치를 직접 `Off`한 경우에는 인증서가 삭제되므로 다음 `On`에서 새로 발급합니다.
+공유기 장애로 기기 연결만 끊어진 경우에는 저장된 Bridge 인증서가 삭제되지 않습니다. DNAT가 복구되고 같은 기기가 다시 접속하면 저장된 상태로 Bridge 연결을 재개할 수 있습니다. Ordinary Bridge Off now preserves registration; On reuses it without pairing.
 
 이 상황은 Rethink를 제거하는 원복이 아닙니다. 컨테이너의 데이터 볼륨과 Bridge 상태를 그대로 유지하고, 관리 화면에서 Bridge를 끄거나 `state/`의 기기 파일을 삭제하지 마세요. DNAT만 복구하면 되므로 LG ThinQ 앱에서 기기를 재등록할 필요가 없습니다.
 
@@ -638,9 +716,10 @@ npx tsx scripts/check-home-assistant.mts
 사라지면 **최대 20분 동안 아무 데도 없는 상태**가 되고, 같은 재시작에서 세탁기 한 대가 실제로
 25분 걸렸습니다. 그 사이에 다시 배포하면 그 상태가 계속 연장됩니다.
 
-돌아올 때 가전은 `clip/provisioning`으로 `undeploy`를 보낸 뒤 `deploy`를 보냅니다. 로그에
-"undeployed itself; dropping its registration"이 찍히지만 **이것은 정상적인 재등록 절차이며
-디스크의 인증서는 삭제되지 않습니다.** 앱에서 다시 등록할 필요가 없습니다.
+One historical restart observation saw `undeploy` followed by `deploy`, without deleting
+local certificate files or requiring app registration. Another repeated-interruption record
+required Wi-Fi registration again. These are limited observations: local file retention does
+not establish what the appliance or LG cloud will accept after every interruption.
 
 그래서 배포 전에 DNAT 규칙을 먼저 걷어냅니다. 규칙이 없는 동안 가전은 LG 클라우드와 직접
 통신하므로 상대를 잃지 않고, rethink가 올라오면 DNAT 조정기가 규칙을 스스로 되돌립니다.
@@ -843,3 +922,21 @@ Rethink를 계속 사용할 계획이라면 공유기 재부팅이나 일시적�
 LG ThinQ 명칭은 식별 목적으로만 사용합니다. 이 프로젝트와 Fork는 LG전자와 제휴하거나 공식적으로 지원받는 프로젝트가 아닙니다.
 
 이 프로그램은 상품성 또는 특정 목적 적합성에 대한 어떠한 보증도 없이 제공됩니다. 사용으로 인해 발생하는 기기, 계정 또는 네트워크 문제는 사용자가 직접 복구해야 합니다.
+
+
+### Container dependency maintenance
+
+Both Docker stages pin Alpine 3.24.1 by its multi-platform image digest and pin the direct
+APK packages: Node.js 24.18.1-r0, build npm 11.12.1-r0, and runtime OpenSSL 3.5.8-r0.
+Refresh the base digest and direct APK versions together, confirming availability for amd64,
+arm64, and armv7. Indirect APK dependencies still resolve from Alpine's signed repositories;
+these pins do not promise byte-for-byte image reproduction. Removed package versions require
+an explicit coordinated refresh; signature verification must remain enabled.
+
+Weekly CI and dependency update checks cover maintenance drift. Each image platform must
+build, pass the vulnerability scan, and pass the network-disabled Node/OpenSSL and synthetic
+certificate smoke test before publication. Local deployment waits are bounded: each HTTP
+request has a five-second limit, management startup gets 30 attempts, and DNAT readiness gets
+30 attempts. Failure exits nonzero without claiming appliance health. Only desired DNAT-mode
+entries must regain forwarding; local or disabled entries and an empty desired set are valid
+no-ops. Deployment readiness does not replace the Home Assistant health check.

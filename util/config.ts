@@ -1,4 +1,5 @@
 import { isIP } from 'node:net'
+import { isDNSHostname } from './hostname'
 
 export type RawConfig = {
     hostname: string
@@ -148,6 +149,7 @@ export function managementHost(config: Config): string {
 }
 
 export function normalize(config: RawConfig): Config {
+    if (!isDNSHostname(config.hostname)) throw new Error('config.json: hostname must be a valid DNS name')
     const homeassistant = {
         language: 'english' as const,
         offline_grace_seconds: 1800,

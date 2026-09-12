@@ -8,6 +8,7 @@ import log from '@/util/logging'
 import type { Thinq1Device } from './thinqApi'
 
 type ConnectionEvents = {
+    connected: () => void
     data: (payload: object) => void
     close: () => void
     error: (error: Error) => void
@@ -115,6 +116,7 @@ export class Connection extends TypedEmitter<ConnectionEvents> {
                 }
                 socket.setTimeout(0)
                 log('bridge', `${this.device.deviceId} connected`)
+                this.emit('connected')
                 // Cleared in destroy(); without that the heartbeat outlived the socket and
                 // every reconnect left another one running.
                 this.aliveTimer = setInterval(sendAlive, 60000)
@@ -144,6 +146,7 @@ export class Connection extends TypedEmitter<ConnectionEvents> {
         socket.on(
             'data',
             splitter((payload: Buffer) => {
+                if (this.destroyed) return
                 try {
                     const str = payload.toString('utf-8')
                     const j = JSON.parse(str)

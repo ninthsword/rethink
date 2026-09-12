@@ -107,3 +107,54 @@ describe('reading config.json', () => {
         assert.equal(config.route_servers, undefined)
     })
 })
+
+test('configured certificate hostname rejects unsafe types, subjects and DNS boundaries', () => {
+    for (const hostname of [
+        null,
+        undefined,
+        42,
+        true,
+        {},
+        [],
+        '',
+        'a/b',
+        'a\\b',
+        'a/CN=other',
+        'a+OU=other',
+        'a=other',
+        'a,b',
+        'a;b',
+        'a\u0000b',
+        'a\nb',
+        'a\n',
+        'a\r',
+        'a\tb',
+        ' a',
+        'a ',
+        'a..b',
+        '.a',
+        'a.',
+        '-a',
+        'a-',
+        'a.-b',
+        'a_.b',
+        '*.example',
+        'é.example',
+        'a'.repeat(64),
+        `${'a'.repeat(63)}.${'b'.repeat(63)}.${'c'.repeat(63)}.${'d'.repeat(62)}`,
+    ]) {
+        assert.throws(() => normalize({ ...minimal(), hostname } as RawConfig), /hostname/)
+    }
+})
+
+test('configured DNS names preserve spelling through the maximum supported length', () => {
+    for (const hostname of [
+        'a',
+        'ReThink.Example',
+        'a-b.example',
+        'a'.repeat(63),
+        `${'a'.repeat(63)}.${'b'.repeat(63)}.${'c'.repeat(63)}.${'d'.repeat(61)}`,
+    ]) {
+        assert.equal(normalize({ ...minimal(), hostname }).hostname, hostname)
+    }
+})

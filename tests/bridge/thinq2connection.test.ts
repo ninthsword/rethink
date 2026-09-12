@@ -84,3 +84,54 @@ describe('what the bridge tells the LG cloud about the appliance', () => {
         assert.equal(sent.data.appInfo.modelName, 'PAC_910604_WW')
     })
 })
+
+test('synthetic MQTT failure and late events never interrupt the independent local transport', async () => {
+    const { EventEmitter } = await import('node:events')
+    const { Device } = await import('@/cloud/thinq2/device')
+    const writes: unknown[] = []
+    const broker = { publish: (packet: unknown) => writes.push(packet) }
+    const local = new Device(broker as unknown as import('@/cloud/mqtt-broker').Broker, 'local/topic', DEVICE_ID, {
+        modelId: 'model',
+        modelName: 'model',
+    })
+    const client = Object.assign(new EventEmitter(), {
+        subscribe() {
+            throw new Error('synthetic MQTT subscription failure')
+        },
+        publish() {},
+        end() {},
+    })
+    const upstream = new Connection(
+        new Thinq2Device(DEVICE_ID, local.meta, STATE),
+        undefined,
+        (() => client) as unknown as typeof import('mqtt').connect,
+    )
+    const errors: string[] = []
+    const reports: Buffer[] = []
+    let closes = 0
+    let cloudCommands = 0
+    upstream.on('error', (error) => errors.push(error.message))
+    upstream.on('close', () => closes++)
+    upstream.on('message', () => cloudCommands++)
+    local.on('data', (packet) => reports.push(packet))
+    client.emit('connect')
+    await new Promise<void>((resolve) => setImmediate(resolve))
+    assert.match(errors[0], /MQTT subscription failure/)
+    assert.equal(closes, 1)
+    local.emit('data', Buffer.from([1]))
+    local.send_packet(Buffer.from([2]))
+    assert.equal(reports.length, 1)
+    assert.equal(writes.length, 1)
+    upstream.destroy()
+    client.emit('message', 'sub/topic', Buffer.from('{"cmd":"packet","data":"00"}'), {
+        qos: 0,
+        dup: false,
+        retain: false,
+    })
+    client.emit('connect')
+    client.emit('close')
+    assert.equal(cloudCommands, 0)
+    assert.equal(closes, 1)
+    local.send_packet(Buffer.from([3]))
+    assert.equal(writes.length, 2)
+})

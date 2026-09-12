@@ -13,6 +13,7 @@ import {
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
+import stripJsonComments from 'strip-json-comments'
 
 const dockerignore = readFileSync('.dockerignore', 'utf-8')
 const dockerfile = readFileSync('Dockerfile', 'utf-8')
@@ -252,4 +253,32 @@ test('runtime documentation covers fresh and migrated data ownership', () => {
     assert.ok(backupVerify < ownership && ownership < deploy)
     assert.doesNotMatch(readme.slice(backupDir, ownership), /sudo chown/)
     assert.ok(deploy < migrationEnd)
+})
+
+test('Git ignores private config.json but permits the empty-credential public template', () => {
+    const temporary = mkdtempSync(join(tmpdir(), 'rethink-ignore-policy-'))
+    try {
+        writeFileSync(join(temporary, '.gitignore'), readFileSync('.gitignore'))
+        writeFileSync(join(temporary, 'config.json'), '{}')
+        writeFileSync(join(temporary, 'config.jsonc'), readFileSync('config.jsonc'))
+        const env = { PATH: process.env.PATH, HOME: temporary, GIT_CONFIG_NOSYSTEM: '1' }
+        assert.equal(spawnSync('git', ['init', '--quiet', temporary], { env }).status, 0)
+        const ignored = spawnSync('git', ['check-ignore', '--', 'config.json', 'config.jsonc'], {
+            cwd: temporary,
+            env,
+            encoding: 'utf-8',
+        })
+        assert.equal(ignored.status, 0)
+        assert.equal(ignored.stdout, 'config.json\n')
+        assert.equal(spawnSync('git', ['add', '--', 'config.jsonc'], { cwd: temporary, env }).status, 0)
+        assert.equal(
+            spawnSync('git', ['ls-files', '--error-unmatch', 'config.jsonc'], { cwd: temporary, env }).status,
+            0,
+        )
+        const template = JSON.parse(stripJsonComments(readFileSync('config.jsonc', 'utf-8')))
+        assert.equal(template.homeassistant.mqtt_user, '')
+        assert.equal(template.homeassistant.mqtt_pass, '')
+    } finally {
+        rmSync(temporary, { recursive: true, force: true })
+    }
 })

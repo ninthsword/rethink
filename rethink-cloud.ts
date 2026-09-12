@@ -9,6 +9,7 @@ import * as tls from 'node:tls'
 import express from 'express'
 import stripJsonComments from 'strip-json-comments'
 import { Bridge } from './bridge'
+import { BridgePolicy } from './bridge/policy'
 import { JSONStorage } from './bridge/state'
 import { setEnergyDataDirectory } from './cloud/devices/energy_meter'
 import { DeviceManager } from './cloud/devmgr'
@@ -21,6 +22,7 @@ import { routes as thinq1Routes } from './cloud/thinq1/http'
 import { DeviceAcceptor as T2Acceptor } from './cloud/thinq2/device'
 import { routes as thinq2Routes } from './cloud/thinq2/provisioning'
 import * as Management from './management'
+import { RouterConfigStore } from './router/config-store'
 import { type CA, managementHost, normalize as normalizeConfig, type RawConfig } from './util/config'
 import log, { setFilter as setLogFilter } from './util/logging'
 import { collapseRepeats, withoutErrorTag } from './util/repeated_log'
@@ -272,12 +274,15 @@ manager.on('newDevice', (dev) => ha.newDevice(dev))
 t1setup(manager)
 t2setup(manager)
 
+const routerStore = new RouterConfigStore(resolve(configDir, 'router-dnat.json'))
+const bridgePolicy = new BridgePolicy(routerStore)
 let bridge: Bridge | undefined
 if (config.bridge) {
     mkdirSync(config.bridge.storage_path, { recursive: true })
     const storage = new JSONStorage(config.bridge.storage_path)
     bridge = new Bridge(storage, manager, {
         preserveExistingDevices: config.bridge.preserve_existing_devices,
+        policy: bridgePolicy,
     })
     haConnection.setDeviceNameResolver((id) => bridge?.name(id))
     bridge.on('deviceNamesChanged', () => ha.refreshDiscovery())

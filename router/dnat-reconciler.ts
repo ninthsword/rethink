@@ -1,3 +1,4 @@
+import { entryMode } from '@/bridge/policy'
 import log from '@/util/logging'
 import type { RouterConfigStore, RouterDeviceEntry } from './config-store'
 import type { DNATState } from './dnat-manager'
@@ -31,6 +32,7 @@ export class DNATReconciler {
         readonly actuator: () => DNATActuator,
         readonly intervalMs = DEFAULT_RECONCILE_INTERVAL_MS,
         readonly initialDelayMs = INITIAL_RECONCILE_DELAY_MS,
+        readonly onChange: () => Promise<void> = async () => {},
     ) {}
 
     start() {
@@ -56,15 +58,26 @@ export class DNATReconciler {
      * that are meant to be on and are not.
      */
     async reconcile(): Promise<ReconcileResult> {
+        if (this.running) return { adopted: [], restored: [] }
+        this.running = true
+        try {
+            return await this.store.exclusive(() => this.reconcileLocked())
+        } finally {
+            this.running = false
+        }
+    }
+
+    private async reconcileLocked(): Promise<ReconcileResult> {
         const empty: ReconcileResult = { adopted: [], restored: [] }
         // Cycles are skipped rather than queued: the router is slow to answer over SSH and
         // a backlog would only pile up more connections to it.
-        if (this.running || !this.store.configured()) return empty
+        if (!this.store.configured()) return empty
 
-        const entries = this.store.devices()
+        const entries = this.store
+            .devices()
+            .filter((entry) => entryMode(entry) === 'dnat' && !this.store.released.has(entry.entryId))
         if (!entries.length) return empty
 
-        this.running = true
         const adopted: string[] = []
         const restored: string[] = []
         try {
@@ -83,7 +96,8 @@ export class DNATReconciler {
             }
 
             for (const entry of this.store.devices()) {
-                if (!entry.dnatDesired) continue
+                if (!entry.dnatDesired || entryMode(entry) !== 'dnat' || this.store.released.has(entry.entryId))
+                    continue
                 // 'partial' counts as missing: half the ports forwarded is not a working
                 // appliance, and enable() adds only what is absent.
                 if (states[entry.entryId] === 'on') continue
@@ -96,11 +110,10 @@ export class DNATReconciler {
                     log('status', 'could not restore DNAT for', entry.ip, `${err}`)
                 }
             }
+            await this.onChange()
         } catch (err) {
             // The router being unreachable is expected while it reboots.
             log('status', 'DNAT reconcile skipped:', `${err}`)
-        } finally {
-            this.running = false
         }
         return { adopted, restored }
     }

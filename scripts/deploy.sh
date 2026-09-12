@@ -81,7 +81,7 @@ if [ "$DNAT_ALREADY_RELEASED" -eq 1 ]; then
         exit 1
     fi
 else
-    if ! curl -fsS -X POST "http://$MGMT/api/router/dnat/release"; then
+    if ! curl -fsS --connect-timeout 2 --max-time 5 -X POST "http://$MGMT/api/router/dnat/release"; then
         echo "refusing deployment: DNAT release failed" >&2
         exit 1
     fi
@@ -107,20 +107,29 @@ docker run -d --name rethink --network host --restart unless-stopped \
     > /dev/null
 
 say "waiting for the management interface"
-until curl -fsS -o /dev/null "http://$MGMT/api/router/status"; do sleep 2; done
-
-# The reconciler's first pass is thirty seconds in; wait for it rather than racing it.
-say "waiting for the DNAT rules to come back"
-for _ in $(seq 1 30); do
-    sleep 5
-    if ! curl -fsS "http://$MGMT/api/router/status" \
-        | grep -q '"dnat": *"off"'; then
+management_ready=0
+for ((attempt = 0; attempt < 30; attempt++)); do
+    if curl -fsS --connect-timeout 2 --max-time 5 -o /dev/null "http://$MGMT/api/router/status"; then
+        management_ready=1
         break
     fi
+    sleep 2
+done
+if [ "$management_ready" -ne 1 ]; then
+    echo "deployment failed: management interface timed out" >&2
+    exit 1
+fi
+
+# The reconciler's first pass is thirty seconds in; wait for it rather than racing it.
+# Capture only successful HTTP responses before parsing: a failed request may still emit JSON.
+say "waiting for the DNAT rules to come back"
+for ((attempt = 0; attempt < 30; attempt++)); do
+    if status=$(curl -fsS --connect-timeout 2 --max-time 5 --max-filesize 1048576 "http://$MGMT/api/router/status") &&
+        python3 scripts/deploy-status.py <<< "$status"; then
+        exit 0
+    fi
+    sleep 5
 done
 
-curl -fsS "http://$MGMT/api/router/status" | python3 -c "
-import json, sys
-for d in sorted(json.load(sys.stdin)['devices'], key=lambda x: x['name']):
-    print('  %-12s dnat=%-5s connected=%s' % (d['name'], d['dnat'], d['connected']))
-"
+echo "deployment failed: desired DNAT forwarding did not become ready" >&2
+exit 1

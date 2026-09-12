@@ -5,6 +5,7 @@ import { Device as T2Downstream } from '@/cloud/thinq2/device'
 import log from '@/util/logging'
 import type { AnyDevice, DeviceManager } from '../cloud/devmgr'
 import * as OAuth2 from './oauth2'
+import type { BridgePolicy } from './policy'
 import type { BridgeState } from './state'
 import { Connection as Thinq1Connection } from './thinq1connection'
 import { Connection as Thinq2Connection } from './thinq2connection'
@@ -21,6 +22,7 @@ import {
 type StatusCallback = (status: string) => void
 type BridgeOptions = {
     preserveExistingDevices?: boolean
+    policy?: BridgePolicy
 }
 
 const RECONNECT_PERIOD = 5000
@@ -31,11 +33,14 @@ class BridgedDevice {
     constructor(
         readonly upstream: ClientDevice,
         readonly downstream: AnyDevice,
+        readonly changed: () => void,
     ) {
         // we create the functions at runtime so that they have unique identities that can be removed with removeListener
-        this.onDownstreamData = (packet: Buffer) => this.connection?.send(packet)
+        this.onDownstreamData = (packet: Buffer) => this.forward(() => this.connection?.send(packet))
         this.onDownstreamMessage = (payload: ClipMessage) => {
-            if (this.connection instanceof Thinq2Connection) this.connection.sendMessage(payload)
+            this.forward(() => {
+                if (this.connection instanceof Thinq2Connection) this.connection.sendMessage(payload)
+            })
         }
         this.onDownstreamClose = () => this.destroy()
 
@@ -55,9 +60,40 @@ class BridgedDevice {
     onDownstreamMessage: (payload: ClipMessage) => void
     onDownstreamClose: () => void
 
+    private destroyed = false
+    connected = false
+    error: string | undefined
+
     connection: Thinq1Connection | Thinq2Connection | undefined
 
+    private forward(action: () => unknown) {
+        try {
+            action()
+        } catch (error) {
+            this.error = error instanceof Error ? error.message : String(error)
+            this.disconnect()
+        }
+    }
+
     reconnectNow() {
+        try {
+            this.connect()
+        } catch (error) {
+            if (this.destroyed) return
+            this.error = error instanceof Error ? error.message : String(error)
+            if (this.connection) this.disconnect()
+            else {
+                clearTimeout(this.reconnectTimeout)
+                this.reconnectTimeout = setTimeout(() => this.reconnectNow(), RECONNECT_PERIOD)
+                this.reconnectTimeout.unref?.()
+                this.changed()
+            }
+        }
+    }
+
+    private connect() {
+        if (this.destroyed || this.connection) return
+        this.connected = false
         const U = this.upstream
         const D = this.downstream
         if (U instanceof Thinq1Device && D instanceof T1Downstream) {
@@ -66,36 +102,64 @@ class BridgedDevice {
             // feed the initial state to the connection
             if (D.lastReport) connection.send(D.lastReport)
 
-            connection.on('data', (payload) => D.send(payload))
-            connection.on('close', () => this.disconnect())
-            connection.on('error', (err) => log('status', `ThinQ1 bridge ${U.deviceId} error: ${err.message}`))
+            connection.on('data', (payload) => {
+                if (this.connection === connection) D.send(payload)
+            })
+            connection.on('close', () => {
+                if (this.connection === connection) this.disconnect()
+            })
         } else if (U instanceof Thinq2Device && D instanceof T2Downstream) {
             const connection = new Thinq2Connection(U, D.deployProfile)
             this.connection = connection
-            connection.on('message', (payload) => D.forward_message(payload))
-            connection.on('close', () => this.disconnect())
-            connection.on('error', (err) => log('status', `ThinQ2 bridge ${U.deviceId} error: ${err.message}`))
+            connection.on('message', (payload) => {
+                if (this.connection === connection) D.forward_message(payload)
+            })
+            connection.on('close', () => {
+                if (this.connection === connection) this.disconnect()
+            })
         } else {
             console.warn("Can't connect bridge")
             return
         }
+        const events = this.connection as Thinq1Connection
+        events.on('connected', () => {
+            if (this.destroyed || this.connection !== events) return
+            this.connected = true
+            this.error = undefined
+            this.changed()
+        })
+        events.on('error', (err) => {
+            if (this.destroyed || this.connection !== events) return
+            this.connected = false
+            this.error = err.message
+            log('status', `Bridge ${U.deviceId} error: ${err.message}`)
+            this.changed()
+        })
     }
 
     reconnectTimeout: NodeJS.Timeout | undefined
 
     disconnect() {
         if (this.connection) {
-            this.connection.destroy()
+            const connection = this.connection
             this.connection = undefined
+            this.connected = false
+            connection.destroy()
+            this.changed()
+            if (this.destroyed) return
             clearTimeout(this.reconnectTimeout)
             this.reconnectTimeout = setTimeout(() => this.reconnectNow(), RECONNECT_PERIOD)
+            this.reconnectTimeout.unref?.()
         }
     }
 
     destroy() {
+        this.destroyed = true
+        this.connected = false
         if (this.connection) {
-            this.connection.destroy()
+            const connection = this.connection
             this.connection = undefined
+            connection.destroy()
         }
         if (this.downstream instanceof T1Downstream) {
             this.downstream.removeListener('data', this.onDownstreamData)
@@ -115,11 +179,74 @@ type BridgeEvents = {
     deviceNamesChanged: () => void
     started: (id: string) => void
     stopped: (id: string) => void
+    statusChanged: (id: string) => void
 }
 
 export class Bridge extends TypedEmitter<BridgeEvents> {
     bridgedDevices = new Map<string, BridgedDevice>()
     deviceNames = new Map<string, string>()
+    private generations = new Map<string, number>()
+    private pending = new Map<string, Promise<unknown>>()
+    private intent = new Map<string, boolean>()
+
+    private serialize<T>(id: string, action: () => Promise<T>): Promise<T> {
+        const result = (this.pending.get(id) ?? Promise.resolve()).catch(() => {}).then(action)
+        this.pending.set(id, result)
+        void result
+            .finally(() => {
+                if (this.pending.get(id) === result) {
+                    this.pending.delete(id)
+                    this.emit('statusChanged', id)
+                }
+            })
+            .catch(() => {})
+        return result
+    }
+
+    mode(id: string) {
+        return this.options.policy?.mode(id, this.manager.allDevices.get(id)) ?? 'local'
+    }
+
+    wanted(id: string) {
+        if (this.mode(id) === 'dnat')
+            return this.options.policy?.forwarding(id, this.manager.allDevices.get(id)) ?? false
+        return this.state.getEnabled?.(id) ?? this.intent.get(id) ?? this.hasSavedState(id)
+    }
+
+    private setIntent(id: string, enabled: boolean) {
+        this.state.setEnabled?.(id, enabled)
+        this.intent.set(id, enabled)
+    }
+
+    details(id: string) {
+        const active = this.bridgedDevices.get(id)
+        return {
+            mode: this.mode(id),
+            bridgeEnabled: this.wanted(id),
+            bridgeActive: !!active,
+            cloudConnected: active?.connected ?? false,
+            bridgeSaved: this.hasSavedState(id),
+            bridgeArchived: this.hasArchivedState(id),
+            bridgeBusy: this.pending.has(id),
+            bridgeError: active?.error,
+            setupRequired: !this.hasSavedState(id),
+        }
+    }
+
+    async reconcile(id: string) {
+        return this.serialize(id, async () => {
+            if (!this.wanted(id)) this.#stop(id)
+            else {
+                const dev = this.manager.allDevices.get(id)
+                if (dev) this.#start(dev)
+            }
+            this.emit('statusChanged', id)
+        })
+    }
+
+    async reconcileAll() {
+        await Promise.all([...this.manager.allDevices.keys()].map((id) => this.reconcile(id)))
+    }
 
     constructor(
         readonly state: BridgeState,
@@ -134,15 +261,19 @@ export class Bridge extends TypedEmitter<BridgeEvents> {
     }
 
     #start(dev: AnyDevice) {
+        if (!this.wanted(dev.id)) return
+        if (this.bridgedDevices.get(dev.id)?.downstream === dev) return
+        this.#stop(dev.id)
         const clientDevice = this.loadSavedDevice(dev)
         if (!clientDevice) return
 
-        const bridged = new BridgedDevice(clientDevice, dev)
+        const bridged = new BridgedDevice(clientDevice, dev, () => this.emit('statusChanged', dev.id))
         this.bridgedDevices.set(dev.id, bridged)
         this.emit('started', dev.id)
     }
 
     #stop(id: string) {
+        this.generations.set(id, (this.generations.get(id) ?? 0) + 1)
         const bridged = this.bridgedDevices.get(id)
         if (bridged) {
             this.bridgedDevices.delete(id)
@@ -198,26 +329,53 @@ export class Bridge extends TypedEmitter<BridgeEvents> {
         }
     }
 
-    async enable(id: string, devType?: string, statusCallback?: StatusCallback) {
-        if (!this.isLoggedIn()) return false
-
-        if (this.bridgedDevices.has(id)) return true
-
-        const dev = this.manager.allDevices.get(id)
-        if (!dev) return false
-
-        const clientDevice = await this.register(dev, devType, statusCallback)
-        if (!clientDevice) return false
-
-        const bridged = new BridgedDevice(clientDevice, dev)
-        this.bridgedDevices.set(dev.id, bridged)
-        this.emit('started', dev.id)
-        return true
+    /** Ordinary enable only resumes saved registration; pairing is always explicit. */
+    async enable(id: string, _devType?: string, _statusCallback?: StatusCallback) {
+        if (this.mode(id) === 'dnat') throw new Error('DNAT forwarding follows DNAT. Use the DNAT control.')
+        return this.serialize(id, async () => {
+            if (!this.hasSavedState(id))
+                throw new Error('Registration required. Choose Restore or Set up registration.')
+            this.setIntent(id, true)
+            const dev = this.manager.allDevices.get(id)
+            if (dev) this.#start(dev)
+            this.emit('statusChanged', id)
+            return true
+        })
     }
 
     disable(id: string) {
-        this.state.setDeviceState(id, undefined)
+        this.setIntent(id, false)
         this.#stop(id)
+        this.emit('statusChanged', id)
+    }
+
+    async restore(id: string) {
+        return this.serialize(id, async () => {
+            if (this.hasSavedState(id)) throw new Error('Current registration takes precedence; renewal is explicit.')
+            if (!this.state.restoreDeviceState(id)) throw new Error('No archived registration is available to restore.')
+            const dev = this.manager.allDevices.get(id)
+            if (dev && this.wanted(id)) this.#start(dev)
+            this.emit('statusChanged', id)
+        })
+    }
+
+    async renew(id: string, deviceType?: string, statusCallback?: StatusCallback) {
+        return this.serialize(id, async () => {
+            const dev = this.manager.allDevices.get(id)
+            if (!dev) throw new Error('Appliance is not connected to Rethink. Wait for its next connection.')
+            const generation = this.generations.get(id) ?? 0
+            const replacement = await this.register(dev, deviceType, statusCallback)
+            if (this.manager.allDevices.get(id) !== dev || (this.generations.get(id) ?? 0) !== generation)
+                throw new Error(
+                    'Appliance or forwarding changed during registration. Previous local registration retained; refresh before retrying.',
+                )
+            // Persist before replacing the live connection. A failed write retains the old one.
+            this.state.setDeviceState(id, replacement.state)
+            this.#stop(id)
+            if (this.wanted(id)) this.#start(dev)
+            this.emit('statusChanged', id)
+            return true
+        })
     }
 
     isLoggedIn() {
@@ -254,7 +412,7 @@ export class Bridge extends TypedEmitter<BridgeEvents> {
         this.state.setCredentials(undefined)
         this.deviceNames.clear()
         this.emit('deviceNamesChanged')
-        // FIXME? drop all devices
+        // Account logout does not erase per-appliance registrations or forwarding intent.
         this.emit('loggedOut')
     }
 
@@ -272,7 +430,8 @@ export class Bridge extends TypedEmitter<BridgeEvents> {
         await client.auth(creds.refreshToken)
 
         let existingDevice: HomeDevice | undefined
-        if (this.options.preserveExistingDevices) {
+        const preserve = this.mode(device.id) === 'dnat' || this.options.preserveExistingDevices
+        if (preserve) {
             statusCallback('Checking existing device registration')
             existingDevice = (await client.listDevices()).find((item) => item.deviceId === device.id)
             if (device.platform === 'thinq1' && !existingDevice) {
@@ -332,16 +491,15 @@ export class Bridge extends TypedEmitter<BridgeEvents> {
                     `Rethink ${device.id.substring(0, 8)}`,
                     deviceType,
                     ciphertext,
-                    this.options.preserveExistingDevices,
+                    preserve,
                 )
             }
         } else {
             throw new Error('Unknown device platform')
         }
 
-        statusCallback('Device registered successfully')
+        statusCallback('LG registration received; saving locally')
 
-        this.state.setDeviceState(device.id, clientDevice.state)
         return clientDevice
     }
 

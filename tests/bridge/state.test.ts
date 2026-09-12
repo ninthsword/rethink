@@ -122,3 +122,19 @@ describe('deleting a router entry keeps the registration recoverable', () => {
         cleanup()
     })
 })
+
+test('Local intent is independent of registration and unsafe identifiers cannot escape storage', () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'rethink-intent-'))
+    try {
+        const state = new JSONStorage(dir)
+        assert.equal(state.getEnabled(ID), undefined)
+        state.setEnabled(ID, false)
+        assert.equal(new JSONStorage(dir).getEnabled(ID), false)
+        assert.equal(state.getDeviceState(ID), undefined)
+        assert.throws(() => state.setEnabled('../escape', true), /Invalid appliance identifier/)
+        assert.throws(() => state.devicePath('../escape'), /Invalid appliance identifier/)
+        assert.throws(() => state.archivePath('../escape'), /Invalid appliance identifier/)
+    } finally {
+        rmSync(dir, { recursive: true, force: true })
+    }
+})

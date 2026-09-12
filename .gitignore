@@ -17,3 +17,6 @@ CLAUDE.md
 CLAUDE.local.md
 AGENTS.md
 .claude/
+
+# Private runtime settings; config.jsonc remains the public template.
+config.json

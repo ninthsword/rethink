@@ -15,6 +15,7 @@ export type RouterDeviceEntry = {
     entryId: string
     ip: string
     deviceId?: string
+    autoLink?: boolean
     detectedName?: string
     customName?: string
     platform?: 'thinq1' | 'thinq2'
@@ -23,6 +24,7 @@ export type RouterDeviceEntry = {
      * rules themselves and loses them on reboot, so this is the only record of what the
      * user asked for; the reconciler restores from it.
      */
+    mode?: 'dnat' | 'local'
     dnatDesired?: boolean
 }
 
@@ -42,9 +44,20 @@ function validIPv4(value: string) {
 
 export class RouterConfigStore {
     private config: RouterConfig
+    private persisted: RouterConfig
+    private pending: Promise<unknown> = Promise.resolve()
+    readonly released = new Set<string>()
+
+    /** One queue covers API preconditions, intent changes and periodic reconciliation. */
+    exclusive<T>(action: () => Promise<T>): Promise<T> {
+        const result = this.pending.then(action)
+        this.pending = result.catch(() => {})
+        return result
+    }
 
     constructor(readonly filename: string) {
         this.config = this.load()
+        this.persisted = structuredClone(this.config)
     }
 
     private load() {
@@ -72,10 +85,16 @@ export class RouterConfigStore {
     }
 
     private save() {
-        mkdirSync(path.dirname(this.filename), { recursive: true })
-        const temporary = `${this.filename}.tmp`
-        writeFileSync(temporary, JSON.stringify(this.config, null, 2), { mode: 0o600 })
-        renameSync(temporary, this.filename)
+        try {
+            mkdirSync(path.dirname(this.filename), { recursive: true })
+            const temporary = `${this.filename}.tmp`
+            writeFileSync(temporary, JSON.stringify(this.config, null, 2), { mode: 0o600 })
+            renameSync(temporary, this.filename)
+            this.persisted = structuredClone(this.config)
+        } catch (error) {
+            this.config = structuredClone(this.persisted)
+            throw error
+        }
     }
 
     configured() {
@@ -117,21 +136,29 @@ export class RouterConfigStore {
         return this.config.devices.map((entry) => ({ ...entry }))
     }
 
-    addDevice(ip: string) {
+    addDevice(ip: string, mode?: string) {
+        if (mode !== undefined && mode !== 'dnat' && mode !== 'local') throw new Error('Mode must be dnat or local')
         ip = `${ip}`.trim()
         if (!validIPv4(ip)) throw new Error('Invalid device IPv4 address')
         if (ip === this.config.router.host || ip === this.config.router.rethinkIp)
             throw new Error('Router or rethink server IP cannot be registered as a device')
         if (this.config.devices.some((entry) => entry.ip === ip)) throw new Error('Device IP is already registered')
-        const entry: RouterDeviceEntry = { entryId: randomUUID(), ip }
+        const entry: RouterDeviceEntry = {
+            entryId: randomUUID(),
+            ip,
+            ...(mode ? { mode: mode as 'dnat' | 'local' } : {}),
+        }
         this.config.devices.push(entry)
         this.save()
         return { ...entry }
     }
 
-    updateDevice(entryId: string, input: { ip?: string; customName?: string }) {
+    updateDevice(entryId: string, input: { ip?: string; customName?: string; mode?: string }) {
         const entry = this.requireDevice(entryId)
-        if (input.ip !== undefined) {
+        if (input.mode !== undefined) {
+            if (input.mode !== 'dnat' && input.mode !== 'local') throw new Error('Mode must be dnat or local')
+        }
+        if (input.ip !== undefined && `${input.ip}`.trim() !== entry.ip) {
             const ip = `${input.ip}`.trim()
             if (!validIPv4(ip)) throw new Error('Invalid device IPv4 address')
             if (ip === this.config.router.host || ip === this.config.router.rethinkIp)
@@ -139,10 +166,12 @@ export class RouterConfigStore {
             if (this.config.devices.some((other) => other !== entry && other.ip === ip))
                 throw new Error('Device IP is already registered')
             entry.ip = ip
+            entry.autoLink = undefined
             entry.deviceId = undefined
             entry.detectedName = undefined
             entry.platform = undefined
         }
+        if (input.mode === 'dnat' || input.mode === 'local') entry.mode = input.mode
         if (input.customName !== undefined) entry.customName = `${input.customName}`.trim() || undefined
         this.save()
         return { ...entry }
@@ -160,6 +189,7 @@ export class RouterConfigStore {
         const duplicate = this.config.devices.find((item) => item !== entry && item.deviceId === deviceId)
         if (duplicate) throw new Error('Rethink device is already linked to another IP')
         entry.deviceId = `${deviceId}`
+        entry.autoLink = undefined
         if (detectedName) entry.detectedName = detectedName
         if (platform) entry.platform = platform
         this.save()
@@ -168,6 +198,7 @@ export class RouterConfigStore {
 
     unlinkDevice(entryId: string) {
         const entry = this.requireDevice(entryId)
+        entry.autoLink = false
         entry.deviceId = undefined
         entry.detectedName = undefined
         entry.platform = undefined
@@ -189,7 +220,9 @@ export class RouterConfigStore {
     ) {
         if (!ip) return false
         const entry = this.config.devices.find((item) => item.ip === ip)
-        if (!entry) return false
+        if (!entry || entry.autoLink === false) return false
+        if (entry.deviceId && entry.deviceId !== deviceId) return false
+        if (this.config.devices.some((other) => other !== entry && other.deviceId === deviceId)) return false
         const changed = entry.deviceId !== deviceId || (!!detectedName && entry.detectedName !== detectedName)
         entry.deviceId = deviceId
         if (detectedName) entry.detectedName = detectedName

@@ -94,10 +94,11 @@ export default class Device extends TLVDevice {
                 const modes2clip: Record<string, number> = { cool: 0, fan_only: 2, heat: 4, dry: 8 }
                 if (val === 'off') {
                     // Call function power (0x1f7) with value OFF
-                    this.setProperty('power', 'OFF')
-                } else {
-                    this.setProperty('power', 'ON')
+                    this.setProperty('climate-power', 'OFF')
+                    return
                 }
+                if (!Object.keys(modes2clip).includes(val)) return
+                this.setProperty('climate-power', 'ON')
                 return modes2clip[val]
             },
             write_attach: [0x1f7, 0x1fa, 0x1fe, 0x322],

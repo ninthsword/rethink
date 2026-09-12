@@ -1,6 +1,11 @@
 <!doctype html>
 <html lang="en">
     <head>
+        <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet" />
+        <link
+            rel="stylesheet"
+            href="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0/css/materialize.min.css"
+        />
         <style>
             .offline .hide-when-offline {
                 display: none;
@@ -48,12 +53,44 @@
                     white-space: nowrap;
                 }
             }
+        
+            body { background: #f4f7fb; color: #23364b; }
+            nav { box-shadow: none; }
+            main, body > .container { max-width: 1280px; }
+            h4.header.orange-text { color: #1e4963; font-size: 1.7rem; font-weight: 600; }
+            .section, body > .container:not(.dashboard-meta) { background: white; border: 1px solid #dce5ed; border-radius: 14px; padding: 24px; margin-top: 20px; margin-bottom: 20px; }
+            table { table-layout: fixed; }
+            th { font-size: .8rem; text-transform: uppercase; color: #52667d; letter-spacing: .04em; }
+            td { vertical-align: top; overflow-wrap: anywhere; padding: 16px 8px; }
+            td small, td a, td label { display: block; margin-top: 8px; }
+            td small { color: #53677d; line-height: 1.5; }
+            .btn, .btn-small { background: #186078; border-radius: 7px; box-shadow: none; }
+            td .btn-small { margin: 8px 6px 0 0; height: auto; min-height: 36px; white-space: normal; line-height: 1.4; padding: 9px 12px; text-transform: none; }
+            .btn:focus, .btn-small:focus, button:focus-visible, select:focus-visible, a:focus-visible { outline: 3px solid #e3a035; outline-offset: 3px; }
+            body input[type=checkbox]:not(:checked), body input[type=checkbox]:checked { position: static; opacity: 1; pointer-events: auto; width: 18px; height: 18px; vertical-align: middle; accent-color: #186078; }
+            td label { color: #23364b; }
+            button:disabled, input:disabled, select:disabled { opacity: .55; cursor: not-allowed; }
+            .row-status { color: #98331e; font-size: .9rem; margin: 8px 0 0; }
+            [aria-busy=true] { background: #edf4f8; }
+            dialog { width: min(560px, calc(100% - 32px)); max-height: 85vh; overflow: auto; border: 1px solid #c5d5e3; border-radius: 16px; padding: 28px; color: #23364b; }
+            dialog::backdrop { background: rgb(16 35 52 / 55%); }
+            dialog p { line-height: 1.65; }
+            dialog button { margin: 12px 10px 0 0; }
+            .mode-guide { line-height: 1.65; max-width: 80ch; color: #52667d; }
+            td.actions { white-space: normal; }
+            .offline .hide-when-offline { display: block; }
+            @media (max-width: 760px) {
+                body .container:not(.modal) { width: 94%; }
+                table, table.responsive-table, table tbody, table.responsive-table tbody { display: block; width: 100%; }
+                table thead, table.responsive-table thead { display: none; }
+                table tr, table.responsive-table tr { display: grid; grid-template-columns: minmax(0, 1fr); border: 1px solid #dce5ed; border-radius: 12px; margin: 14px 0; padding: 12px; }
+                table td, table.responsive-table td { display: block; width: auto; padding: 9px 4px; text-align: left; }
+                td::before { content: attr(data-label); display: block; color: #52667d; font-weight: 600; font-size: .78rem; margin-bottom: 4px; }
+                .row.valign-wrapper { display: block; }
+                .section, body > .container:not(.dashboard-meta) { padding: 16px; }
+                .btn { margin-top: 8px; max-width: 100%; height: auto; min-height: 36px; white-space: normal; }
+            }
         </style>
-        <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet" />
-        <link
-            rel="stylesheet"
-            href="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0/css/materialize.min.css"
-        />
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     </head>
 
@@ -80,6 +117,7 @@
         </div>
         <div class="container">
             <h4 class="header orange-text">Connectivity</h4>
+            <p id="page_status" role="status" aria-live="polite"></p>
             <span id="status_rethink" class="status_field"></span>Browser 🡘 Rethink<br />
             <span id="status_mqtt" class="status_field"></span>Rethink 🡘 MQTT<br />
         </div>
@@ -89,11 +127,11 @@
             <table class="highlight">
                 <thead>
                     <tr>
-                        <th>ID</th>
-                        <th>Name</th>
+                        <th>Device</th>
                         <th>Model</th>
-                        <th>Platform</th>
-                        <th>Bridge</th>
+                        <th>Mode</th>
+                        <th>Local connection</th>
+                        <th>LG forwarding</th>
                         <th>Monitor</th>
                     </tr>
                 </thead>
@@ -101,6 +139,9 @@
                 <tbody id="devices_body"></tbody>
             </table>
 
+            <p id="empty_devices" class="mode-guide">Waiting for appliances to connect to Rethink.</p>
+            <p class="mode-guide">DNAT couples managed router forwarding with saved LG registration. Local uses the appliance’s existing connection setup and offers an optional LG Bridge. Changing mode does not change routes or certificates. Connection status is separate from Home Assistant entity health.</p>
+                <p class="mode-guide">For the supported <strong>DNAT ↔ Local</strong> switching workflow, the appliance certificates differ. In either direction, remove appliance power to reset its Wi-Fi module, restore power, then repeat Wi-Fi setup and appliance certificate enrollment for the target mode using the appliance-specific instructions. Review and explicitly approve the mode-change dialog. Saving policy does not perform or verify these physical steps. Bridge Restore / Set up / Renew concerns upstream LG registration and does not enroll the physical appliance’s Wi-Fi certificate.</p>
             <br />
             Follow the
             <a
@@ -111,7 +152,7 @@
         </div>
 
         <div class="container hide-when-offline">
-            <h4 class="header orange-text">Bridge mode</h4>
+            <h4 class="header orange-text">LG account</h4>
             <span id="status_bridge" class="status_field"></span>Status: <span id="status_bridge_text"></span
             ><br /><br />
             <button
@@ -128,7 +169,7 @@
                 class="hide btn waves-effect waves-light modal-trigger tooltipped"
                 data-target="thinq_logout"
                 data-position="bottom"
-                data-tooltip="This will disable bridge mode for all your devices."
+                data-tooltip="Sign out of the LG account. Saved appliance registrations and forwarding intent remain."
             >
                 logout<i class="material-icons right">logout</i>
             </button>
@@ -197,7 +238,7 @@
         <div id="thinq_logout" class="modal">
             <div class="modal-content">
                 <h4>Logout confirmation</h4>
-                <p>Logging out will disable bridge mode for all your devices.</p>
+                <p>Signing out removes the account login used for setup and renewal. Saved appliance registrations and forwarding intent remain.</p>
                 <button type="button" class="btn waves-effect waves-light" id="btn_thinq_logout_continue">
                     Log out <i class="material-icons right">logout</i>
                 </button>

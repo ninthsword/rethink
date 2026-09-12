@@ -1,363 +1,316 @@
-/**
- * Fixed elements supplied by this page's HTML.
- * @typedef {{
- *   'btn_devicetype_continue': HTMLButtonElement,
- *   'btn_thinq_login': HTMLButtonElement,
- *   'btn_thinq_login_complete': HTMLButtonElement,
- *   'btn_thinq_login_continue': HTMLButtonElement,
- *   'btn_thinq_logout': HTMLButtonElement,
- *   'btn_thinq_logout_continue': HTMLButtonElement,
- *   'country_code': HTMLInputElement,
- *   'devices_body': HTMLTableSectionElement,
- *   'devicetype_query': HTMLDivElement,
- *   'devtype-input': HTMLInputElement,
- *   'login_url': HTMLInputElement,
- *   'management_started': HTMLSpanElement,
- *   'management_version': HTMLSpanElement,
- *   'status_bridge': HTMLSpanElement,
- *   'status_bridge_text': HTMLSpanElement,
- *   'status_mqtt': HTMLSpanElement,
- *   'status_rethink': HTMLSpanElement,
- *   'thinq_login': HTMLDivElement,
- *   'thinq_logout': HTMLDivElement,
- * }} PageElements
- */
-
-document.addEventListener('DOMContentLoaded', () => {
-    M.Tooltip.init(document.querySelectorAll('.tooltipped'))
-    M.Modal.init(document.querySelectorAll('.modal'))
-    M.FormSelect.init(document.querySelectorAll('select'))
-    M.Autocomplete.init(document.querySelectorAll('.autocomplete'), {
-        data: {
-            '101 (Refrigerator)': null,
-            '201 (Washer)': null,
-            '202 (Dryer)': null,
-            '204 (Dishwasher)': null,
-            '301 (Gas Range)': null,
-            '302 (Microwave)': null,
-            '401 (Air Conditioner)': null,
-        },
-    })
-})
-
-let _ws
-/** @type {ReturnType<typeof setTimeout> | undefined} */
-let reconnectTimer
-const STATUS_OK = `<i class="tiny material-icons green-text">check</i>`
-const STATUS_ERROR = `<i class="tiny material-icons red-text">error</i>`
-const STATUS_UNKNOWN = `<i class="tiny material-icons red-text">question_mark</i>`
-let bridge_status = false
-
-get('status_rethink').innerHTML = STATUS_UNKNOWN
-get('status_mqtt').innerHTML = STATUS_UNKNOWN
-get('status_bridge').innerHTML = STATUS_UNKNOWN
-get('status_bridge_text').innerText = 'Unknown'
-
-/**
- * @typedef {{name?: string, model?: string, mapped: boolean, platform: string,
- * deviceType?: string, bridged: boolean}} DeviceState
- */
-/** @type {Map<string, DeviceEntry>} */
+/** @typedef {{name?: string, model?: string, mapped?: boolean, platform?: string, deviceType?: string,
+ * mode?: 'dnat'|'local', bridgeEnabled?: boolean, bridgeActive?: boolean, cloudConnected?: boolean,
+ * bridgeSaved?: boolean, bridgeArchived?: boolean, bridgeBusy?: boolean, bridgeError?: string}} DeviceState */
+/** @type {Map<string, DeviceState>} */
 const devices = new Map()
-
+/** @type {Set<string>} */
+const busy = new Set()
+/** @type {string | undefined} */
+let pendingFocus
+/** @type {Map<string, string>} */
+const errors = new Map()
+/** @type {WebSocket | undefined} */
+let currentSocket
+let online = false
+let accountBusy = false
+let loggedIn = false
+let bridgeConfigured = false
+const baseUrl = new URL('.', window.location.href)
+/** @param {string} id */
+function get(id) {
+    return /** @type {HTMLElement} */ (document.getElementById(id))
+}
+/** @param {string} id */
+function input(id) {
+    return /** @type {HTMLInputElement} */ (get(id))
+}
 /** @param {string} value */
 function formatStartedAt(value) {
     const date = new Date(value)
-    if (Number.isNaN(date.getTime())) return '-'
-
-    const pad = (/** @type {number} */ part) => String(part).padStart(2, '0')
-    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
+    return Number.isNaN(date.getTime()) ? '-' : date.toLocaleString()
 }
-
-const baseUrl = new URL(window.location.href)
-baseUrl.search = ''
-baseUrl.hash = ''
-
-class DeviceEntry {
-    /** @param {string} id @param {DeviceState} remoteState @param {HTMLElement} parent */
-    constructor(id, remoteState, parent) {
-        this.id = id
-        this.remoteState = remoteState
-        this.row = document.createElement('tr')
-        this.updateDom()
-        parent.appendChild(this.row)
+/** @param {string} label @param {() => unknown} action */
+function button(label, action) {
+    const element = document.createElement('button')
+    element.type = 'button'
+    element.className = 'btn-small'
+    element.textContent = label
+    element.onclick = action
+    return element
+}
+/** @param {string} text */
+function cell(text) {
+    const element = document.createElement('td')
+    element.textContent = text
+    return element
+}
+function render() {
+    for (const id of [
+        'btn_thinq_login',
+        'btn_thinq_logout',
+        'btn_thinq_login_continue',
+        'btn_thinq_login_complete',
+        'btn_thinq_logout_continue',
+    ]) {
+        const control = /** @type {HTMLButtonElement} */ (get(id))
+        control.disabled = !online || accountBusy
     }
-
-    destroy() {
-        this.row.remove()
-    }
-
-    /** @param {DeviceState} remoteState */
-    update(remoteState) {
-        this.remoteState = remoteState
-        this.updateDom()
-    }
-
-    updateDom() {
-        const children = []
-
-        let td
-        td = document.createElement('td')
-        td.innerText = this.id
-        children.push(td)
-
-        td = document.createElement('td')
-        td.innerText = this.remoteState.name || '-'
-        children.push(td)
-
-        td = document.createElement('td')
-        const modelText = document.createElement('span')
-        modelText.textContent = this.remoteState.model || '-'
-        td.appendChild(modelText)
-        if (!this.remoteState.mapped) {
-            td.appendChild(document.createTextNode(' '))
-            const warning = document.createElement('i')
-            warning.className = 'material-icons tooltipped tiny'
-            warning.dataset.position = 'bottom'
-            warning.dataset.tooltip = 'This device is not supported by rethink. It will not be mapped to HomeAssistant'
-            warning.textContent = 'warning'
-            td.appendChild(warning)
+    const active = document.activeElement
+    const focusId = (active instanceof HTMLElement ? active.dataset.focus : undefined) || pendingFocus
+    get('devices_body').replaceChildren()
+    for (const [id, state] of devices) {
+        const row = document.createElement('tr')
+        row.dataset.device = id
+        row.setAttribute('aria-busy', String(busy.has(id) || !!state.bridgeBusy))
+        const name = cell(state.name || '-')
+        const identity = document.createElement('small')
+        identity.textContent = id
+        name.append(identity)
+        const model = cell(state.model || '-')
+        if (!state.mapped) model.append(document.createTextNode(' · HA mapping unavailable'))
+        const mode = cell(state.mode === 'dnat' ? 'DNAT' : 'Local')
+        const local = cell(online ? 'Connected to Rethink' : 'Stale · connection unknown')
+        const forwarding = cell(
+            !online
+                ? 'Stale · LG status unknown'
+                : state.cloudConnected
+                  ? 'LG connected'
+                  : state.bridgeActive
+                    ? 'LG connecting / retrying'
+                    : state.bridgeEnabled
+                      ? 'Forwarding requested'
+                      : 'LG forwarding off',
+        )
+        const registration = document.createElement('small')
+        registration.textContent = state.bridgeSaved
+            ? 'Registration saved'
+            : state.bridgeArchived
+              ? 'Archived registration available'
+              : 'Setup required'
+        forwarding.append(registration)
+        if (state.mode === 'dnat') {
+            const link = document.createElement('a')
+            link.href = 'router.html'
+            link.textContent = 'Manage DNAT and automatic forwarding'
+            forwarding.append(link)
+        } else {
+            const label = document.createElement('label')
+            const toggle = document.createElement('input')
+            toggle.type = 'checkbox'
+            toggle.checked = !!state.bridgeEnabled
+            toggle.dataset.focus = `${id}:toggle`
+            toggle.setAttribute('aria-label', `Optional LG Bridge for ${state.name || id}`)
+            toggle.disabled = !online || !bridgeConfigured || busy.has(id) || !!state.bridgeBusy || !state.bridgeSaved
+            toggle.onchange = () =>
+                run(id, () => api(`bridge/${encodeURIComponent(id)}/${toggle.checked ? 'enable' : 'disable'}`))
+            label.append(toggle, document.createTextNode(' Optional LG Bridge'))
+            forwarding.append(label)
         }
-        children.push(td)
-
-        td = document.createElement('td')
-        td.innerText = this.remoteState.platform
-        children.push(td)
-
-        td = document.createElement('td')
-        td.style.cssText = 'width: 10em'
-
-        td.innerHTML = `
-            <div class="switch">
-                <label>Off <input type="checkbox"> <span class="lever"></span>On</label>
-            </div>
-            <div class="hide preloader-wrapper verysmall active">
-                <div class="spinner-layer spinner-green-only">
-                <div class="circle-clipper left">
-                    <div class="circle"></div>
-                </div><div class="gap-patch">
-                    <div class="circle"></div>
-                </div><div class="circle-clipper right">
-                    <div class="circle"></div>
-                </div>
-                </div>
-            </div>`
-        children.push(td)
-
-        this.bridgeSwitch = td.getElementsByTagName('input')[0]
-        this.bridgeDiv = td.getElementsByClassName('switch')[0]
-        this.spinner = td.getElementsByClassName('preloader-wrapper')[0]
-
-        const startBridge = async (/** @type {string} */ deviceType) => {
-            this.bridgeBusy = true
-            this.refreshUI()
-
-            try {
-                await fetchWrapper(`bridge/${this.id}/enable`, { deviceType }, { method: 'POST' })
-                this.remoteState.bridged = true
-            } finally {
-                this.bridgeBusy = false
-                this.refreshUI()
-            }
-        }
-
-        const stopBridge = async () => {
-            this.bridgeBusy = true
-            this.refreshUI()
-
-            try {
-                await fetchWrapper(`bridge/${this.id}/disable`, {}, { method: 'POST' })
-                this.remoteState.bridged = false
-            } finally {
-                this.bridgeBusy = false
-                this.refreshUI()
-            }
-        }
-
-        this.bridgeSwitch.onchange = () => {
-            const bridgeSwitch = /** @type {HTMLInputElement} */ (this.bridgeSwitch)
-            if (bridgeSwitch.checked) {
-                if (this.remoteState.deviceType) {
-                    startBridge(this.remoteState.deviceType)
-                } else {
-                    get('btn_devicetype_continue').onclick = () => {
-                        let devType = get('devtype-input').value
-                        devType = devType.split(' ')[0]
-                        startBridge(devType)
-                        M.Modal.getInstance(get('devicetype_query')).close()
-                    }
-                    M.Modal.getInstance(get('devicetype_query')).open()
-                }
-            } else {
-                stopBridge()
-            }
-        }
-
-        td = document.createElement('td')
+        const setup = button(state.bridgeSaved || state.bridgeArchived ? 'Registration…' : 'Set up registration…', () =>
+            registrationChoice(id),
+        )
+        setup.dataset.focus = `${id}:registration`
+        setup.disabled = !online || !bridgeConfigured || busy.has(id) || !!state.bridgeBusy
+        forwarding.append(setup)
+        const status = document.createElement('p')
+        status.className = 'row-status'
+        status.setAttribute('role', 'status')
+        status.setAttribute('aria-live', 'polite')
+        status.textContent = errors.get(id) || (busy.has(id) ? 'Working…' : state.bridgeError || '')
+        forwarding.append(status)
+        const monitorCell = document.createElement('td')
         const monitor = document.createElement('a')
-        monitor.className = 'btn waves-effect waves-light'
-        monitor.href = `monitor?id=${encodeURIComponent(this.id)}`
-        const monitorIcon = document.createElement('i')
-        monitorIcon.className = 'material-icons'
-        monitorIcon.textContent = 'troubleshoot'
-        monitor.appendChild(monitorIcon)
-        td.appendChild(monitor)
-        children.push(td)
-
-        this.row.replaceChildren(...children)
-        Array.from(this.row.getElementsByClassName('tooltipped')).forEach((e) => {
-            M.Tooltip.init(e)
+        monitor.href = `monitor?id=${encodeURIComponent(id)}`
+        monitor.textContent = 'Monitor'
+        monitorCell.append(monitor)
+        row.append(name, model, mode, local, forwarding, monitorCell)
+        Array.from(row.children).forEach((child, index) => {
+            const cellElement = /** @type {HTMLElement} */ (child)
+            cellElement.dataset.label = ['Device', 'Model', 'Mode', 'Local connection', 'LG forwarding', 'Tools'][index]
+        })
+        get('devices_body').append(row)
+    }
+    if (focusId)
+        document.querySelectorAll('[data-focus]').forEach((element) => {
+            if (/** @type {HTMLElement} */ (element).dataset.focus === focusId) {
+                const target = /** @type {HTMLButtonElement} */ (element)
+                if (target.disabled) pendingFocus = focusId
+                else {
+                    target.focus()
+                    pendingFocus = undefined
+                }
+            }
+        })
+    get('empty_devices').hidden = devices.size > 0
+}
+/** @param {string} path @param {Record<string, unknown>} body */
+async function api(path, body = {}) {
+    const response = await fetch(new URL(path, baseUrl), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+    })
+    if (!response.ok) throw new Error((await response.text()) || `HTTP ${response.status}`)
+    return response
+}
+/** @param {string} id @param {() => Promise<unknown>} action */
+async function run(id, action) {
+    if (!online || busy.has(id)) return
+    busy.add(id)
+    errors.delete(id)
+    render()
+    try {
+        await action()
+        // A fresh socket snapshot follows the mutation; an old socket cannot overwrite it.
+        connect()
+    } catch (error) {
+        errors.set(id, error instanceof Error ? error.message : String(error))
+    } finally {
+        busy.delete(id)
+        render()
+    }
+}
+/** @param {string} id */
+function registrationChoice(id) {
+    const state = devices.get(id)
+    if (!state || !online || busy.has(id)) return
+    const dialog = document.createElement('dialog')
+    dialog.setAttribute('aria-labelledby', 'registration-title')
+    const title = document.createElement('h5')
+    title.id = 'registration-title'
+    title.textContent = `Registration · ${state.name || id}`
+    const text = document.createElement('p')
+    text.textContent =
+        'These actions manage upstream LG registration, not the physical appliance’s Wi-Fi certificate enrollment. Restore reuses an archived registration only when no current one exists. Renew / Set up explicitly contacts LG and may pair a new certificate. Previous local material is kept if this fails; remote pairing cannot be rolled back. DNAT preserves Home membership, which does not guarantee appliance credential continuity.'
+    const deviceType = document.createElement('input')
+    deviceType.value = state.deviceType || ''
+    deviceType.placeholder = 'Device type (for example 401)'
+    deviceType.setAttribute('aria-label', 'LG device type')
+    const focusKey = `${id}:registration`
+    const close = () => {
+        dialog.close()
+        dialog.remove()
+        document.querySelectorAll('[data-focus]').forEach((element) => {
+            if (/** @type {HTMLElement} */ (element).dataset.focus === focusKey)
+                /** @type {HTMLElement} */ (element).focus()
         })
     }
-
-    refreshUI() {
-        // updateDom creates all three controls synchronously before this method can run.
-        const bridgeSwitch = /** @type {HTMLInputElement} */ (this.bridgeSwitch)
-        const bridgeDiv = /** @type {Element} */ (this.bridgeDiv)
-        const spinner = /** @type {Element} */ (this.spinner)
-        if (this.bridgeBusy) {
-            bridgeDiv.classList.add('hide')
-            spinner.classList.remove('hide')
-        } else {
-            spinner.classList.add('hide')
-            bridgeDiv.classList.remove('hide')
-            bridgeSwitch.checked = !!this.remoteState.bridged
-        }
-
-        if (bridge_status) {
-            bridgeSwitch.classList.remove('disabled')
-        } else {
-            bridgeSwitch.classList.add('disabled')
-        }
+    const restore = button('Restore', () => {
+        close()
+        return run(id, () => api(`bridge/${encodeURIComponent(id)}/registration/restore`))
+    })
+    restore.disabled = !state.bridgeArchived || !!state.bridgeSaved
+    const renew = button(state.bridgeSaved ? 'Renew' : 'Set up', () => {
+        const value = deviceType.value.trim()
+        close()
+        return run(id, () => api(`bridge/${encodeURIComponent(id)}/registration/renew`, { deviceType: value }))
+    })
+    renew.disabled = !loggedIn
+    const cancel = button('Cancel', close)
+    dialog.oncancel = (event) => {
+        event.preventDefault()
+        close()
     }
+    dialog.append(title, text, deviceType, restore, renew, cancel)
+    document.body.append(dialog)
+    dialog.showModal()
+    cancel.focus()
 }
-
 function connect() {
-    clearTimeout(reconnectTimer)
-    const ws = new WebSocket(`${baseUrl}ws`)
-
+    const old = currentSocket
+    const url = new URL('ws', baseUrl)
+    url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
+    const ws = new WebSocket(url)
+    currentSocket = ws
+    online = false
+    old?.close()
+    render()
     ws.onclose = () => {
-        get('status_rethink').innerHTML = STATUS_ERROR
-        get('status_mqtt').innerHTML = STATUS_UNKNOWN
-        document.getElementsByTagName('body')[0].classList.add('offline')
-        reconnectTimer = setTimeout(connect, 5000)
+        if (currentSocket !== ws) return
+        online = false
+        get('status_rethink').textContent = 'Disconnected · displayed device status is stale'
+        get('status_mqtt').textContent = 'Unknown'
+        render()
+        setTimeout(() => {
+            if (currentSocket === ws) connect()
+        }, 5000)
     }
-
-    ws.onopen = () => {
-        get('status_rethink').innerHTML = STATUS_OK
-        document.getElementsByTagName('body')[0].classList.remove('offline')
-    }
-
-    ws.onmessage = (ev) => {
-        if (typeof ev.data === 'string') {
-            /** @type {{ha?: boolean, system?: {version?: string, startedAt: string},
-             * devices?: Record<string, DeviceState>, bridge?: {loggedIn: boolean}, status?: string}} */
-            const json = JSON.parse(ev.data)
-            if (typeof json.ha === 'boolean') {
-                get('status_mqtt').innerHTML = json.ha ? STATUS_OK : STATUS_ERROR
-            }
-
-            if (typeof json.system === 'object') {
-                get('management_version').innerText = json.system.version || '-'
-                get('management_started').innerText = formatStartedAt(json.system.startedAt)
-            }
-
+    ws.onmessage = (event) => {
+        if (currentSocket !== ws || typeof event.data !== 'string') return
+        try {
+            /** @type {{ha?: boolean, system?: {version?: string, startedAt: string}, bridge?: {loggedIn: boolean}, devices?: Record<string, DeviceState>, status?: string}} */
+            const json = JSON.parse(event.data)
             if (json.devices && typeof json.devices === 'object' && !Array.isArray(json.devices)) {
-                const incomingDevices = new Map(Object.entries(json.devices))
-                for (const [id, device] of devices) {
-                    if (!incomingDevices.has(id)) {
-                        device.destroy()
-                        devices.delete(id)
-                    }
-                }
-
-                for (const [id, j] of incomingDevices) {
-                    const device = devices.get(id)
-                    if (!device) devices.set(id, new DeviceEntry(id, j, get('devices_body')))
-                    else device.update(j)
-                }
+                devices.clear()
+                for (const [id, state] of Object.entries(json.devices)) devices.set(id, state)
+                online = true
+                get('status_rethink').textContent = 'Connected'
             }
-
-            if (typeof json.bridge === 'object') {
-                bridge_status = json.bridge.loggedIn
-                if (json.bridge.loggedIn === true) {
-                    get('btn_thinq_login').classList.add('hide')
-                    get('btn_thinq_logout').classList.remove('hide')
-
-                    get('status_bridge').innerHTML = STATUS_OK
-                    get('status_bridge_text').innerText = 'Ok'
-                } else {
-                    get('btn_thinq_login').classList.remove('hide')
-                    get('btn_thinq_logout').classList.add('hide')
-
-                    get('status_bridge').innerHTML = STATUS_ERROR
-                    get('status_bridge_text').innerText = 'Not configured'
-                }
-
-                for (const device of devices.values()) device.refreshUI()
+            if (typeof json.ha === 'boolean')
+                get('status_mqtt').textContent = json.ha
+                    ? 'MQTT connected (entity health is separate)'
+                    : 'MQTT disconnected'
+            if (json.system) {
+                get('management_version').textContent = json.system.version || '-'
+                get('management_started').textContent = formatStartedAt(json.system.startedAt)
             }
-
-            if (typeof json.status === 'string') {
-                toastText(json.status)
+            if (json.bridge) {
+                bridgeConfigured = true
+                loggedIn = json.bridge.loggedIn
+                get('status_bridge_text').textContent = loggedIn
+                    ? 'Signed in · separate from appliance forwarding'
+                    : 'Sign in for explicit setup / renewal'
+                get('btn_thinq_login').classList.toggle('hide', loggedIn)
+                get('btn_thinq_logout').classList.toggle('hide', !loggedIn)
             }
+            if (json.status) get('page_status').textContent = json.status
+            render()
+        } catch {
+            get('page_status').textContent = 'Invalid status response. Reconnect to refresh.'
         }
     }
 }
-
-get('btn_thinq_login_continue').onclick = () => {
-    if (!get('country_code').validity.valid) return
-
-    const countryCode = get('country_code').value.toUpperCase()
-
-    window.open(`${baseUrl}thinq_login?countryCode=${countryCode}`, '_blank')
-}
-
-get('btn_thinq_login_complete').onclick = async () => {
-    if (!get('country_code').validity.valid) return
-
-    if (!get('login_url').validity.valid) return
-
-    const countryCode = get('country_code').value.toUpperCase()
-    const url = get('login_url').value
-    await fetchWrapper(`thinq_login_accept`, { url, countryCode }, { method: 'POST' })
-    M.Modal.getInstance(get('thinq_login')).close()
-}
-
-get('btn_thinq_logout_continue').onclick = async () => {
-    await fetchWrapper(`thinq_logout`, {}, { method: 'POST' })
-    M.Modal.getInstance(get('thinq_logout')).close()
-}
-
-/** @template {keyof PageElements} K @param {K} id @returns {PageElements[K]} */
-function get(id) {
-    return /** @type {PageElements[K]} */ (document.getElementById(id))
-}
-
-/** @param {unknown} value */
-function toastText(value) {
-    const escaped = document.createElement('span')
-    escaped.textContent = String(value)
-    M.toast({ html: escaped.innerHTML })
-}
-
-/**
- * @param {string} path
- * @param {Record<string, unknown>} body
- * @param {Omit<RequestInit, 'headers'> & {headers?: Record<string, string>}} options
- */
-async function fetchWrapper(path, body, options) {
-    if (options.method !== 'GET') {
-        if (!options.headers) options.headers = {}
-        options.headers['Content-type'] = 'application/json'
-    }
-    options.body = JSON.stringify(body)
+/** @param {string} id @param {() => Promise<unknown>} action */
+async function accountAction(id, action) {
+    const control = /** @type {HTMLButtonElement} */ (get(id))
+    if (!online || control.disabled || accountBusy) return
+    accountBusy = true
+    render()
     try {
-        const response = await fetch(`${baseUrl}${path}`, options)
-        if (response.status >= 300) toastText(`HTTP error ${response.status}: ${await response.text()}`)
-
-        return response
-    } catch (err) {
-        toastText(`FETCH error: ${err}`)
+        await action()
+    } catch (error) {
+        get('page_status').textContent = String(error)
+    } finally {
+        accountBusy = false
+        render()
     }
 }
-connect()
+document.addEventListener('DOMContentLoaded', () => {
+    M.Modal.init(document.querySelectorAll('.modal'))
+    get('btn_thinq_login_continue').onclick = () => {
+        if (input('country_code').validity.valid)
+            window.open(
+                new URL(
+                    `thinq_login?countryCode=${encodeURIComponent(input('country_code').value.toUpperCase())}`,
+                    baseUrl,
+                ).href,
+                '_blank',
+            )
+    }
+    get('btn_thinq_login_complete').onclick = () =>
+        accountAction('btn_thinq_login_complete', async () => {
+            if (!input('country_code').validity.valid || !input('login_url').validity.valid) return
+            await api('thinq_login_accept', {
+                countryCode: input('country_code').value.toUpperCase(),
+                url: input('login_url').value,
+            })
+            input('login_url').value = ''
+            M.Modal.getInstance(get('thinq_login')).close()
+        })
+    get('btn_thinq_logout_continue').onclick = () =>
+        accountAction('btn_thinq_logout_continue', async () => {
+            await api('thinq_logout')
+            M.Modal.getInstance(get('thinq_logout')).close()
+        })
+    connect()
+})
