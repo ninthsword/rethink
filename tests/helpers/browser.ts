@@ -41,8 +41,8 @@ export class Element {
     set innerText(value: string) {
         this.textContent = value
     }
-    get innerHTML() {
-        return this.textContent.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
+    get innerHTML(): string {
+        throw new Error('HTML serialization is unsupported by this DOM mock')
     }
     set innerHTML(value: string) {
         throw new Error(`Unexpected HTML sink: ${value.slice(0, 30)}`)
