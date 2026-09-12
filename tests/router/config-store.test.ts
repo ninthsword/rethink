@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, test } from 'node:test'
@@ -82,4 +82,31 @@ describe('what the router configuration will accept', () => {
         assert.throws(() => store.addDevice('192.168.1.1'), /cannot be registered/)
         assert.throws(() => store.addDevice('192.168.1.2'), /cannot be registered/)
     })
+})
+
+test('failed persistence leaves previous in-memory configuration and desired intent intact', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'rethink-persistence-'))
+    try {
+        const store = new RouterConfigStore(join(dir, 'router.json'))
+        const entry = store.addDevice('192.0.2.20')
+        // A directory at the temporary-file path makes the next atomic write fail.
+        mkdirSync(`${store.filename}.tmp`)
+        assert.throws(() => store.setDnatDesired(entry.entryId, true))
+        assert.equal(store.requireDevice(entry.entryId).dnatDesired, undefined)
+        assert.throws(() => store.updateDevice(entry.entryId, { mode: 'local' }))
+        assert.equal(store.requireDevice(entry.entryId).mode, undefined)
+    } finally {
+        rmSync(dir, { recursive: true, force: true })
+    }
+})
+
+test('explicit unlink survives automatic IP discovery until an explicit link', () => {
+    const store = new RouterConfigStore(join(dir, 'router.json'))
+    const entry = store.addDevice('192.0.2.20', 'local')
+    store.linkDevice(entry.entryId, 'device')
+    store.unlinkDevice(entry.entryId)
+    assert.equal(store.linkByIp(entry.ip, 'device', 'Detected'), false)
+    assert.equal(store.requireDevice(entry.entryId).deviceId, undefined)
+    store.linkDevice(entry.entryId, 'device')
+    assert.equal(store.requireDevice(entry.entryId).deviceId, 'device')
 })

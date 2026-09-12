@@ -5,6 +5,7 @@ import log from '@/util/logging'
 import type { Thinq2Device, Thinq2DeviceState } from './thinqApi'
 
 type ConnectionEvents = {
+    connected: () => void
     data: (buffer: Buffer) => void
     message: (payload: ClipMessage) => void
     close: () => void
@@ -14,6 +15,7 @@ type ConnectionEvents = {
 export class Connection extends TypedEmitter<ConnectionEvents> {
     mqtt: mqtt.MqttClient
     mid = 10000
+    private destroyed = false
     readonly state: Thinq2DeviceState
 
     constructor(
@@ -25,13 +27,14 @@ export class Connection extends TypedEmitter<ConnectionEvents> {
          * a European one with no device type.
          */
         readonly deployProfile?: ClipDeployMessage,
+        connect: typeof mqtt.connect = mqtt.connect,
     ) {
         super()
         const state = this.device.state
         if (!state) throw new Error('ThinQ2 bridge state is missing')
         this.state = state
         log('bridge', `${this.device.deviceId} connecting to ${state.mqttServer}`)
-        this.mqtt = mqtt.connect(state.mqttServer.replace('ssl', 'mqtts'), {
+        this.mqtt = connect(state.mqttServer.replace('ssl', 'mqtts'), {
             ca: state.caCertificate,
             key: state.privateKey,
             cert: state.certificate,
@@ -40,6 +43,7 @@ export class Connection extends TypedEmitter<ConnectionEvents> {
         })
 
         this.mqtt.on('message', (topic, message, packet) => {
+            if (this.destroyed) return
             try {
                 if (topic === this.state.subTopic) {
                     this.traceMqtt('cloud->rethink', topic, message.toString('utf-8'), packet)
@@ -77,11 +81,21 @@ export class Connection extends TypedEmitter<ConnectionEvents> {
 
         this.mqtt.on('connect', () => {
             log('bridge', `${this.device.deviceId} connected`)
-            void this.announceToCloud()
+            if (this.destroyed) return
+            this.emit('connected')
+            void this.announceToCloud().catch((error: unknown) => {
+                if (this.destroyed) return
+                this.emit('error', error instanceof Error ? error : new Error(String(error)))
+                this.emit('close')
+            })
         })
 
-        this.mqtt.on('close', () => this.emit('close'))
-        this.mqtt.on('error', (err) => this.emit('error', err))
+        this.mqtt.on('close', () => {
+            if (!this.destroyed) this.emit('close')
+        })
+        this.mqtt.on('error', (err) => {
+            if (!this.destroyed) this.emit('error', err)
+        })
     }
 
     /**
@@ -192,6 +206,7 @@ export class Connection extends TypedEmitter<ConnectionEvents> {
     }
 
     destroy() {
-        this.mqtt.end()
+        this.destroyed = true
+        this.mqtt.end(true)
     }
 }

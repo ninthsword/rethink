@@ -56,6 +56,44 @@
                     white-space: nowrap;
                 }
             }
+        
+            body { background: #f4f7fb; color: #23364b; }
+            nav { box-shadow: none; }
+            main, body > .container { max-width: 1280px; }
+            h4.header.orange-text { color: #1e4963; font-size: 1.7rem; font-weight: 600; }
+            .section, body > .container:not(.dashboard-meta) { background: white; border: 1px solid #dce5ed; border-radius: 14px; padding: 24px; margin-top: 20px; margin-bottom: 20px; }
+            table { table-layout: fixed; }
+            th { font-size: .8rem; text-transform: uppercase; color: #52667d; letter-spacing: .04em; }
+            td { vertical-align: top; overflow-wrap: anywhere; padding: 16px 8px; }
+            td small, td a, td label { display: block; margin-top: 8px; }
+            td small { color: #53677d; line-height: 1.5; }
+            .btn, .btn-small { background: #186078; border-radius: 7px; box-shadow: none; }
+            td .btn-small { margin: 8px 6px 0 0; height: auto; min-height: 36px; white-space: normal; line-height: 1.4; padding: 9px 12px; text-transform: none; }
+            .btn:focus, .btn-small:focus, button:focus-visible, select:focus-visible, a:focus-visible { outline: 3px solid #e3a035; outline-offset: 3px; }
+            body input[type=checkbox]:not(:checked), body input[type=checkbox]:checked { position: static; opacity: 1; pointer-events: auto; width: 18px; height: 18px; vertical-align: middle; accent-color: #186078; }
+            td label { color: #23364b; }
+            button:disabled, input:disabled, select:disabled { opacity: .55; cursor: not-allowed; }
+            .row-status { color: #98331e; font-size: .9rem; margin: 8px 0 0; }
+            [aria-busy=true] { background: #edf4f8; }
+            dialog { width: min(560px, calc(100% - 32px)); max-height: 85vh; overflow: auto; border: 1px solid #c5d5e3; border-radius: 16px; padding: 28px; color: #23364b; }
+            dialog::backdrop { background: rgb(16 35 52 / 55%); }
+            dialog p { line-height: 1.65; }
+            dialog label { display: block; color: #23364b; font-size: 1rem; line-height: 1.6; }
+            dialog button { margin: 12px 10px 0 0; }
+            .mode-guide { line-height: 1.65; max-width: 80ch; color: #52667d; }
+            td.actions { white-space: normal; }
+            .offline .hide-when-offline { display: block; }
+            @media (max-width: 760px) {
+                body .container:not(.modal) { width: 94%; }
+                table, table.responsive-table, table tbody, table.responsive-table tbody { display: block; width: 100%; }
+                table thead, table.responsive-table thead { display: none; }
+                table tr, table.responsive-table tr { display: grid; grid-template-columns: minmax(0, 1fr); border: 1px solid #dce5ed; border-radius: 12px; margin: 14px 0; padding: 12px; }
+                table td, table.responsive-table td { display: block; width: auto; padding: 9px 4px; text-align: left; }
+                td::before { content: attr(data-label); display: block; color: #52667d; font-weight: 600; font-size: .78rem; margin-bottom: 4px; }
+                .row.valign-wrapper { display: block; }
+                .section, body > .container:not(.dashboard-meta) { padding: 16px; }
+                .btn { margin-top: 8px; max-width: 100%; height: auto; min-height: 36px; white-space: normal; }
+            }
         </style>
     </head>
     <body>
@@ -102,9 +140,9 @@
                     <!-- A quarter of a phone's width is not enough for the button, so the
                          two halves stack there and sit side by side from tablet up. -->
                     <div class="col s12 m9">
-                        <h4 class="header orange-text">DNAT devices</h4>
+                        <h4 class="header orange-text">Appliance modes</h4>
                         Router: <span id="router_status" class="state-unknown">Not configured</span>
-                        <span id="router_error" class="red-text"></span>
+                        <span id="router_error" class="red-text" role="status" aria-live="polite"></span>
                     </div>
                     <div class="col s12 m3 right-align">
                         <button type="button" id="refresh" class="btn waves-effect waves-light">
@@ -113,8 +151,10 @@
                     </div>
                 </div>
 
+                <p class="mode-guide"><strong>DNAT</strong> automatically forwards to LG using saved registration when enabled. <strong>Local</strong> offers an optional LG Bridge without router SSH. Turn DNAT off before changing modes. Local requires an existing independent path from the appliance to Rethink; saving this policy does not create that path or reprovision certificates.</p>
+                <p class="mode-guide">For the supported <strong>DNAT ↔ Local</strong> switching workflow, the appliance certificates differ. In either direction, remove appliance power to reset its Wi-Fi module, restore power, then repeat Wi-Fi setup and appliance certificate enrollment for the target mode using the appliance-specific instructions. Review and explicitly approve the mode-change dialog. Saving policy does not perform or verify these physical steps. Bridge Restore / Set up / Renew concerns upstream LG registration and does not enroll the physical appliance’s Wi-Fi certificate.</p>
                 <table class="highlight responsive-table">
-                    <thead><tr><th>Name</th><th>IP</th><th>Device</th><th>DNAT</th><th>Bridge</th><th>Action</th></tr></thead>
+                    <thead><tr><th>Name</th><th>IP</th><th>Local connection</th><th>Mode</th><th>DNAT</th><th>LG forwarding</th><th>Action</th></tr></thead>
                     <tbody id="device_rows"></tbody>
                 </table>
                 <p id="empty_devices" class="subtle">No devices registered. Add an IP address first.</p>
@@ -128,11 +168,13 @@
             <div class="modal-content">
                 <h4>Add device</h4>
                 <div class="input-field"><input id="device_ip" type="text" /><label for="device_ip">Device IP</label></div>
+                <label for="device_mode">Forwarding mode</label>
+                <select id="device_mode" class="browser-default"><option value="dnat">DNAT</option><option value="local">Local (existing Rethink connection)</option></select>
                 <p class="subtle">
-                    The name and ThinQ device ID are detected the next time the appliance connects.
-                    Turn DNAT on <b>before</b> registering the appliance in the ThinQ app, so its
-                    registration goes through rethink; an appliance registered with DNAT off stays
-                    on LG's cloud until it is powered off and on again.
+                    Add an appliance IP to manage forwarding. Existing entries default to DNAT.
+                    The appliance is linked when it connects to Rethink. Mode selection changes policy only;
+                    it does not change the deployment-wide appliance route, Wi-Fi setup or certificates.
+                    No cloud pairing occurs until you explicitly choose Set up or Renew.
                 </p>
             </div>
             <div class="modal-footer">

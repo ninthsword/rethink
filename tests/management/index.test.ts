@@ -215,3 +215,54 @@ test('a device monitor error followed by close disposes listeners idempotently',
         await fixture.cleanup()
     }
 })
+
+test('direct bridge API rejects DNAT switches with 409 and resumes Local saved state without router SSH', async () => {
+    const { Bridge } = await import('@/bridge')
+    const { BridgePolicy } = await import('@/bridge/policy')
+    const { JSONStorage } = await import('@/bridge/state')
+    const { RouterConfigStore } = await import('@/router/config-store')
+    const dir = await mkdtemp(path.join(tmpdir(), 'rethink-direct-policy-'))
+    const manager = new DeviceManager()
+    const state = new JSONStorage(dir)
+    const store = new RouterConfigStore(path.join(dir, 'router.json'))
+    const entry = store.addDevice('192.0.2.20')
+    store.linkDevice(entry.entryId, 'synthetic')
+    state.setDeviceState('synthetic', { httpServer: 'https://cloud.example', rtiServer: 'rti.example:1' })
+    const bridge = new Bridge(state, manager, { policy: new BridgePolicy(store) })
+    const server = app(fakeHA(), manager, bridge, store.filename)
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+    try {
+        const address = server.address()
+        assert(address && typeof address === 'object')
+        const base = `http://127.0.0.1:${address.port}`
+        for (const action of ['enable', 'disable']) {
+            const result = await fetch(`${base}/bridge/synthetic/${action}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: '{}',
+            })
+            assert.equal(result.status, 409)
+            assert.match(await result.text(), /DNAT control/)
+            assert.match(result.headers.get('content-type') || '', /text\/plain/)
+        }
+        store.updateDevice(entry.entryId, { mode: 'local' })
+        const result = await fetch(`${base}/bridge/synthetic/enable`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: '{}',
+        })
+        assert.equal(result.status, 204)
+        assert.equal(state.getEnabled('synthetic'), true)
+        const missing = await fetch(`${base}/bridge/missing/enable`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: '{}',
+        })
+        assert.equal(missing.status, 400)
+        assert.match(await missing.text(), /Registration required/)
+    } finally {
+        server.closeAllConnections()
+        await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())))
+        await rm(dir, { recursive: true, force: true })
+    }
+})

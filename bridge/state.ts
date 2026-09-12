@@ -1,4 +1,5 @@
 import { existsSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
+import { isSafeDeviceId } from '@/cloud/device_id'
 import type { Environment, Thinq1DeviceState, Thinq2DeviceState } from './thinqApi'
 
 export type Credentials = {
@@ -7,6 +8,8 @@ export type Credentials = {
 }
 
 export type BridgeState = {
+    getEnabled?(id: string): boolean | undefined
+    setEnabled?(id: string, enabled: boolean): void
     getCredentials(): Credentials | undefined
     setCredentials(credentials: Credentials | undefined): void
     getDeviceState(id: string): Thinq1DeviceState | Thinq2DeviceState | undefined
@@ -48,15 +51,35 @@ export class JSONStorage implements BridgeState {
         renameSync(temporary, path)
     }
 
+    private intentPath(id: string) {
+        if (!isSafeDeviceId(id)) throw new Error('Invalid appliance identifier')
+        return `${this.basePath}/intent_${id}.json`
+    }
+
+    getEnabled(id: string) {
+        try {
+            const value: unknown = JSON.parse(readFileSync(this.intentPath(id), 'utf-8'))
+            return typeof value === 'boolean' ? value : false
+        } catch (error) {
+            return (error as NodeJS.ErrnoException).code === 'ENOENT' ? undefined : false
+        }
+    }
+
+    setEnabled(id: string, enabled: boolean) {
+        this.writeAtomically(this.intentPath(id), JSON.stringify(enabled))
+    }
+
     oauth2Path() {
         return `${this.basePath}/oauth2.json`
     }
 
     devicePath(id: string) {
+        if (!isSafeDeviceId(id)) throw new Error('Invalid appliance identifier')
         return `${this.basePath}/device_${id}.json`
     }
 
     archivePath(id: string) {
+        if (!isSafeDeviceId(id)) throw new Error('Invalid appliance identifier')
         return `${this.basePath}/device_${id}.archived.json`
     }
 
@@ -109,11 +132,14 @@ export class JSONStorage implements BridgeState {
         // A registration made since the archive was taken is the current one and wins: the
         // appliance was deliberately registered afresh rather than restored by accident.
         if (this.getDeviceState(id)) return false
+        let archived: Buffer
         try {
-            this.writeAtomically(this.devicePath(id), readFileSync(this.archivePath(id)))
-            return true
-        } catch {
-            return false
+            archived = readFileSync(this.archivePath(id))
+        } catch (error) {
+            if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false
+            throw error
         }
+        this.writeAtomically(this.devicePath(id), archived)
+        return true
     }
 }

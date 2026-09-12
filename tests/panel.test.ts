@@ -1,51 +1,101 @@
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
+import { browser, response, settle } from './helpers/browser'
 
-const panel = readFileSync('html/panel.js', 'utf-8')
+const local = {
+    name: '<img onerror=alert(1)>',
+    model: '<script>bad</script>',
+    mode: 'local',
+    bridgeSaved: true,
+    bridgeEnabled: false,
+}
+function snapshot(devices: object) {
+    return { bridge: { loggedIn: true }, devices }
+}
 
-test('panel renders external model text without an HTML sink', () => {
-    assert.match(panel, /modelText\.textContent = this\.remoteState\.model \|\| '-'/)
-    assert.match(panel, /warning\.className = 'material-icons tooltipped tiny'/)
-    assert.match(panel, /warning\.textContent = 'warning'/)
-    assert.doesNotMatch(panel, /td\.innerHTML = model/)
+test('panel executes safe DOM rendering, separates modes, and encodes monitor identities', async () => {
+    const page = await browser('panel')
+    page.sockets[0].sendStatus(snapshot({ '__proto__/x?': local, dnat: { ...local, mode: 'dnat' } }))
+    const rows = page.document.getElementById('devices_body').children
+    assert.equal(rows.length, 2)
+    assert.match(rows[0].textContent, /<img onerror=alert\(1\)>/)
+    assert.equal(rows[0].querySelectorAll('script').length, 0)
+    assert.equal(rows[0].querySelectorAll('input').length, 1)
+    assert.equal(rows[1].querySelectorAll('input').length, 0)
+    assert(rows[0].querySelectorAll('a').some((link) => link.href.includes('__proto__%2Fx%3F')))
 })
 
-test('panel builds an encoded monitor link through the DOM', () => {
-    assert.match(panel, /monitor\.href = `monitor\?id=\$\{encodeURIComponent\(this\.id\)\}`/)
-    assert.match(panel, /monitorIcon\.textContent = 'troubleshoot'/)
-    assert.doesNotMatch(panel, /td\.innerHTML = `<a class=/)
+test('failed HTTP mutation shows row error, preserves off state, and never returns false success', async () => {
+    const calls: string[] = []
+    const page = await browser('panel', async (path) => {
+        calls.push(path)
+        return response('Restore or set up first', 409)
+    })
+    page.sockets[0].sendStatus(snapshot({ local }))
+    await page.document.getElementById('devices_body').querySelector('input').change(true)
+    assert.equal(calls.length, 1)
+    assert.equal(page.document.getElementById('devices_body').querySelector('input').checked, false)
+    assert.match(page.document.getElementById('devices_body').textContent, /Restore or set up first/)
+    assert.equal(page.sockets.length, 1)
 })
 
-test('panel escapes dynamic toast content before passing it to Materialize', () => {
-    assert.match(panel, /function toastText\(value\)/)
-    assert.match(panel, /escaped\.textContent = String\(value\)/)
-    assert.match(panel, /M\.toast\(\{ html: escaped\.innerHTML \}\)/)
-    assert.match(panel, /toastText\(json\.status\)/)
-    assert.match(panel, /toastText\(`HTTP error \$\{response\.status\}: \$\{await response\.text\(\)\}`\)/)
-    assert.match(panel, /toastText\(`FETCH error: \$\{err\}`\)/)
-    for (const value of ['<img onerror="alert(1)">', '&', '"quoted"']) {
-        assert.equal(panel.includes(`M.toast({ html: ${value} })`), false)
-    }
-    assert.doesNotMatch(panel, /M\.toast\(\{ html: json\.status \}\)/)
-    assert.doesNotMatch(panel, /M\.toast\(\{ html: `HTTP error/)
-    assert.doesNotMatch(panel, /M\.toast\(\{ html: `FETCH error/)
+test('busy and stale controls block duplicate requests; old socket cannot overwrite fresh snapshot', async () => {
+    let finish!: (value: ReturnType<typeof response>) => void
+    const page = await browser(
+        'panel',
+        async () =>
+            new Promise((resolve) => {
+                finish = resolve
+            }),
+    )
+    const old = page.sockets[0]
+    old.sendStatus(snapshot({ local }))
+    const action = page.document.getElementById('devices_body').querySelector('input').change(true)
+    assert.equal(page.document.getElementById('devices_body').querySelector('input').disabled, true)
+    finish(response({}, 204))
+    await action
+    const current = page.sockets[1]
+    current.sendStatus(snapshot({ local: { ...local, bridgeEnabled: true } }))
+    assert.equal(page.document.activeElement.dataset.focus, 'local:toggle')
+    old.sendStatus(snapshot({}))
+    assert.equal(page.document.getElementById('devices_body').children.length, 1)
+    current.close()
+    assert.equal(page.document.getElementById('devices_body').querySelector('input').disabled, true)
+    assert.match(page.document.getElementById('devices_body').textContent, /Stale/)
 })
 
-test('panel tracks device ids in a Map with own incoming entries', () => {
-    assert.match(panel, /const devices = new Map\(\)/)
-    assert.match(panel, /const incomingDevices = new Map\(Object\.entries\(json\.devices\)\)/)
-    assert.match(panel, /for \(const \[id, device\] of devices\)/)
-    assert.match(panel, /const device = devices\.get\(id\)/)
-    assert.match(panel, /devices\.set\(id, new DeviceEntry\(id, j, get\('devices_body'\)\)\)/)
-    assert.match(panel, /for \(const device of devices\.values\(\)\) device\.refreshUI\(\)/)
-    assert.doesNotMatch(panel, /devices\[/)
+test('registration Cancel and Escape make no request and return keyboard focus', async () => {
+    let calls = 0
+    const page = await browser('panel', async () => {
+        calls++
+        return response()
+    })
+    page.sockets[0].sendStatus(snapshot({ local: { ...local, bridgeArchived: true } }))
+    const trigger = page.document.getElementById('devices_body').querySelector('button')
+    assert(trigger)
+    await trigger.click()
+    const dialog = page.document.querySelectorAll('dialog')[0]
+    assert(dialog.open)
+    assert.match(
+        dialog.textContent,
+        /upstream LG registration, not the physical appliance’s Wi-Fi certificate enrollment/,
+    )
+    assert.equal(dialog.querySelectorAll('button').find((button) => button.textContent === 'Restore')?.disabled, true)
+    assert(dialog.oncancel)
+    dialog.oncancel({ preventDefault() {} })
+    assert.equal(page.document.querySelectorAll('dialog').length, 0)
+    assert.equal(page.document.activeElement.dataset.focus, trigger.dataset.focus)
+    assert.equal(calls, 0)
+})
 
-    const incoming = JSON.parse('{"__proto__":{"model":"prototype"},"constructor":{"model":"constructor"}}') as Record<
-        string,
-        { model: string }
-    >
-    const registry = new Map(Object.entries(incoming))
-    assert.equal(registry.get('__proto__')?.model, 'prototype')
-    assert.equal(registry.get('constructor')?.model, 'constructor')
+test('network login failure keeps dialog open and retains form for retry', async () => {
+    const page = await browser('panel', async () => {
+        throw new Error('Network unavailable')
+    })
+    page.sockets[0].sendStatus(snapshot({}))
+    page.document.getElementById('login_url').value = 'https://login.example/return'
+    await page.document.getElementById('btn_thinq_login_complete').click()
+    await settle()
+    assert.deepEqual(page.modals, [])
+    assert.match(page.document.getElementById('page_status').textContent, /Network unavailable/)
 })
