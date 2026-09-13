@@ -3,7 +3,9 @@
     ".github/security/filter-semgrep.py",
     "tests/security/test_filter_semgrep.py",
     "scripts/deploy-status.py",
-    "tests/scripts/test_deploy_status.py"
+    "tests/scripts/test_deploy_status.py",
+    ".github/security/owner-policy-guard.py",
+    "tests/security/test_owner_policy_guard.py"
   ],
   "exclude": ["**/node_modules", "**/__pycache__"],
   "pythonVersion": "3.12",
