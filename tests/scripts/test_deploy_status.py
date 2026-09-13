@@ -90,5 +90,74 @@ class ReadinessTests(unittest.TestCase):
             self.assertNotIn('configured', result.stderr)
 
 
+def registered(**changes):
+    return device(entryId='entry-1', ip='192.0.2.1', deviceId='device-1', platform='thinq2',
+                  autoLink=True, bridgeSaved=True, bridgeArchived=False, **changes)
+
+
+class ReleaseComparisonTests(unittest.TestCase):
+    def test_release_requires_off_paused_and_preserved_registration(self):
+        before = status([registered()])
+        for state in ('on', 'partial', 'unknown'):
+            self.assertFalse(MODULE.released(before, status([registered(dnat=state, forwardingPaused=True)])))
+        self.assertFalse(MODULE.released(before, status([registered(dnat='off')])))
+        after = status([registered(dnat='off', forwardingPaused=True)])
+        self.assertTrue(MODULE.released(before, after))
+        self.assertFalse(MODULE.released(before, after | {'connected': False}))
+        self.assertTrue(MODULE.restored(before, before))
+        self.assertFalse(MODULE.restored(before, after))
+
+    def test_complete_identity_intent_and_saved_flags_cannot_drift(self):
+        before = status([registered()])
+        for key, value in [('entryId', 'other'), ('ip', '192.0.2.2'), ('deviceId', 'other'),
+                           ('mode', 'local'), ('dnatDesired', False), ('bridgeSaved', False),
+                           ('bridgeArchived', True), ('autoLink', False), ('platform', 'thinq1')]:
+            after = status([registered(dnat='off', forwardingPaused=True) | {key: value}])
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                MODULE.released(before, after)
+            with self.assertRaises(ValueError):
+                MODULE.restored(before, after)
+        for key in ('entryId', 'ip', 'mode', 'bridgeSaved', 'bridgeArchived', 'dnatDesired'):
+            row = registered()
+            del row[key]
+            with self.subTest(missing=key), self.assertRaises(ValueError):
+                MODULE.released(before, status([row]))
+        for rows in ([], [registered(), registered()], [registered(), registered() | {'entryId': 'two'}]):
+            with self.assertRaises(ValueError):
+                MODULE.released(before, status(rows))
+
+    def test_local_zero_desired_and_omitted_intent_noop_preserve_shapes(self):
+        for rows in ([], [registered(mode='local')], [registered(dnatDesired=False)]):
+            before = status(rows, configured=False, connected=False)
+            self.assertFalse(MODULE.has_desired(before))
+            self.assertTrue(MODULE.released(before, before))
+            self.assertTrue(MODULE.restored(before, before))
+        row = registered()
+        del row['dnatDesired']
+        before = status([row], configured=False, connected=False)
+        self.assertTrue(MODULE.released(before, before))
+        with self.assertRaises(ValueError):
+            MODULE.released(before, status([row | {'dnatDesired': False}]))
+
+    def test_strict_comparison_rejects_incomplete_legacy_rows_without_changing_ready(self):
+        self.assertTrue(MODULE.ready(status()))
+        with self.assertRaises(ValueError):
+            MODULE.registrations(status())
+        for key, value in [('ip', 'invalid'), ('bridgeSaved', 1), ('deviceId', None), ('autoLink', 0)]:
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                MODULE.registrations(status([registered() | {key: value}]))
+
+    def test_every_desired_row_and_local_mode_are_preserved(self):
+        first = registered()
+        second = registered() | {'entryId': 'entry-2', 'ip': '192.0.2.2', 'deviceId': 'device-2'}
+        local = registered(mode='local') | {'entryId': 'entry-3', 'ip': '192.0.2.3', 'deviceId': 'device-3'}
+        before = status([first, second, local])
+        stopped_first = first | {'dnat': 'off', 'forwardingPaused': True}
+        stopped_second = second | {'dnat': 'off', 'forwardingPaused': True}
+        self.assertFalse(MODULE.released(before, status([stopped_first, second, local])))
+        self.assertTrue(MODULE.released(before, status([stopped_second, local, stopped_first])))
+        self.assertTrue(MODULE.restored(before, status([local, first, second])))
+
+
 if __name__ == '__main__':
     unittest.main()

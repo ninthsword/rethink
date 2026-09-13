@@ -440,7 +440,25 @@ files or directories as needed.
 ```sh
 (
 set -eu
-curl -fsS -X POST http://127.0.0.1:44401/api/router/dnat/release
+cd ~/docker/rethink
+umask 077
+STATUS_DIR=$(mktemp -d)
+trap 'rm -rf -- "$STATUS_DIR"' EXIT
+curl -fsS --connect-timeout 2 --max-time 5 --max-filesize 1048576 -o "$STATUS_DIR/baseline" http://127.0.0.1:44401/api/router/status
+python3 scripts/deploy-status.py snapshot < "$STATUS_DIR/baseline"
+if python3 scripts/deploy-status.py has-desired < "$STATUS_DIR/baseline"; then
+    curl -fsS -X POST http://127.0.0.1:44401/api/router/dnat/release --connect-timeout 2 --max-time 5 --max-filesize 1048576 -o "$STATUS_DIR/release" || true
+    RELEASED=0
+    for ATTEMPT in $(seq 1 30); do
+        if curl -fsS --connect-timeout 2 --max-time 5 --max-filesize 1048576 -o "$STATUS_DIR/current" http://127.0.0.1:44401/api/router/status &&
+            python3 scripts/deploy-status.py released "$STATUS_DIR/baseline" < "$STATUS_DIR/current"; then
+            RELEASED=1
+            break
+        fi
+        sleep 5
+    done
+    [ "$RELEASED" -eq 1 ] || exit 1
+fi
 docker stop rethink
 BACKUP_DIR=$(sudo mktemp -d /var/tmp/rethink-data-backup.XXXXXX)
 BACKUP="$BACKUP_DIR/rethink-data.tar.gz"
@@ -452,9 +470,10 @@ RETHINK_DNAT_ALREADY_RELEASED=1 scripts/deploy.sh
 )
 ```
 
-The `curl -fsS` check must succeed before stopping the container; do not continue with the
-migration if the management endpoint cannot release DNAT. The deployment script then rebuilds,
-starts the container with the invoking UID:GID, and waits for DNAT reconciliation.
+The read-only comparison must prove release completion before stopping the container. A timed-out
+release request is observed, never replayed; missing, partial or changed registration evidence stops
+the migration. The recovery flag then rebuilds, starts the container with the invoking UID:GID,
+and waits for DNAT reconciliation. Keep temporary status documents private.
 
 ## 3. rethink 초기 설정
 
@@ -731,28 +750,48 @@ git pull --ff-only origin master
 scripts/deploy.sh
 ```
 
-수동으로 하는 경우에도 첫 줄을 먼저 실행하세요.
+The default command validates data ownership first, builds exactly once while the old container
+still runs, and records its immutable `sha256:` image ID. It snapshots all router registrations,
+requests release at most once, then observes read-only status until every desired DNAT row is off
+and paused. A timeout or HTTP failure during release does not authorize a second POST or a stop:
+only complete observed release with unchanged registration identities, modes, saved flags and intent
+authorizes replacement. Empty or local-only desired sets do not require a configured router.
+Responses stay in private temporary files and are removed on exit; raw status is never printed.
+Restoration checks the same registrations and desired forwarding before reporting the deployed ID.
+
+Managed phase callers can use these fixed interfaces:
 
 ```sh
-cd ~/docker/rethink
-curl -fsS -X POST http://127.0.0.1:44401/api/router/dnat/release   # 규칙 해제
-
-git pull --ff-only origin master
-docker build --pull -t rethink-lg-bridge:local .
-
-docker stop rethink
-docker rm rethink
-
-docker run -d \
-  --name rethink \
-  --restart unless-stopped \
-  --log-opt max-size=50m \
-  --log-opt max-file=5 \
-  --network host \
-  --user "$(id -u):$(id -g)" \
-  -v "$HOME/docker/rethink-data:/app/data" \
-  rethink-lg-bridge:local
+scripts/deploy.sh --build-only operation-tag
+# Retain the returned rethink-built-image-v1 JSON and its exact image_id.
+# Separately prove release and stop the existing container before replacement.
+scripts/deploy.sh --replace-only operation-tag sha256:EXACT_64_HEX_IMAGE_ID
+# Recovery after proven removal: separately retain release, stop and data-backup proof.
+scripts/deploy.sh --create-only operation-tag sha256:EXACT_64_HEX_IMAGE_ID
 ```
+
+`--build-only` performs no release or container replacement. `--replace-only` verifies the operation
+tag still identifies the supplied image, requires the existing container to be stopped, and runs
+that exact image without another build, release POST or implicit stop. The caller owns release
+proof and phase receipts. `--create-only` handles an already absent container: it requires a
+successful empty exact-name Docker listing, checks the operation tag against the supplied image,
+and rechecks absence immediately before creating once with the same user, data mount, network,
+restart and log options. Existing running or stopped containers, failed listings and any nonempty
+listing are rejected. It performs no build, release, stop or removal. Docker's unique container name
+rejects a concurrent create; failures do not retry creation. Readiness and actual image observation
+are bounded as in replacement. The caller must retain the original registration/release evidence
+and stable data backup, then independently verify restored registration, desired state and data
+persistence; create-only cannot reconstruct that prior evidence from an absent container.
+The default command remains the supported standalone route.
+`RETHINK_DNAT_ALREADY_RELEASED=1` retains the existing recovery meaning: it permits a default rebuild
+only after the existing container is already stopped; it never repeats release.
+
+For retained observation files, `python3 scripts/deploy-status.py snapshot` validates complete
+registration identity from stdin, `released BASELINE_FILE` proves release, and `restored BASELINE_FILE`
+checks unchanged registrations plus readiness. Plain stdin with no arguments retains the legacy
+`ready()` contract. Comparison modes require complete identity and reject missing/duplicate rows or
+drift. The helper performs no HTTP request or mutation. Script completion proves these deployment
+phases; application health still requires the usual independent Home Assistant observations.
 
 규칙은 rethink가 올라오고 30초 뒤 DNAT 조정기가 되돌립니다. `dnatDesired` 기록은 해제 시에도
 유지되므로 별도의 복구 조작이 필요하지 않습니다.
@@ -859,7 +898,7 @@ Rethink를 계속 사용할 계획이라면 공유기 재부팅이나 일시적�
 - [`rethink-capture`](tools/rethink-capture.ts): 기기 통신 캡처
 - [`lgcloud-monitor`](tools/lgcloud-monitor.ts): 공식 LG 클라우드 알림 모니터링
 - [`check-home-assistant`](scripts/check-home-assistant.mts): Home Assistant 쪽에서 본 가전 상태 점검
-- [`deploy`](scripts/deploy.sh): DNAT 해제 → 빌드 → 컨테이너 교체 → 규칙 복구까지 순서대로 수행
+- [`deploy`](scripts/deploy.sh): Build once, observe DNAT release, replace by immutable image ID, and verify registration restoration
 
 ## 문제 해결
 
@@ -940,3 +979,46 @@ request has a five-second limit, management startup gets 30 attempts, and DNAT r
 30 attempts. Failure exits nonzero without claiming appliance health. Only desired DNAT-mode
 entries must regain forwarding; local or disabled entries and an empty desired set are valid
 no-ops. Deployment readiness does not replace the Home Assistant health check.
+
+
+## Protected policy maintenance
+
+The `policy-guard` job runs trusted base-branch code under `pull_request_target`, fetches the exact
+PR head and checks its identity without checking out or executing candidate code. Added inline
+scanner-suppression markers are always rejected, including when policy maintenance is approved.
+Changes under `.github/workflows/`, `.github/security/`, or the existing scanner-ignore/config
+paths require the latest case-insensitive `owner-policy-approval` status on that exact head.
+
+The guard considers matching statuses from every creator before selecting the newest. That status
+must be successful and created by the repository owner's numeric user ID; a newer non-owner,
+pending, failure or error status blocks the older approval. The repository must be user-owned,
+head and base must belong to that same repository, and the expected default base branch and its
+current SHA must match. The description is exactly `v1 base=<40hex> approval=<64hex>`, binding the
+approval record and base. Status pagination is bounded and must finish completely; malformed,
+missing or changed evidence fails closed. Workflow token permissions remain read-only.
+
+The owner-authorized publication process creates the status only for genuinely approved accepted
+source and checks revocation again before merging. The policy workflow neither writes approval
+statuses nor establishes functional/scanner CI success or source acceptance. Installing this guard
+on a branch that still uses the older unconditional guard requires separately controlled owner
+maintenance; the workflow contains no persistent bootstrap bypass.
+
+
+A protected change whose complete, validated status history contains no matching approval context
+fails with exactly one `OWNER_POLICY_GUARD_DIAGNOSIS ` line followed by compact JSON. Its closed
+schema is `owner-policy-guard-diagnosis-v1`, reason `MISSING_OWNER_APPROVAL`, with
+`repository`, integer `pr_number`, `base_sha` and `head_sha`. The line is bounded below 1 KiB. It is
+emitted only after source, suppression, repository, PR and base validation. Existing foreign,
+revoked, pending, malformed or incorrectly bound approvals, incomplete pagination and observation
+errors never produce this diagnosis. The job still fails; the marker grants no approval or retry.
+
+The trusted `security-policy` workflow's `policy-guard` job has one guard step named
+`Reject pull requests that weaken security policy`, ID `owner_policy_guard`. It invokes the
+base-owned Python file directly; no candidate code or marker-producing inline shell is executed.
+GitHub exposes complete job logs and numbered step metadata, not authenticated separate step
+stdout. A consumer must authenticate the complete fixed workflow/job, exact head/base/event/run
+attempt and guard step before interpreting a single anchored marker from that step. Echoed commands,
+untrusted content, duplicate markers, malformed or truncated logs and ambiguous step attribution
+are ineligible. A bare marker substring is never sufficient. The official job rerun API also reruns
+dependent jobs; this fixed workflow declares none. Any future consumer must preserve the failed
+attempt and separately authorize its bounded rerun against a genuinely new exact approval status.

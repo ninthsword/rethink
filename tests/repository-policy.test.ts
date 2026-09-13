@@ -91,7 +91,7 @@ test('local deployment validates operator-owned data before releasing DNAT', () 
     assert.match(deployScript, /DNAT_ALREADY_RELEASED=\$\{RETHINK_DNAT_ALREADY_RELEASED:-0\}/)
     assert.match(deployScript, /RETHINK_DNAT_ALREADY_RELEASED must be 0 or 1/)
     assert.match(deployScript, /docker inspect --format '\{\{\.State\.Running\}\}' rethink/)
-    assert.match(deployScript, /DNAT release failed/)
+    assert.match(deployScript, /DNAT release completion was not proven/)
     assert.match(deployScript, /\[\[ "\$DATA" != \/\* \]\]/)
     assert.match(deployScript, /realpath -e -- "\$DATA"/)
     assert.match(deployScript, /DATA=\$canonical_data/)
@@ -178,7 +178,7 @@ test('deployment rejects noncanonical data paths before invoking curl or Docker'
             env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, RETHINK_DATA: validData },
         })
         assert.equal(validResult.status, 1)
-        assert.equal(readFileSync(events, 'utf-8'), 'curl\ndocker\n')
+        assert.equal(readFileSync(events, 'utf-8'), 'docker\n')
 
         rmSync(events)
         const curlFailureResult = spawnSync('bash', ['scripts/deploy.sh'], {
@@ -192,7 +192,7 @@ test('deployment rejects noncanonical data paths before invoking curl or Docker'
             },
         })
         assert.equal(curlFailureResult.status, 1)
-        assert.equal(readFileSync(events, 'utf-8'), 'curl\n')
+        assert.equal(readFileSync(events, 'utf-8'), 'docker\n')
 
         rmSync(events)
         const runningFlagResult = spawnSync('bash', ['scripts/deploy.sh'], {
