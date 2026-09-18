@@ -233,7 +233,10 @@ test('runtime documentation covers fresh and migrated data ownership', () => {
     assert.match(readme, /backup/i)
     assert.match(readme, /chown -R .*id -u.*id -g/i)
     assert.match(readme, /--user .*id -u.*id -g/i)
-    assert.match(readme, /above 1024/i)
+    // The README is Korean prose per the repository-wide language rule; the invariant this
+    // guards is the operational claim (all listeners are above the privileged-port range),
+    // not the specific English wording it used to carry.
+    assert.match(readme, /1024번 이상/)
     assert.match(readme, /root-only backup .*rollback/i)
     const migration = readme.indexOf('first release DNAT successfully')
     const migrationGuard = readme.indexOf('(\nset -eu\n', migration)
