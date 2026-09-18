@@ -1,83 +1,85 @@
 # rethink - LG ThinQ 로컬 브리지
 
-## Appliance modes and registration lifecycle
+## 가전 모드와 등록 수명주기
 
-The management pages expose **per-appliance forwarding policy** through existing router
-entries. Existing entries lazily default to **DNAT**; appliances without a linked entry use
-**Local**. A source-IP match applies the entry policy before automatic Bridge startup. No
-startup credential migration or bulk rewrite is performed.
+관리 화면은 기존 공유기 항목을 통해 **가전별 전달 정책**을 노출합니다. 기존 항목은
+느슨하게 **DNAT**를 기본값으로 삼고, 연결된 항목이 없는 가전은 **Local**을 사용합니다.
+출발지 IP가 일치하면 자동 Bridge 시작 전에 해당 항목의 정책이 적용됩니다. 시작 시
+자격증명 이전이나 일괄 재작성은 수행하지 않습니다.
 
-| Policy | Router forwarding | LG forwarding |
+| 정책 | 공유기 전달 | LG 전달 |
 | --- | --- | --- |
-| DNAT | Enable / Turn off controls managed DNAT rules | Automatic with DNAT intent, using saved registration; no independent Bridge switch |
-| Local | Managed DNAT is not used | Optional Bridge, usable without router SSH configuration |
+| DNAT | Enable / Turn off로 관리형 DNAT 규칙을 제어 | 저장된 등록을 사용해 DNAT 의도로 자동 처리; 별도 Bridge 스위치 없음 |
+| Local | 관리형 DNAT를 사용하지 않음 | 공유기 SSH 설정 없이 사용 가능한 선택적 Bridge |
 
-Local uses the appliance's **existing connection setup** to Rethink. The ThinQ2 `/route`
-response still uses deployment-wide `route_servers` or `hostname`; mode selection does not
-create per-device route destinations. Moving from DNAT to Local requires managed DNAT off
-and an existing independent appliance path to Rethink. Saving a mode changes neither Wi-Fi
-registration, routing configuration, certificates nor physical provisioning, and does not
-prove mixed-mode provisioning or cloud independence.
+Local은 Rethink로 향하는 가전의 **기존 연결 설정**을 그대로 사용합니다. ThinQ2의
+`/route` 응답은 여전히 배포 전체에 적용되는 `route_servers` 또는 `hostname`을 쓰며,
+모드 선택이 기기별 라우트 목적지를 새로 만들지는 않습니다. DNAT에서 Local로 옮기려면
+관리형 DNAT를 꺼야 하고 Rethink로 가는 기존의 독립적인 가전 경로가 있어야 합니다.
+모드 저장은 Wi-Fi 등록, 라우팅 구성, 인증서, 물리적 프로비저닝 어느 것도 바꾸지 않으며,
+혼합 모드 프로비저닝이나 클라우드 독립성을 증명하지도 않습니다.
 
-For this supported **DNAT ↔ Local switching workflow**, the appliance certificates differ.
-Both directions require removing appliance power to reset the Wi-Fi module, restoring power,
-and repeating Wi-Fi setup and physical appliance certificate enrollment for the target mode.
-Use the appliance-specific procedure; this is not a universal firmware claim or reset-duration
-prescription. For Local, keep managed DNAT off and establish an independent path to Rethink
-with Local-mode appliance enrollment. For DNAT, use the DNAT network and target-mode appliance
-enrollment procedure. Release existing managed DNAT rules before changing policy.
+지원되는 이 **DNAT ↔ Local 전환 절차**에서는 가전 인증서가 서로 다릅니다. 양쪽 방향
+모두 Wi-Fi 모듈을 초기화하기 위해 가전 전원을 껐다가 다시 켠 뒤, 목표 모드에 맞춰
+Wi-Fi 설정과 물리적 가전 인증서 등록을 다시 진행해야 합니다. 기기별 절차를 사용하세요.
+이는 모든 펌웨어에 적용되는 주장이나 초기화 소요 시간을 정한 것이 아닙니다. Local의
+경우 관리형 DNAT를 끈 상태를 유지하고 Local 모드 가전 등록으로 Rethink까지의 독립
+경로를 확보하세요. DNAT의 경우 DNAT 네트워크와 목표 모드의 가전 등록 절차를 사용하세요.
+정책을 바꾸기 전에 기존 관리형 DNAT 규칙을 먼저 해제하세요.
 
-The named transition dialog identifies the current and target modes, explains these steps,
-and requires an initially unchecked acknowledgment plus **Approve mode change**. Cancel or
-Escape sends no update. Effective mode changes through the existing API require
-`modeTransition: {from, to, acknowledged: true}` matching the current and requested modes;
-missing or stale approval returns an actionable 409. Same-mode saves and unrelated edits
-retain their existing behavior. This acknowledgment records informed approval, not completed
-physical work. A successful update reports **policy saved; physical reset and enrollment
-unverified**. Saving policy does not perform, verify or complete physical conversion.
+이름이 붙은 전환 대화상자는 현재 모드와 목표 모드를 표시하고 이 단계들을 설명하며,
+처음에는 체크되지 않은 확인란과 **Approve mode change**를 함께 요구합니다. 취소나
+Escape는 아무 것도 갱신하지 않습니다. 기존 API를 통한 실제 모드 변경에는
+`modeTransition: {from, to, acknowledged: true}`가 현재 모드·요청 모드와 일치해야
+하며, 승인이 없거나 오래되면 조치 가능한 409를 반환합니다. 같은 모드 저장과 무관한
+편집은 기존 동작을 그대로 유지합니다. 이 확인란은 사전 승인을 기록할 뿐 물리적 작업의
+완료를 의미하지 않습니다. 저장에 성공하면 **정책 저장됨; 물리적 초기화와 등록은
+확인되지 않음**이라고 표시됩니다. 정책 저장이 물리적 전환을 수행하거나 검증하거나
+완료하지는 않습니다.
 
-**Bridge Restore / Set up / Renew is separate from appliance enrollment.** Those actions
-manage Rethink's upstream LG registration; they do not reset the appliance Wi-Fi module or
-enroll its physical Wi-Fi certificate for either mode.
+**Bridge의 Restore / Set up / Renew는 가전 등록과는 별개입니다.** 이 동작들은
+Rethink의 상위 LG 등록을 관리할 뿐, 어느 모드에서도 가전의 Wi-Fi 모듈을 초기화하거나
+물리적 Wi-Fi 인증서를 등록하지 않습니다.
 
-Ordinary Local enable, startup, reconnect and DNAT resume **reuse saved registration only**.
-If it is missing, the UI reports **Setup required**. Select **Set up** explicitly to contact
-LG and register, or **Restore** to reuse an archive when no current registration exists.
-**Renew** explicitly contacts LG again. DNAT registration preserves LG Home membership;
-that does not prove original appliance credential continuity. Previous local material is
-kept until a replacement succeeds, but remote LG pairing cannot be rolled back by restoring
-local files. Current registration takes precedence over an archive.
+일반적인 Local 활성화, 시작, 재연결, DNAT 재개는 **저장된 등록만 재사용**합니다.
+등록이 없으면 화면은 **Setup required**라고 표시합니다. LG에 연결해 명시적으로
+등록하려면 **Set up**을, 현재 등록이 없을 때 보관본을 재사용하려면 **Restore**를
+선택하세요. **Renew**는 LG에 다시 명시적으로 연결합니다. DNAT 등록은 LG Home 소속을
+유지하지만, 이것이 원래 가전 자격증명의 연속성을 증명하지는 않습니다. 이전 로컬
+자료는 교체가 성공할 때까지 보관되지만, 로컬 파일을 복원한다고 원격 LG 페어링을
+되돌릴 수는 없습니다. 현재 등록이 보관본보다 우선합니다.
 
-Ordinary disable preserves registration bytes. Local enabled intent is persisted separately
-from account, current and archived registration. Signing out removes account login for
-setup/renewal; it does not erase saved appliance registrations or forwarding intent. Removing
-an inactive router entry archives its registration and disables its Local intent. The legacy
-credentials-delete endpoint refuses deletion and points to explicit renewal instead.
+일반적인 비활성화는 등록 바이트를 보존합니다. Local 활성화 의도는 계정, 현재 등록,
+보관된 등록과 별도로 저장됩니다. 로그아웃은 설정/갱신용 계정 로그인만 제거할 뿐
+저장된 가전 등록이나 전달 의도를 지우지 않습니다. 비활성 공유기 항목을 제거하면
+그 등록은 보관되고 Local 의도는 비활성화됩니다. 예전 자격증명 삭제 엔드포인트는
+삭제를 거부하고 대신 명시적 갱신을 안내합니다.
 
-Router actions, preconditions, linkage changes and periodic reconciliation share one queue.
-DNAT desired intent is saved after successful router action; disable releases rules before
-stopping forwarding. Maintenance release preserves desired intent but latches entries off
-for this process until explicit Enable or restart, including after partial release errors.
-A persistence failure is reported; a completed router action is not claimed to be rolled back.
+공유기 동작, 사전 조건, 연결 변경, 주기적 재조정은 하나의 큐를 공유합니다. DNAT
+희망 의도는 공유기 동작이 성공한 뒤 저장되며, 비활성화는 전달을 멈추기 전에 규칙을
+먼저 해제합니다. 유지보수 해제는 희망 의도를 보존하되, 명시적 Enable이나 재시작
+전까지는 부분 해제 오류가 있었더라도 해당 프로세스 동안 항목을 꺼진 상태로 고정합니다.
+저장 실패는 보고되며, 완료된 공유기 동작을 되돌렸다고 주장하지는 않습니다.
 
-Both pages distinguish selected mode, observed local connection, LG connection, saved or
-archived registration, and requested forwarding. A Bridge object or LG account login does
-not mean an LG connection exists, and neither connection flag establishes HA entity health.
-Transport failure marks displayed state stale and disables mutations until refreshed. Native
-registration dialogs offer named Restore / Renew (or Set up) / Cancel actions with keyboard
-cancellation and focus return. No pairing occurs from a mode change or ordinary switch.
+두 화면 모두 선택된 모드, 관찰된 로컬 연결, LG 연결, 저장 또는 보관된 등록, 요청된
+전달을 구분해 보여줍니다. Bridge 객체가 있거나 LG 계정에 로그인되어 있다고 해서
+LG 연결이 존재한다는 뜻은 아니며, 두 연결 플래그 중 어느 쪽도 HA 엔티티 상태를
+증명하지 않습니다. 전송 실패는 표시된 상태를 오래된 것으로 표시하고 새로고침될
+때까지 변경 동작을 비활성화합니다. 네이티브 등록 대화상자는 이름이 붙은
+Restore / Renew(또는 Set up) / Cancel 동작을 키보드 취소와 포커스 복귀와 함께
+제공합니다. 모드 변경이나 일반적인 전환만으로는 페어링이 일어나지 않습니다.
 
-Development tests use synthetic cloud DNS/TLS/MQTT failures and local transport observers.
-They verify lifecycle isolation, not physical appliance behavior during a real cloud outage.
-A rendered-browser check, production Node 20 execution, and the separate eleven-appliance
-Home Assistant runtime/outage gate are still required before runtime claims.
+개발 테스트는 합성한 클라우드 DNS/TLS/MQTT 실패와 로컬 전송 관찰자를 사용합니다.
+이는 수명주기 격리를 검증할 뿐, 실제 클라우드 장애 중 물리적 가전 동작을 검증하지는
+않습니다. 런타임에 대한 주장을 하기 전에는 여전히 렌더링된 브라우저 점검, 운영용
+Node 20 실행, 별도의 11대 가전 Home Assistant 런타임/장애 게이트가 필요합니다.
 
-> Historical operating notes below describe earlier software and specific observations.
-> Where older switch instructions conflict with this lifecycle, use the policy above.
-> Earlier records disagree about appliance recovery following repeated interruption: one
-> observed redeploy without deleting local certificate files; another required Wi-Fi setup
-> again after repeated restarts. Neither establishes universal credential revocation or
-> guaranteed recovery. Preserve the existing release-before-restart operational safeguard.
+> 아래의 과거 운영 기록은 이전 소프트웨어와 특정 시점의 관찰 내용을 설명합니다.
+> 예전 전환 안내가 이 수명주기와 충돌하면 위 정책을 따르세요. 반복된 중단 이후
+> 가전 복구에 대해 과거 기록은 서로 엇갈립니다. 한 기록은 로컬 인증서 파일을
+> 지우지 않고도 재배포가 이루어졌다고 관찰했고, 다른 기록은 반복 재시작 후 Wi-Fi
+> 설정을 다시 해야 했습니다. 어느 쪽도 보편적인 자격증명 취소나 복구 보장을
+> 증명하지 않습니다. 재시작 전 해제라는 기존 운영 안전장치는 그대로 유지하세요.
 
 
 LG ThinQ 가전과 로컬 네트워크에서 통신하고, 가전 프로토콜을 Home Assistant 호환 MQTT로 변환하는 프로젝트입니다.
@@ -196,7 +198,7 @@ LG 기기 ← rethink ← LG 클라우드
 
 ## 개발 환경
 
-The minimum supported Node.js version is 22. `.nvmrc` selects Node 24 for development; CI checks Node 22 and 24.
+지원하는 Node.js 최소 버전은 22입니다. `.nvmrc`는 개발용으로 Node 24를 선택하며, CI는 Node 22와 24를 모두 검사합니다.
 
 ```sh
 nvm use
@@ -214,17 +216,17 @@ npm test
 
 Biome이 포맷과 lint를 모두 담당합니다. `npm run format`은 전체 대상 파일을 수정하고, `npm run format:check`, `npm run lint`, `npm run check`는 각각 포맷, lint, 통합 검사를 수정 없이 수행합니다. pre-commit 훅도 staged 파일에 같은 통합 검사를 적용합니다.
 
-`npm run typecheck` checks the original TypeScript scope, Node maintenance scripts, and each
-classic browser page in a separate strict, no-emit program. `npm test` runs this complete
-TypeScript check before its existing test batches. These check configurations do not change
-the production build or load browser scripts as modules.
+`npm run typecheck`는 원래 TypeScript 범위, Node 유지보수 스크립트, 그리고 각 클래식
+브라우저 페이지를 별도의 엄격한 no-emit 프로그램으로 각각 검사합니다. `npm test`는
+기존 테스트 배치를 실행하기 전에 이 전체 TypeScript 검사를 먼저 수행합니다. 이 검사
+설정들은 프로덕션 빌드를 바꾸거나 브라우저 스크립트를 모듈로 불러오지 않습니다.
 
-Python 3.12 is required for the two security-filter Python files. `npm ci` installs pinned
-Pyright 1.1.413; `npm run typecheck:python` checks both files. The C++ check needs a C++17
-compiler (GCC on CI); set `CXX` to another compiler executable if needed. It only checks
-simulator syntax with warnings enabled, without linking or executing the simulator. CI
-runs the Python checks and C++ syntax check on both supported Node versions and records
-the Python and compiler versions.
+두 개의 보안 필터 Python 파일에는 Python 3.12가 필요합니다. `npm ci`는 고정 버전인
+Pyright 1.1.413을 설치하며, `npm run typecheck:python`이 두 파일을 검사합니다. C++
+검사에는 C++17 컴파일러(CI에서는 GCC)가 필요하며, 다른 컴파일러 실행 파일을 쓰려면
+`CXX`를 지정하세요. 이 검사는 시뮬레이터를 링크하거나 실행하지 않고 경고를 켠 채
+문법만 확인합니다. CI는 지원하는 두 Node 버전 모두에서 Python 검사와 C++ 문법 검사를
+실행하고 Python과 컴파일러 버전을 기록합니다.
 
 ## 전체 설치 순서
 
@@ -291,11 +293,11 @@ mkdir -p ~/docker/rethink-data
 cp config.jsonc ~/docker/rethink-data/config.json
 ```
 
-The new data directory and everything inside it must be owned by the non-root user running the
-deployment. `scripts/deploy.sh` stops before releasing DNAT if the directory is absent or contains
-another owner's file or directory, or any symbolic link. The image runs as the `app` user by default;
-local deployment passes the current user's numeric UID:GID to the container, so this ownership check
-is deliberate protection.
+새 데이터 폴더와 그 안의 모든 항목은 배포를 실행하는 non-root 사용자가 소유해야
+합니다. 폴더가 없거나 다른 소유자의 파일·폴더 또는 심볼릭 링크가 하나라도 있으면
+`scripts/deploy.sh`는 DNAT를 해제하기 전에 멈춥니다. 이미지는 기본적으로 `app`
+사용자로 실행되며, 로컬 배포는 현재 사용자의 숫자 UID:GID를 컨테이너에 전달하므로
+이 소유권 확인은 의도적인 보호 장치입니다.
 
 권장 구조:
 
@@ -418,9 +420,10 @@ docker run -d \
   rethink-lg-bridge:local
 ```
 
-`--network host`를 사용하므로 별도의 `-p` 포트 매핑은 필요하지 않습니다.
-All current Rethink listeners use ports above 1024, so this non-root execution model is sufficient.
-Adding a port at or below 1024 requires a separate design and review for a capability or proxy.
+`--network host`를 사용하므로 별도의 `-p` 포트 매핑은 필요하지 않습니다. 현재
+Rethink의 모든 리스너는 1024번 이상 포트를 사용하므로 이 non-root 실행 모델로
+충분합니다. 1024번 이하 포트를 추가하려면 capability나 프록시에 대한 별도의 설계와
+검토가 필요합니다.
 
 실행 상태와 로그를 확인합니다.
 
@@ -431,11 +434,11 @@ docker logs -f rethink
 
 `ca.key`와 `ca.cert`는 이미지 빌드 시가 아니라 컨테이너 최초 실행 시 `/app/data`에 자동 생성됩니다. 같은 데이터 폴더를 계속 연결하면 이미지와 컨테이너를 교체해도 기존 CA와 bridge 상태가 유지됩니다.
 
-When migrating a data directory previously created by root, first release DNAT successfully, then stop
-the container, make a backup, and change ownership once to the logged-in user's numeric UID:GID as shown
-below. Keep the backup outside the operational data directory. If symbolic links or mixed ownership
-remain, the deployment script stops before releasing DNAT; inspect and replace those entries with ordinary
-files or directories as needed.
+이전에 root로 만들어진 데이터 폴더를 옮길 때는 먼저 DNAT를 성공적으로 해제한 뒤
+컨테이너를 멈추고, 백업을 만든 다음 아래처럼 로그인한 사용자의 숫자 UID:GID로 소유권을
+한 번만 바꾸세요. 백업은 운영 데이터 폴더 바깥에 보관하세요. 심볼릭 링크나 소유권이
+섞인 상태가 남아 있으면 배포 스크립트가 DNAT를 해제하기 전에 멈추니, 필요하면 해당
+항목을 확인하여 일반 파일이나 폴더로 바꾸세요.
 
 ```sh
 (
@@ -470,10 +473,11 @@ RETHINK_DNAT_ALREADY_RELEASED=1 scripts/deploy.sh
 )
 ```
 
-The read-only comparison must prove release completion before stopping the container. A timed-out
-release request is observed, never replayed; missing, partial or changed registration evidence stops
-the migration. The recovery flag then rebuilds, starts the container with the invoking UID:GID,
-and waits for DNAT reconciliation. Keep temporary status documents private.
+컨테이너를 멈추기 전에 읽기 전용 비교로 해제가 완료됐음을 증명해야 합니다. 해제
+요청이 타임아웃되면 그 상태를 관찰만 할 뿐 다시 시도하지 않으며, 등록 증거가 없거나
+일부만 있거나 바뀌었으면 이전 작업을 멈춥니다. 그런 다음 복구 플래그가 다시 빌드하고
+호출한 사용자의 UID:GID로 컨테이너를 시작한 뒤 DNAT 재조정을 기다립니다. 임시 상태
+문서는 비공개로 유지하세요.
 
 ## 3. rethink 초기 설정
 
@@ -513,7 +517,7 @@ URL의 일부만 복사하거나 로그인 전 주소를 붙여넣으면 인증�
 
 DNAT 적용 전에는 Connected devices에 기기가 보이지 않는 것이 정상일 수 있습니다.
 
-## 4. ASUS Router DNAT Management
+## 4. ASUS 공유기 DNAT 관리
 
 다음 절차는 `iptables`와 `conntrack`이 포함된 ASUSWRT 순정 펌웨어를 기준으로 합니다. 이 Fork는 관리 화면에서 공유기에 SSH로 접속하여 기기별 DNAT 상태를 조회하고 적용·해제할 수 있습니다. 공유기 전체 NAT 테이블을 초기화하지 않으며, 관리 대상 IP의 규칙만 다룹니다. 전달 포트는 기기의 플랫폼에 따라 다릅니다.
 
@@ -635,13 +639,14 @@ ASUS의 NAT 처리 방식 때문에 감지 목록에는 기기 IP 대신 공유�
 5. Bridge `On`
 6. LG ThinQ 앱과 Home Assistant 동작 확인
 
-### 4-7. Bridge lifecycle
+### 4-7. Bridge 수명주기
 
-In **DNAT** mode, use the DNAT control; forwarding follows it automatically and there is no
-separate Bridge switch. In **Local**, the optional Bridge switch reuses saved registration
-without router SSH. Off stops forwarding and preserves registration. Missing registration
-requires explicit Set up or Restore. Renew is a separate action and retains previous local
-material on failure. See the mode and registration contract at the top of this document.
+**DNAT** 모드에서는 DNAT 컨트롤을 사용하세요. 전달은 여기에 자동으로 따라가며 별도의
+Bridge 스위치는 없습니다. **Local**에서는 선택적 Bridge 스위치가 공유기 SSH 없이
+저장된 등록을 재사용합니다. Off는 전달을 멈추고 등록은 보존합니다. 등록이 없으면
+명시적으로 Set up 또는 Restore가 필요합니다. Renew는 별도의 동작이며 실패해도
+이전 로컬 자료를 그대로 유지합니다. 모드와 등록에 대한 계약은 이 문서 맨 위를
+참고하세요.
 
 ### 4-8. DNAT 끄기와 목록 제거
 
@@ -735,10 +740,11 @@ npx tsx scripts/check-home-assistant.mts
 사라지면 **최대 20분 동안 아무 데도 없는 상태**가 되고, 같은 재시작에서 세탁기 한 대가 실제로
 25분 걸렸습니다. 그 사이에 다시 배포하면 그 상태가 계속 연장됩니다.
 
-One historical restart observation saw `undeploy` followed by `deploy`, without deleting
-local certificate files or requiring app registration. Another repeated-interruption record
-required Wi-Fi registration again. These are limited observations: local file retention does
-not establish what the appliance or LG cloud will accept after every interruption.
+과거 재시작 관찰 하나는 로컬 인증서 파일을 지우거나 앱 재등록을 요구하지 않고
+`undeploy` 후 `deploy`가 이어지는 것을 확인했습니다. 반복 중단을 다룬 다른 기록은
+Wi-Fi 재등록이 다시 필요했습니다. 이는 제한된 관찰일 뿐이며, 로컬 파일을 보존한다고
+모든 중단 이후 가전이나 LG 클라우드가 항상 이를 받아들인다는 것을 증명하지는
+않습니다.
 
 그래서 배포 전에 DNAT 규칙을 먼저 걷어냅니다. 규칙이 없는 동안 가전은 LG 클라우드와 직접
 통신하므로 상대를 잃지 않고, rethink가 올라오면 DNAT 조정기가 규칙을 스스로 되돌립니다.
@@ -750,16 +756,17 @@ git pull --ff-only origin master
 scripts/deploy.sh
 ```
 
-The default command validates data ownership first, builds exactly once while the old container
-still runs, and records its immutable `sha256:` image ID. It snapshots all router registrations,
-requests release at most once, then observes read-only status until every desired DNAT row is off
-and paused. A timeout or HTTP failure during release does not authorize a second POST or a stop:
-only complete observed release with unchanged registration identities, modes, saved flags and intent
-authorizes replacement. Empty or local-only desired sets do not require a configured router.
-Responses stay in private temporary files and are removed on exit; raw status is never printed.
-Restoration checks the same registrations and desired forwarding before reporting the deployed ID.
+기본 명령은 먼저 데이터 소유권을 검증하고, 기존 컨테이너가 계속 실행되는 동안 정확히
+한 번 빌드하여 변경되지 않는 `sha256:` 이미지 ID를 기록합니다. 모든 공유기 등록을
+스냅샷으로 남기고 해제를 최대 한 번만 요청한 뒤, 원하는 모든 DNAT 행이 꺼지고
+정지될 때까지 읽기 전용 상태를 관찰합니다. 해제 도중 타임아웃이나 HTTP 실패가
+있었다고 해서 두 번째 POST나 정지가 허용되지는 않습니다. 등록 식별자, 모드, 저장된
+플래그, 의도가 바뀌지 않은 채 해제가 완전히 관찰된 경우에만 교체가 허용됩니다.
+비어 있거나 Local뿐인 희망 집합에는 설정된 공유기가 필요하지 않습니다. 응답은
+비공개 임시 파일에만 남고 종료 시 삭제되며, 원본 상태는 절대 출력하지 않습니다.
+복원 시에는 배포된 ID를 보고하기 전에 동일한 등록과 희망 전달 상태를 다시 확인합니다.
 
-Managed phase callers can use these fixed interfaces:
+관리되는 단계별 호출자는 다음과 같은 고정 인터페이스를 사용할 수 있습니다.
 
 ```sh
 scripts/deploy.sh --build-only operation-tag
@@ -770,28 +777,31 @@ scripts/deploy.sh --replace-only operation-tag sha256:EXACT_64_HEX_IMAGE_ID
 scripts/deploy.sh --create-only operation-tag sha256:EXACT_64_HEX_IMAGE_ID
 ```
 
-`--build-only` performs no release or container replacement. `--replace-only` verifies the operation
-tag still identifies the supplied image, requires the existing container to be stopped, and runs
-that exact image without another build, release POST or implicit stop. The caller owns release
-proof and phase receipts. `--create-only` handles an already absent container: it requires a
-successful empty exact-name Docker listing, checks the operation tag against the supplied image,
-and rechecks absence immediately before creating once with the same user, data mount, network,
-restart and log options. Existing running or stopped containers, failed listings and any nonempty
-listing are rejected. It performs no build, release, stop or removal. Docker's unique container name
-rejects a concurrent create; failures do not retry creation. Readiness and actual image observation
-are bounded as in replacement. The caller must retain the original registration/release evidence
-and stable data backup, then independently verify restored registration, desired state and data
-persistence; create-only cannot reconstruct that prior evidence from an absent container.
-The default command remains the supported standalone route.
-`RETHINK_DNAT_ALREADY_RELEASED=1` retains the existing recovery meaning: it permits a default rebuild
-only after the existing container is already stopped; it never repeats release.
+`--build-only`는 해제나 컨테이너 교체를 수행하지 않습니다. `--replace-only`는 작업
+태그가 여전히 주어진 이미지를 가리키는지 확인하고, 기존 컨테이너가 정지되어 있을 것을
+요구하며, 추가 빌드·해제 POST·암묵적 정지 없이 그 정확한 이미지를 실행합니다. 해제
+증거와 단계별 영수증은 호출자가 직접 책임집니다. `--create-only`는 컨테이너가 이미
+없는 상황을 다룹니다. 정확한 이름으로 Docker 목록 조회가 성공적으로 비어 있어야
+하고, 작업 태그를 주어진 이미지와 대조한 뒤, 생성 직전에 다시 한 번 부재를 확인하고
+같은 사용자·데이터 마운트·네트워크·재시작·로그 옵션으로 딱 한 번 생성합니다. 실행
+중이거나 정지된 기존 컨테이너, 실패한 목록 조회, 비어 있지 않은 목록은 모두
+거부됩니다. 빌드·해제·정지·삭제는 수행하지 않습니다. Docker의 고유 컨테이너 이름
+제약 때문에 동시 생성은 거부되며, 실패해도 생성을 다시 시도하지 않습니다. 준비
+상태와 실제 이미지 관찰은 교체 때와 동일하게 제한됩니다. 호출자는 원래의 등록/해제
+증거와 안정적인 데이터 백업을 직접 보관한 뒤, 복원된 등록·희망 상태·데이터 지속성을
+독립적으로 확인해야 합니다. create-only는 컨테이너가 없는 상태에서 그 이전 증거를
+재구성할 수 없습니다. 기본 명령은 여전히 지원되는 단독 경로입니다.
+`RETHINK_DNAT_ALREADY_RELEASED=1`은 기존의 복구 의미를 그대로 유지합니다. 기존
+컨테이너가 이미 정지된 뒤에만 기본 재빌드를 허용할 뿐, 해제를 반복하지는 않습니다.
 
-For retained observation files, `python3 scripts/deploy-status.py snapshot` validates complete
-registration identity from stdin, `released BASELINE_FILE` proves release, and `restored BASELINE_FILE`
-checks unchanged registrations plus readiness. Plain stdin with no arguments retains the legacy
-`ready()` contract. Comparison modes require complete identity and reject missing/duplicate rows or
-drift. The helper performs no HTTP request or mutation. Script completion proves these deployment
-phases; application health still requires the usual independent Home Assistant observations.
+보관해 둔 관찰 파일에 대해 `python3 scripts/deploy-status.py snapshot`은 표준
+입력으로부터 등록 식별자가 완전한지 검증하고, `released BASELINE_FILE`은 해제를
+증명하며, `restored BASELINE_FILE`은 등록이 바뀌지 않았는지와 준비 상태를 함께
+확인합니다. 인자 없이 표준 입력만 주면 기존의 `ready()` 계약을 그대로 유지합니다.
+비교 모드는 완전한 식별자를 요구하며 누락되거나 중복된 행, 또는 변경 사항이 있으면
+거부합니다. 이 헬퍼는 HTTP 요청이나 변경 동작을 수행하지 않습니다. 스크립트가
+완료됐다는 것은 이 배포 단계들을 증명할 뿐이며, 애플리케이션 상태 확인에는 여전히
+평소의 독립적인 Home Assistant 관찰이 필요합니다.
 
 규칙은 rethink가 올라오고 30초 뒤 DNAT 조정기가 되돌립니다. `dnatDesired` 기록은 해제 시에도
 유지되므로 별도의 복구 조작이 필요하지 않습니다.
@@ -898,7 +908,7 @@ Rethink를 계속 사용할 계획이라면 공유기 재부팅이나 일시적�
 - [`rethink-capture`](tools/rethink-capture.ts): 기기 통신 캡처
 - [`lgcloud-monitor`](tools/lgcloud-monitor.ts): 공식 LG 클라우드 알림 모니터링
 - [`check-home-assistant`](scripts/check-home-assistant.mts): Home Assistant 쪽에서 본 가전 상태 점검
-- [`deploy`](scripts/deploy.sh): Build once, observe DNAT release, replace by immutable image ID, and verify registration restoration
+- [`deploy`](scripts/deploy.sh): 정확히 한 번 빌드하고, DNAT 해제를 관찰하고, 변경되지 않는 이미지 ID로 교체한 뒤 등록 복원을 확인
 
 ## 문제 해결
 
@@ -963,62 +973,99 @@ LG ThinQ 명칭은 식별 목적으로만 사용합니다. 이 프로젝트와 F
 이 프로그램은 상품성 또는 특정 목적 적합성에 대한 어떠한 보증도 없이 제공됩니다. 사용으로 인해 발생하는 기기, 계정 또는 네트워크 문제는 사용자가 직접 복구해야 합니다.
 
 
-### Container dependency maintenance
+### 컨테이너 의존성 유지보수
 
-Both Docker stages pin Alpine 3.24.1 by its multi-platform image digest and pin the direct
-APK packages: Node.js 24.18.1-r0, build npm 11.12.1-r0, and runtime OpenSSL 3.5.8-r0.
-Refresh the base digest and direct APK versions together, confirming availability for amd64,
-arm64, and armv7. Indirect APK dependencies still resolve from Alpine's signed repositories;
-these pins do not promise byte-for-byte image reproduction. Removed package versions require
-an explicit coordinated refresh; signature verification must remain enabled.
+두 Docker 빌드 단계 모두 Alpine 3.24.1을 멀티플랫폼 이미지 다이제스트로 고정하고,
+직접 의존하는 APK 패키지인 Node.js 24.18.1-r0, 빌드용 npm 11.12.1-r0, 런타임용
+OpenSSL 3.5.8-r0을 고정합니다. 베이스 다이제스트와 직접 APK 버전은 amd64, arm64,
+armv7에서 모두 사용 가능한지 확인하면서 함께 갱신하세요. 간접 APK 의존성은 여전히
+Alpine의 서명된 저장소에서 해석되므로, 이 고정 값들이 바이트 단위로 동일한 이미지
+재현을 보장하지는 않습니다. 제거된 패키지 버전은 명시적으로 조율된 갱신이 필요하며,
+서명 검증은 계속 켜져 있어야 합니다.
 
-Weekly CI and dependency update checks cover maintenance drift. Each image platform must
-build, pass the vulnerability scan, and pass the network-disabled Node/OpenSSL and synthetic
-certificate smoke test before publication. Local deployment waits are bounded: each HTTP
-request has a five-second limit, management startup gets 30 attempts, and DNAT readiness gets
-30 attempts. Failure exits nonzero without claiming appliance health. Only desired DNAT-mode
-entries must regain forwarding; local or disabled entries and an empty desired set are valid
-no-ops. Deployment readiness does not replace the Home Assistant health check.
-
-
-## Protected policy maintenance
-
-The `policy-guard` job runs trusted base-branch code under `pull_request_target`, fetches the exact
-PR head and checks its identity without checking out or executing candidate code. Added inline
-scanner-suppression markers are always rejected, including when policy maintenance is approved.
-Changes under `.github/workflows/`, `.github/security/`, or the existing scanner-ignore/config
-paths require the latest case-insensitive `owner-policy-approval` status on that exact head.
-
-The guard considers matching statuses from every creator before selecting the newest. That status
-must be successful and created by the repository owner's numeric user ID; a newer non-owner,
-pending, failure or error status blocks the older approval. The repository must be user-owned,
-head and base must belong to that same repository, and the expected default base branch and its
-current SHA must match. The description is exactly `v1 base=<40hex> approval=<64hex>`, binding the
-approval record and base. Status pagination is bounded and must finish completely; malformed,
-missing or changed evidence fails closed. Workflow token permissions remain read-only.
-
-The owner-authorized publication process creates the status only for genuinely approved accepted
-source and checks revocation again before merging. The policy workflow neither writes approval
-statuses nor establishes functional/scanner CI success or source acceptance. Installing this guard
-on a branch that still uses the older unconditional guard requires separately controlled owner
-maintenance; the workflow contains no persistent bootstrap bypass.
+주간 CI와 의존성 업데이트 점검이 유지보수 편차를 다룹니다. 각 이미지 플랫폼은
+게시되기 전에 빌드에 성공하고, 취약점 스캔을 통과하고, 네트워크를 차단한 상태의
+Node/OpenSSL 및 합성 인증서 스모크 테스트를 통과해야 합니다. 로컬 배포의 대기
+시간은 제한되어 있습니다. 각 HTTP 요청은 5초 제한이 있고, 관리 화면 시작은 30회,
+DNAT 준비는 30회까지 시도합니다. 실패하면 가전 상태를 보장한다는 주장 없이 0이 아닌
+값으로 종료합니다. 전달을 다시 확보해야 하는 대상은 DNAT 모드로 희망된 항목뿐이며,
+Local이거나 비활성화된 항목, 그리고 비어 있는 희망 집합은 아무 것도 하지 않는 것이
+정상입니다. 배포 준비 완료가 Home Assistant 상태 확인을 대신하지는 않습니다.
 
 
-A protected change whose complete, validated status history contains no matching approval context
-fails with exactly one `OWNER_POLICY_GUARD_DIAGNOSIS ` line followed by compact JSON. Its closed
-schema is `owner-policy-guard-diagnosis-v1`, reason `MISSING_OWNER_APPROVAL`, with
-`repository`, integer `pr_number`, `base_sha` and `head_sha`. The line is bounded below 1 KiB. It is
-emitted only after source, suppression, repository, PR and base validation. Existing foreign,
-revoked, pending, malformed or incorrectly bound approvals, incomplete pagination and observation
-errors never produce this diagnosis. The job still fails; the marker grants no approval or retry.
+## 보호된 정책 유지보수
 
-The trusted `security-policy` workflow's `policy-guard` job has one guard step named
-`Reject pull requests that weaken security policy`, ID `owner_policy_guard`. It invokes the
-base-owned Python file directly; no candidate code or marker-producing inline shell is executed.
-GitHub exposes complete job logs and numbered step metadata, not authenticated separate step
-stdout. A consumer must authenticate the complete fixed workflow/job, exact head/base/event/run
-attempt and guard step before interpreting a single anchored marker from that step. Echoed commands,
-untrusted content, duplicate markers, malformed or truncated logs and ambiguous step attribution
-are ineligible. A bare marker substring is never sufficient. The official job rerun API also reruns
-dependent jobs; this fixed workflow declares none. Any future consumer must preserve the failed
-attempt and separately authorize its bounded rerun against a genuinely new exact approval status.
+`policy-guard` 작업은 `pull_request_target` 아래에서 신뢰할 수 있는 base 브랜치
+코드를 실행하며, PR의 정확한 head를 가져와 후보 코드를 체크아웃하거나 실행하지 않고
+그 신원만 확인합니다. 인라인 스캐너 억제 마커가 추가되면 정책 유지보수가 승인된
+경우라도 항상 거부됩니다. `.github/workflows/`, `.github/security/`, 또는 기존
+스캐너 무시/설정 경로 아래의 변경에는 그 정확한 head에 대한 최신
+`owner-policy-approval` 상태(대소문자 구분 없음)가 필요합니다.
+
+가드는 최신 상태를 고르기 전에 모든 작성자의 일치하는 상태를 검토합니다. 그 상태는
+성공(success)이어야 하고 저장소 소유자의 숫자 사용자 ID가 만든 것이어야 하며, 더
+최신의 소유자 아닌 상태나 pending·failure·error 상태가 있으면 더 오래된 승인을
+막습니다. 저장소는 사용자 소유여야 하고, head와 base는 같은 저장소에 속해야 하며,
+예상되는 기본 base 브랜치와 그 현재 SHA가 일치해야 합니다. 설명은 정확히
+`v1 base=<40hex> approval=<64hex>` 형식이어야 하며, 이것이 승인 기록과 base를
+결합합니다. 상태 페이지네이션은 한계가 있고 반드시 끝까지 완료되어야 하며, 형식이
+잘못됐거나 없거나 바뀐 증거는 안전하게 실패 처리(fail closed)됩니다. 워크플로
+토큰 권한은 읽기 전용으로 유지됩니다.
+
+소유자가 승인한 게시 절차는 실제로 승인·수락된 소스에 대해서만 상태를 만들고,
+머지 전에 철회 여부를 다시 확인합니다. 이 정책 워크플로는 승인 상태를 쓰지도
+않고, 기능/스캐너 CI 성공이나 소스 수락을 증명하지도 않습니다. 예전의 무조건적인
+가드를 여전히 쓰는 브랜치에 이 가드를 설치하려면 별도로 통제된 소유자의 유지보수
+작업이 필요하며, 이 워크플로에는 지속되는 부트스트랩 우회 경로가 없습니다.
+
+
+보호된 변경의 완전하고 검증된 상태 이력에 일치하는 승인 맥락이 없으면 정확히 한
+줄의 `OWNER_POLICY_GUARD_DIAGNOSIS ` 뒤에 압축 JSON이 붙은 형태로 실패합니다.
+그 고정된 스키마는 `owner-policy-guard-diagnosis-v1`이고, 이유는
+`MISSING_OWNER_APPROVAL`이며, `repository`, 정수형 `pr_number`, `base_sha`,
+`head_sha`를 담습니다. 이 줄은 1 KiB 미만으로 제한됩니다. 이는 소스, 억제, 저장소,
+PR, base 검증을 모두 마친 뒤에만 출력됩니다. 다른 저장소의 승인, 철회된 승인,
+대기 중인 승인, 형식이 잘못됐거나 잘못 결합된 승인, 불완전한 페이지네이션, 관찰
+오류는 이 진단을 만들어내지 않습니다. 그런 경우에도 작업은 여전히 실패하며, 이
+마커가 승인이나 재시도를 부여하지는 않습니다.
+
+신뢰할 수 있는 `security-policy` 워크플로의 `policy-guard` 작업에는
+`owner_policy_guard`라는 ID를 가진 `Reject pull requests that weaken security policy`
+라는 이름의 가드 단계가 하나 있습니다. 이 단계는 base가 소유한 Python 파일을
+직접 호출할 뿐, 후보 코드나 마커를 만들어내는 인라인 셸을 실행하지 않습니다.
+GitHub은 완전한 작업 로그와 번호가 매겨진 단계 메타데이터를 노출할 뿐, 인증된
+개별 단계 stdout을 노출하지는 않습니다. 소비자는 그 단계에서 나온 하나의 고정된
+마커를 해석하기 전에 완전하고 고정된 워크플로/작업, 정확한 head/base/event/실행
+시도, 가드 단계를 먼저 인증해야 합니다. 에코된 명령, 신뢰할 수 없는 내용, 중복
+마커, 형식이 잘못됐거나 잘린 로그, 모호한 단계 귀속은 인정되지 않습니다. 마커
+문자열 하나만으로는 절대 충분하지 않습니다. 공식 작업 재실행 API는 의존 작업도
+함께 재실행하지만, 이 고정된 워크플로는 의존 작업을 선언하지 않습니다. 앞으로
+이를 사용하는 쪽은 실패한 시도를 보존하고, 진짜로 새로운 정확한 승인 상태에
+대해서만 별도로 제한된 재실행을 승인해야 합니다.
+
+## 관리 화면과 브라우저 세션
+
+관리 패널, 라우터 페이지, 기기 모니터는 공용 로컬 CSS와 클래식 JavaScript를 사용합니다. 한국어 또는 영어는 처음에는 브라우저 설정을 따르며, 명시적으로 언어를 선택하면 현재 origin에 대해 그 선택이 유지됩니다. 기기 이름, 모델 식별자, 메시지 내용은 그대로 유지됩니다. 외부 UI 자산 요청은 없습니다. 네이티브 대화상자는 명시적인 DNAT/Local 전환 확인과 저장된 등록 동작을 그대로 보존합니다. 정책 변경만으로는 가전 Wi-Fi를 초기화하거나, 라우트를 만들거나, 물리적 가전의 인증서를 등록하지 않습니다.
+
+라우터의 **Test saved settings** 동작은 저장된 설정만 시험합니다. 편집한 항목은 먼저 저장하세요. 시험이 그 값을 조용히 저장해 주지는 않습니다. Local 컨트롤은 공유기 SSH 사용 가능 여부와 별개로 존재합니다. 모니터는 현재 소켓 연결이 끊기면 즉시 명령을 비활성화하고, 형식이 잘못된 데이터를 받아도 멈추지 않으며, 키보드로 페이로드를 복사할 수 있고, 버려진 메시지 수와 함께 최근 1,000개의 메시지를 보관합니다.
+
+**Build**는 컴파일, 별칭 해석, HTML 복사를 마친 뒤 `dist`에 만들어진 파일 경로와 바이트 수를 SHA-256과 함께 식별합니다. 기존 `system.version` 문자열에는 다이제스트 앞 16자리가 담깁니다. 메타데이터가 없거나 형식이 잘못되면 이 값은 비어 있고, 화면에는 알 수 없음을 뜻하는 대시(-)가 표시됩니다. 이는 빌드 신원일 뿐 유의적인 릴리스 버전이 아닙니다. 프로세스 시작 시각과 MQTT 연결 여부는 Home Assistant 엔티티 상태와는 별개입니다.
+
+선택적인 10분 쿠키 세션, 마이그레이션 경계, 격리된 게이트웨이 테스트는 [management-gateway/README.md](management-gateway/README.md)에 설명되어 있습니다. 소스를 준비했다고 해서 운영 마이그레이션이나 재시작이 승인되는 것은 아닙니다.
+
+### 전체 소스 검증
+
+기존에 고정된 루트 의존성을 그대로 사용하고, 별도로 고정된 세션 패키지는 그 전용 폴더 안에서만 설치하세요. 공유 의존성 심볼릭 링크를 통해 루트 install을 실행하지 마세요. 아래처럼 동일하게 고정된 툴체인을 사용하는 별도의 인증된 기준 소스 사본을 제공하세요.
+
+```sh
+BASELINE_SOURCE_ROOT=/path/to/authenticated-baseline \
+PLAYWRIGHT_MODULE=/path/to/playwright \
+CHROMIUM_EXECUTABLE=/path/to/chromium \
+CERTUTIL_BIN=/path/to/certutil \
+PYTHON_BIN=/usr/bin/python3 \
+node scripts/check-management-ui.mjs --with-session-gateway
+```
+
+이 명령은 브라우저 사전 요구사항이 필요하며, 없으면 명확히 실패합니다. 이 명령은 기준/후보 타입 진단, 집중된 포맷·동작 테스트, 프로덕션 빌드, 오프라인 반응형 Chromium 점검, 정확한 세션 의존성 감사, 예전 게이트웨이 수락 테스트, 네이티브 세션/롤백 테스트, 신뢰된 HTTPS 세션 브라우저 테스트를 짝지어 실행합니다. 네이티브 로그와 짝지어진 진단 분류는 출력된 비공개 임시 폴더에 보관됩니다. 기존과 동일한 레거시 typecheck 실패는 명시적으로 **미확인**으로 남으며, 새롭거나 바뀐 진단은 이 명령을 실패시킵니다. 빌드 출력과 의존성 폴더는 소스 목록 검사에서 제외됩니다. 합성한 한국어 데스크톱/모바일 스크린샷을 보관하려면 `MANAGEMENT_SCREENSHOT_DIR`을 비공개 폴더로 지정하세요. Chromium에 비공개 공유 라이브러리나 폰트 설정이 필요하면 `LD_LIBRARY_PATH`와 `FONTCONFIG_FILE`을 테스트 프로세스에만 전달하세요.
+
+반응형 점검은 CSS 픽셀 기준 320, 390, 768, 1024, 1440과 가로 모드, 그리고 200% 텍스트/리플로우 대체 검사를 다룹니다. 이는 집중된 브라우저 점검일 뿐, WCAG 인증도 아니고 실제 모바일 Safari 테스트도 아니며, 정지된 탭이 타이머를 실행할 수 있다는 주장도 아닙니다.
