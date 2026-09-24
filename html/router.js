@@ -41,7 +41,7 @@ let snapshot = { devices: [], unassigned: [] }
 const busy = new Set()
 /** @type {string | undefined} */
 let pendingFocus
-/** @type {Map<string, string>} */
+/** @type {Map<string, {message: string, context: string}>} */
 const rowErrors = new Map()
 /** @type {Map<string, string>} */
 const modeNotices = new Map()
@@ -50,6 +50,8 @@ let updateModeDialog
 let fresh = false
 let revision = 0
 let globalBusy = false
+/** @type {Map<string, string>} */
+const pendingLinks = new Map()
 
 document.addEventListener('DOMContentLoaded', async () => {
     M.Modal.init(document.querySelectorAll('.modal'))
@@ -75,11 +77,11 @@ function toggleRouterPassword() {
     const button = get('toggle_router_password')
     const visible = input.type === 'text'
     input.type = visible ? 'password' : 'text'
-    button.title = visible ? 'Show password' : 'Hide password'
-    button.setAttribute('aria-label', button.title)
+    UI.bind(button, () => (visible ? UI.t('Show password') : UI.t('Hide password')), 'title')
+    UI.bind(button, () => button.title, 'aria-label')
     button.setAttribute('aria-pressed', `${!visible}`)
-    const icon = /** @type {HTMLElement} */ (button.querySelector('i'))
-    icon.textContent = visible ? 'visibility' : 'visibility_off'
+    const icon = /** @type {HTMLElement} */ (button.querySelector('span'))
+    UI.bind(icon, () => (visible ? UI.t('Show password') : UI.t('Hide password')))
     input.focus()
 }
 
@@ -104,7 +106,11 @@ async function loadConfig() {
         get('router_host').value = config.host || ''
         get('router_port').value = String(config.port || 22)
         get('router_username').value = config.username || ''
-        get('router_password').placeholder = config.passwordSaved ? 'Saved; leave blank to keep' : ''
+        UI.bind(
+            get('router_password'),
+            () => (config.passwordSaved ? UI.t('Saved; leave blank to keep') : ''),
+            'placeholder',
+        )
         get('rethink_ip').value = config.rethinkIp || ''
         M.updateTextFields()
     } catch (err) {
@@ -126,7 +132,7 @@ async function saveRouter() {
         })
         get('router_password').value = ''
         await loadConfig()
-        if (await refresh()) get('router_error').textContent = 'Router settings saved'
+        if (await refresh()) UI.bind(get('router_error'), () => UI.t('Router settings saved'))
     } catch (err) {
         toast(err)
     }
@@ -137,7 +143,11 @@ async function testRouter() {
         const result = /** @type {{iptables: string, conntrack: string}} */ (
             await api('api/router/test', { method: 'POST' })
         )
-        toast(`Connected: ${result.iptables}; ${result.conntrack}`)
+        UI.bind(get('router_error'), () =>
+            UI.locale === 'ko'
+                ? UI.t('Router connection test succeeded')
+                : UI.t('Connected: {0}; {1}', [result.iptables, result.conntrack]),
+        )
     } catch (err) {
         toast(err)
     }
@@ -159,7 +169,7 @@ async function addDevice() {
 
 /** @param {() => Promise<void>} action */
 async function globalAction(action) {
-    if (globalBusy || busy.size || !fresh) return
+    if (!UI.allowed() || globalBusy || busy.size || !fresh) return
     globalBusy = true
     revision++
     updateGlobalControls()
@@ -186,18 +196,20 @@ async function refresh() {
         if (request !== revision) return
         snapshot = incoming
         fresh = true
-        get('router_status').textContent = snapshot.connected
-            ? 'Connected'
-            : snapshot.configured
-              ? 'SSH unavailable · Local controls remain available'
-              : 'SSH not configured · Local controls remain available'
+        UI.bind(get('router_status'), () =>
+            snapshot.connected
+                ? UI.t('Connected')
+                : snapshot.configured
+                  ? UI.t('SSH unavailable · Local controls remain available')
+                  : UI.t('SSH not configured · Local controls remain available'),
+        )
         get('router_status').className = snapshot.connected ? 'green-text' : 'state-unknown'
-        get('router_error').textContent = snapshot.error || ''
+        UI.bind(get('router_error'), () => UI.diagnostic(snapshot.error, 'ssh'))
         return true
     } catch (error) {
         if (request !== revision) return
         fresh = false
-        get('router_status').textContent = 'Disconnected · displayed status is stale'
+        UI.bind(get('router_status'), () => UI.t('Disconnected · displayed status is stale'))
         toast(error)
         return false
     } finally {
@@ -231,31 +243,38 @@ function renderDevices() {
 /** @param {RouterDevice} device */
 function renderDevice(device) {
     const row = document.createElement('tr')
+    row.setAttribute('role', 'row')
     const disabled = !fresh || busy.size > 0 || globalBusy || !!device.bridgeBusy
     row.setAttribute('aria-busy', String(busy.has(device.entryId)))
     const name = cell(device.name || '-')
     const ip = cell(device.ip)
     const identity = cell(
-        device.deviceId ? `${device.model || 'ThinQ'} · ${device.deviceId.slice(0, 8)}` : 'No appliance linked',
+        device.deviceId ? `${device.model || 'ThinQ'} · ${device.deviceId.slice(0, 8)}` : UI.t('No appliance linked'),
     )
     const connection = document.createElement('small')
-    connection.textContent = !fresh
-        ? 'Stale · connection unknown'
-        : device.connected
-          ? 'Connected to Rethink'
-          : 'Waiting for appliance connection'
+    UI.bind(connection, () =>
+        !fresh
+            ? UI.t('Stale · connection unknown')
+            : device.connected
+              ? UI.t('Connected to Rethink')
+              : UI.t('Waiting for appliance connection'),
+    )
     identity.append(connection)
     if (!device.deviceId && snapshot.unassigned.length) {
         const select = document.createElement('select')
         select.className = 'browser-default'
-        select.setAttribute('aria-label', `Appliance for ${device.ip}`)
+        select.dataset.focus = `${device.entryId}:link`
+        select.onchange = () => pendingLinks.set(device.entryId, select.value)
+        UI.bind(select, () => UI.t('Appliance for {0}', [device.ip]), 'aria-label')
         for (const detected of snapshot.unassigned) {
             const option = document.createElement('option')
             option.value = detected.deviceId
-            option.textContent = detected.name || detected.model || detected.deviceId
+            UI.bind(option, () => detected.name || detected.model || detected.deviceId)
             select.append(option)
         }
-        const link = button('Link')
+        if (snapshot.unassigned.some((entry) => entry.deviceId === pendingLinks.get(device.entryId)))
+            select.value = pendingLinks.get(device.entryId) || ''
+        const link = button(UI.t('Link'))
         link.onclick = () =>
             run(device.entryId, () =>
                 api(`api/router/devices/${device.entryId}/link`, { method: 'POST', body: { deviceId: select.value } }),
@@ -265,11 +284,11 @@ function renderDevice(device) {
     const mode = document.createElement('td')
     const selectMode = document.createElement('select')
     selectMode.className = 'browser-default'
-    selectMode.setAttribute('aria-label', `Mode for ${device.name || device.ip}`)
+    UI.bind(selectMode, () => UI.t('Mode for {0}', [device.name || device.ip]), 'aria-label')
     for (const value of ['dnat', 'local']) {
         const option = document.createElement('option')
         option.value = value
-        option.textContent = value === 'dnat' ? 'DNAT' : 'Local'
+        UI.bind(option, () => (value === 'dnat' ? 'DNAT' : 'Local'))
         selectMode.append(option)
     }
     selectMode.value = device.mode || 'dnat'
@@ -283,21 +302,30 @@ function renderDevice(device) {
     notice.className = 'subtle'
     notice.setAttribute('role', 'status')
     notice.setAttribute('aria-live', 'polite')
-    notice.textContent = modeNotices.get(device.entryId) || ''
+    UI.bind(notice, () =>
+        modeNotices.has(device.entryId)
+            ? UI.t(
+                  '{0} policy saved. Physical Wi-Fi-module reset and target-mode appliance certificate enrollment are not performed or verified by this page.',
+                  [modeName(modeNotices.get(device.entryId) || '')],
+              )
+            : '',
+    )
     mode.append(selectMode, notice)
     const dnat = document.createElement('td')
-    if (device.mode === 'local') dnat.textContent = 'Not used in Local mode'
+    if (device.mode === 'local') UI.bind(dnat, () => UI.t('Not used in Local mode'))
     else {
         const state = document.createElement('small')
-        state.textContent = device.forwardingPaused
-            ? 'Released · paused until Enable or restart'
-            : `Rules: ${fresh ? device.dnat : 'stale'}`
+        UI.bind(state, () =>
+            device.forwardingPaused
+                ? UI.t('Released · paused until Enable or restart')
+                : UI.t('Rules: {0}', [UI.t(fresh ? device.dnat : 'stale')]),
+        )
         const action = button(
             device.dnat === 'on' && !device.forwardingPaused
-                ? 'Turn off'
+                ? UI.t('Turn off')
                 : device.dnat === 'partial'
-                  ? 'Repair / Enable'
-                  : 'Enable',
+                  ? UI.t('Repair / Enable')
+                  : UI.t('Enable'),
         )
         action.dataset.focus = `${device.entryId}:dnat`
         action.disabled = !snapshot.connected
@@ -312,46 +340,54 @@ function renderDevice(device) {
     }
     const forwarding = cell(
         !fresh
-            ? 'Stale · LG status unknown'
+            ? UI.t('Stale · LG status unknown')
             : device.cloudConnected
-              ? 'LG connected'
+              ? UI.t('LG connected')
               : device.bridgeActive
-                ? 'LG connecting / retrying'
+                ? UI.t('LG connecting / retrying')
                 : device.bridgeEnabled
-                  ? 'Forwarding requested'
-                  : 'LG forwarding off',
+                  ? UI.t('Forwarding requested')
+                  : UI.t('LG forwarding off'),
     )
     const saved = document.createElement('small')
-    saved.textContent = device.bridgeSaved
-        ? 'Registration saved'
-        : device.bridgeArchived
-          ? 'Archived registration available'
-          : 'Setup required'
+    UI.bind(saved, () =>
+        device.bridgeSaved
+            ? UI.t('Registration saved')
+            : device.bridgeArchived
+              ? UI.t('Archived registration available')
+              : UI.t('Setup required'),
+    )
     forwarding.append(saved)
     if (device.mode === 'local' && device.deviceId) {
         const label = document.createElement('label')
         const toggle = document.createElement('input')
         toggle.type = 'checkbox'
         toggle.checked = !!device.bridgeEnabled
-        toggle.setAttribute('aria-label', `Optional LG Bridge for ${device.name || device.ip}`)
+        UI.bind(toggle, () => UI.t('Optional LG Bridge for {0}', [device.name || device.ip]), 'aria-label')
         toggle.dataset.focus = `${device.entryId}:bridge`
         toggle.disabled = !device.bridgeSaved
         toggle.onchange = () =>
-            run(device.entryId, () =>
-                api(`api/router/devices/${device.entryId}/bridge/${toggle.checked ? 'resume' : 'suspend'}`, {
-                    method: 'POST',
-                }),
+            run(
+                device.entryId,
+                () =>
+                    api(`api/router/devices/${device.entryId}/bridge/${toggle.checked ? 'resume' : 'suspend'}`, {
+                        method: 'POST',
+                    }),
+                'bridge',
             )
-        label.append(toggle, document.createTextNode(' Optional LG Bridge'))
+        label.append(
+            toggle,
+            UI.textNode(() => UI.t(' Optional LG Bridge')),
+        )
         forwarding.append(label)
     } else if (device.mode !== 'local') {
         const hint = document.createElement('small')
-        hint.textContent = 'Automatic with DNAT · no separate Bridge switch'
+        UI.bind(hint, () => UI.t('Automatic with DNAT · no separate Bridge switch'))
         forwarding.append(hint)
     }
     if (device.deviceId) {
         const registration = button(
-            device.bridgeSaved || device.bridgeArchived ? 'Registration…' : 'Set up registration…',
+            device.bridgeSaved || device.bridgeArchived ? UI.t('Registration…') : UI.t('Set up registration…'),
         )
         registration.dataset.focus = `${device.entryId}:registration`
         registration.onclick = () => registrationChoice(device)
@@ -361,24 +397,33 @@ function renderDevice(device) {
     status.className = 'row-status'
     status.setAttribute('role', 'status')
     status.setAttribute('aria-live', 'polite')
-    status.textContent =
-        rowErrors.get(device.entryId) || (busy.has(device.entryId) ? 'Working…' : device.bridgeError || '')
+    UI.bind(status, () => {
+        const error = rowErrors.get(device.entryId)
+        return error
+            ? UI.diagnostic(error.message, error.context)
+            : busy.has(device.entryId)
+              ? UI.t('Working…')
+              : UI.diagnostic(device.bridgeError, 'bridge')
+    })
     forwarding.append(status)
     const actions = document.createElement('td')
     actions.className = 'actions'
-    const rename = button('Rename')
+    const rename = button(UI.t('Rename'))
     rename.onclick = () => {
-        const customName = prompt('Custom name (blank = detected name)', device.customName || '')
+        const customName = prompt(UI.t('Custom name (blank = detected name)'), device.customName || '')
         if (customName === null) return
         return run(device.entryId, () =>
             api(`api/router/devices/${device.entryId}`, { method: 'PUT', body: { customName } }),
         )
     }
-    const remove = button('Remove')
+    const remove = button(UI.t('Remove'))
     remove.onclick = () => {
         if (
             !confirm(
-                `Remove ${device.ip}? Turn DNAT off first. Registration will be archived; the LG appliance is not deleted.`,
+                UI.t(
+                    'Remove {0}? Turn DNAT off first. Registration will be archived; the LG appliance is not deleted.',
+                    [device.ip],
+                ),
             )
         )
             return
@@ -392,9 +437,12 @@ function renderDevice(device) {
     })
     Array.from(row.children).forEach((child, index) => {
         const cellElement = /** @type {HTMLElement} */ (child)
-        cellElement.dataset.label = ['Device', 'IP', 'Local connection', 'Mode', 'DNAT', 'LG forwarding', 'Actions'][
-            index
-        ]
+        cellElement.setAttribute('role', 'cell')
+        UI.bind(
+            cellElement,
+            () => UI.t(['Device', 'IP', 'Local connection', 'Mode', 'DNAT', 'LG forwarding', 'Actions'][index]),
+            'data-label',
+        )
     })
     return row
 }
@@ -408,6 +456,7 @@ function modeName(mode) {
 function modeTransitionChoice(device, to) {
     const from = device.mode || 'dnat'
     if (
+        !UI.allowed() ||
         !fresh ||
         busy.size ||
         globalBusy ||
@@ -420,45 +469,55 @@ function modeTransitionChoice(device, to) {
     const dialog = document.createElement('dialog')
     dialog.setAttribute('aria-labelledby', 'mode-transition-title')
     dialog.setAttribute('aria-describedby', 'mode-transition-guidance')
-    const title = document.createElement('h5')
+    const title = document.createElement('h2')
     title.id = 'mode-transition-title'
-    title.textContent = `Approve mode change · ${modeName(from)} → ${modeName(to)}`
+    UI.bind(title, () => UI.t('Approve mode change · {0} → {1}', [modeName(from), modeName(to)]))
     const guidance = document.createElement('p')
     guidance.id = 'mode-transition-guidance'
-    guidance.textContent =
-        'For this supported switching workflow, DNAT and Local use different appliance certificates. ' +
-        'Switching in either direction requires removing appliance power to reset its Wi-Fi module, ' +
-        'then restoring power and repeating Wi-Fi setup and appliance certificate enrollment for the target mode. ' +
-        'Follow the appliance-specific instructions; no universal reset duration is assumed.'
+    UI.bind(guidance, () =>
+        UI.t(
+            'For this supported switching workflow, DNAT and Local use different appliance certificates. Switching in either direction requires removing appliance power to reset its Wi-Fi module, then restoring power and repeating Wi-Fi setup and appliance certificate enrollment for the target mode. Follow the appliance-specific instructions; no universal reset duration is assumed.',
+        ),
+    )
     const target = document.createElement('p')
-    target.textContent =
+    UI.bind(target, () =>
         to === 'local'
-            ? 'Target: Local. Keep managed DNAT off and establish an independent appliance connection to Rethink. ' +
-              'Use the Local-mode Wi-Fi setup and Rethink appliance-certificate enrollment procedure after the power-removal reset.'
-            : 'Target: DNAT. Use the DNAT network setup and target-mode Wi-Fi / appliance-certificate enrollment procedure ' +
-              'after the power-removal reset. Release existing managed DNAT rules before changing policy; configure DNAT for the target enrollment procedure.'
+            ? UI.t(
+                  'Target: Local. Keep managed DNAT off and establish an independent appliance connection to Rethink. Use the Local-mode Wi-Fi setup and Rethink appliance-certificate enrollment procedure after the power-removal reset.',
+              )
+            : UI.t(
+                  'Target: DNAT. Use the DNAT network setup and target-mode Wi-Fi / appliance-certificate enrollment procedure after the power-removal reset. Release existing managed DNAT rules before changing policy; configure DNAT for the target enrollment procedure.',
+              ),
+    )
     const boundary = document.createElement('p')
-    boundary.textContent =
-        'Approval saves forwarding policy only. This page neither performs nor verifies physical reset, ' +
-        'Wi-Fi enrollment or certificate conversion. Bridge Restore / Set up / Renew manages upstream LG registration; ' +
-        'it does not enroll the physical appliance’s Wi-Fi certificate.'
+    UI.bind(boundary, () =>
+        UI.t(
+            'Approval saves forwarding policy only. This page neither performs nor verifies physical reset, Wi-Fi enrollment or certificate conversion. Bridge Restore / Set up / Renew manages upstream LG registration; it does not enroll the physical appliance’s Wi-Fi certificate.',
+        ),
+    )
     const label = document.createElement('label')
     const acknowledge = document.createElement('input')
     acknowledge.type = 'checkbox'
     acknowledge.checked = false
-    acknowledge.setAttribute('aria-label', 'Acknowledge reset and target-mode appliance enrollment requirements')
+    UI.bind(
+        acknowledge,
+        () => UI.t('Acknowledge reset and target-mode appliance enrollment requirements'),
+        'aria-label',
+    )
     label.append(
         acknowledge,
-        document.createTextNode(
-            ' I understand the reset and target-mode appliance enrollment requirements and approve this policy change.',
+        UI.textNode(() =>
+            UI.t(
+                ' I understand the reset and target-mode appliance enrollment requirements and approve this policy change.',
+            ),
         ),
     )
     const status = document.createElement('p')
     status.setAttribute('role', 'status')
     status.setAttribute('aria-live', 'polite')
-    const approve = button('Approve mode change')
+    const approve = button(UI.t('Approve mode change'))
     approve.disabled = true
-    const cancel = button('Cancel')
+    const cancel = button(UI.t('Cancel'))
     let invalidated = false
     const update = () => {
         const current = snapshot.devices.find((entry) => entry.entryId === device.entryId)
@@ -476,8 +535,11 @@ function modeTransitionChoice(device, to) {
         acknowledge.disabled = invalidated
         if (invalidated) {
             acknowledge.checked = false
-            status.textContent =
-                'Device state changed or management is unavailable. Cancel and refresh before approving a new transition.'
+            UI.bind(status, () =>
+                UI.t(
+                    'Device state changed or management is unavailable. Cancel and refresh before approving a new transition.',
+                ),
+            )
         }
         approve.disabled = invalidated || !acknowledge.checked
     }
@@ -503,10 +565,7 @@ function modeTransitionChoice(device, to) {
                 method: 'PUT',
                 body: { mode: to, modeTransition: { from, to, acknowledged: true } },
             })
-            modeNotices.set(
-                device.entryId,
-                `${modeName(to)} policy saved. Physical Wi-Fi-module reset and target-mode appliance certificate enrollment are not performed or verified by this page.`,
-            )
+            modeNotices.set(device.entryId, to)
         })
     }
     dialog.append(title, guidance, target, boundary, label, status, approve, cancel)
@@ -519,18 +578,21 @@ function modeTransitionChoice(device, to) {
 
 /** @param {RouterDevice} device */
 function registrationChoice(device) {
-    if (!fresh || busy.size || globalBusy) return
+    if (!UI.allowed() || !fresh || busy.size || globalBusy) return
     const dialog = document.createElement('dialog')
     dialog.setAttribute('aria-labelledby', 'registration-title')
-    const title = document.createElement('h5')
+    const title = document.createElement('h2')
     title.id = 'registration-title'
-    title.textContent = `Registration · ${device.name || device.ip}`
+    UI.bind(title, () => UI.t('Registration · {0}', [device.name || device.ip]))
     const explanation = document.createElement('p')
-    explanation.textContent =
-        'These actions manage upstream LG registration, not the physical appliance’s Wi-Fi certificate enrollment. Restore reuses the archive only when no current registration exists. Renew / Set up contacts LG and may pair a new certificate. Previous local material stays until replacement succeeds; remote pairing cannot be rolled back. Preserving LG Home membership does not prove that the appliance keeps its credentials.'
+    UI.bind(explanation, () =>
+        UI.t(
+            'These actions manage upstream LG registration, not the physical appliance’s Wi-Fi certificate enrollment. Restore reuses the archive only when no current registration exists. Renew / Set up contacts LG and may pair a new certificate. Previous local material stays until replacement succeeds; remote pairing cannot be rolled back. Preserving LG Home membership does not prove that the appliance keeps its credentials.',
+        ),
+    )
     const type = document.createElement('input')
-    type.placeholder = 'Device type if unknown (for example 401)'
-    type.setAttribute('aria-label', 'LG device type')
+    UI.bind(type, () => UI.t('Device type if unknown (for example 401)'), 'placeholder')
+    UI.bind(type, () => UI.t('LG device type'), 'aria-label')
     const close = () => {
         dialog.close()
         dialog.remove()
@@ -539,27 +601,32 @@ function registrationChoice(device) {
                 /** @type {HTMLElement} */ (element).focus()
         })
     }
-    const restore = button('Restore')
+    const restore = button(UI.t('Restore'))
     restore.disabled = !device.bridgeArchived || !!device.bridgeSaved
     restore.onclick = () => {
         close()
-        return run(device.entryId, () =>
-            api(`api/router/devices/${device.entryId}/bridge/registration/restore`, { method: 'POST' }),
+        return run(
+            device.entryId,
+            () => api(`api/router/devices/${device.entryId}/bridge/registration/restore`, { method: 'POST' }),
+            'bridge',
         )
     }
-    const renew = button(device.bridgeSaved ? 'Renew' : 'Set up')
+    const renew = button(device.bridgeSaved ? UI.t('Renew') : UI.t('Set up'))
     renew.disabled = !device.connected
     renew.onclick = () => {
         const deviceType = type.value.trim()
         close()
-        return run(device.entryId, () =>
-            api(`api/router/devices/${device.entryId}/bridge/registration/renew`, {
-                method: 'POST',
-                body: deviceType ? { deviceType } : {},
-            }),
+        return run(
+            device.entryId,
+            () =>
+                api(`api/router/devices/${device.entryId}/bridge/registration/renew`, {
+                    method: 'POST',
+                    body: deviceType ? { deviceType } : {},
+                }),
+            'bridge',
         )
     }
-    const cancel = button('Cancel')
+    const cancel = button(UI.t('Cancel'))
     cancel.onclick = close
     dialog.oncancel = (event) => {
         event.preventDefault()
@@ -571,9 +638,9 @@ function registrationChoice(device) {
     cancel.focus()
 }
 
-/** @param {string} entryId @param {() => Promise<unknown>} action */
-async function run(entryId, action) {
-    if (!fresh || busy.size || globalBusy) return
+/** @param {string} entryId @param {() => Promise<unknown>} action @param {string} context */
+async function run(entryId, action, context = 'router') {
+    if (!UI.allowed() || !fresh || busy.size || globalBusy) return
     busy.add(entryId)
     updateGlobalControls()
     revision++
@@ -583,7 +650,7 @@ async function run(entryId, action) {
         await action()
         await refresh()
     } catch (error) {
-        rowErrors.set(entryId, error instanceof Error ? error.message : String(error))
+        rowErrors.set(entryId, { message: error instanceof Error ? error.message : String(error), context })
     } finally {
         busy.delete(entryId)
         updateGlobalControls()
@@ -593,7 +660,8 @@ async function run(entryId, action) {
 /** @param {string} text */
 function cell(text) {
     const element = document.createElement('td')
-    element.textContent = text
+    element.setAttribute('role', 'cell')
+    UI.bind(element, () => text)
     return element
 }
 /** @param {string} label */
@@ -601,10 +669,12 @@ function button(label) {
     const element = document.createElement('button')
     element.type = 'button'
     element.className = 'btn-small'
-    element.textContent = label
+    UI.bind(element, () => UI.t(label))
     return element
 }
 /** @param {unknown} error */
 function toast(error) {
-    get('router_error').textContent = error instanceof Error ? error.message : String(error)
+    UI.bind(get('router_error'), () => UI.diagnostic(error, 'router'))
 }
+
+UI.onChange(() => renderDevices())

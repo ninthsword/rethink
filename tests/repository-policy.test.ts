@@ -58,10 +58,10 @@ test('Docker context excludes private runtime material but keeps public config t
     assert.equal(patterns.has('config.jsonc'), false)
 })
 
-test('build policy removes stale dist before compilation', () => {
+test('build policy removes stale dist before compilation and stamps copied assets', () => {
     assert.match(packageJson.scripts.build, /^rm -rf dist && tsc /)
     assert.match(packageJson.scripts.build, /tsc-alias -p tsconfig\.build\.json/)
-    assert.match(packageJson.scripts.build, /cp -r html dist\/$/)
+    assert.match(packageJson.scripts.build, /cp -r html dist\/ && node scripts\/write-build-info\.mjs$/)
 })
 
 test('the published image runs as app and owns its image-local data directory', () => {

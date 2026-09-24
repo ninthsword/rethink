@@ -27,21 +27,22 @@ function input(id) {
 /** @param {string} value */
 function formatStartedAt(value) {
     const date = new Date(value)
-    return Number.isNaN(date.getTime()) ? '-' : date.toLocaleString()
+    return Number.isNaN(date.getTime()) ? '-' : UI.date(value)
 }
 /** @param {string} label @param {() => unknown} action */
 function button(label, action) {
     const element = document.createElement('button')
     element.type = 'button'
     element.className = 'btn-small'
-    element.textContent = label
+    UI.bind(element, () => UI.t(label))
     element.onclick = action
     return element
 }
 /** @param {string} text */
 function cell(text) {
     const element = document.createElement('td')
-    element.textContent = text
+    element.setAttribute('role', 'cell')
+    UI.bind(element, () => text)
     return element
 }
 function render() {
@@ -60,38 +61,42 @@ function render() {
     get('devices_body').replaceChildren()
     for (const [id, state] of devices) {
         const row = document.createElement('tr')
+        row.setAttribute('role', 'row')
         row.dataset.device = id
+        row.setAttribute('role', 'row')
         row.setAttribute('aria-busy', String(busy.has(id) || !!state.bridgeBusy))
         const name = cell(state.name || '-')
         const identity = document.createElement('small')
-        identity.textContent = id
+        UI.bind(identity, () => id)
         name.append(identity)
         const model = cell(state.model || '-')
-        if (!state.mapped) model.append(document.createTextNode(' · HA mapping unavailable'))
+        if (!state.mapped) model.append(UI.textNode(() => UI.t(' · HA mapping unavailable')))
         const mode = cell(state.mode === 'dnat' ? 'DNAT' : 'Local')
-        const local = cell(online ? 'Connected to Rethink' : 'Stale · connection unknown')
+        const local = cell(online ? UI.t('Connected to Rethink') : UI.t('Stale · connection unknown'))
         const forwarding = cell(
             !online
-                ? 'Stale · LG status unknown'
+                ? UI.t('Stale · LG status unknown')
                 : state.cloudConnected
-                  ? 'LG connected'
+                  ? UI.t('LG connected')
                   : state.bridgeActive
-                    ? 'LG connecting / retrying'
+                    ? UI.t('LG connecting / retrying')
                     : state.bridgeEnabled
-                      ? 'Forwarding requested'
-                      : 'LG forwarding off',
+                      ? UI.t('Forwarding requested')
+                      : UI.t('LG forwarding off'),
         )
         const registration = document.createElement('small')
-        registration.textContent = state.bridgeSaved
-            ? 'Registration saved'
-            : state.bridgeArchived
-              ? 'Archived registration available'
-              : 'Setup required'
+        UI.bind(registration, () =>
+            state.bridgeSaved
+                ? UI.t('Registration saved')
+                : state.bridgeArchived
+                  ? UI.t('Archived registration available')
+                  : UI.t('Setup required'),
+        )
         forwarding.append(registration)
         if (state.mode === 'dnat') {
             const link = document.createElement('a')
             link.href = 'router.html'
-            link.textContent = 'Manage DNAT and automatic forwarding'
+            UI.bind(link, () => UI.t('Manage DNAT and automatic forwarding'))
             forwarding.append(link)
         } else {
             const label = document.createElement('label')
@@ -99,15 +104,19 @@ function render() {
             toggle.type = 'checkbox'
             toggle.checked = !!state.bridgeEnabled
             toggle.dataset.focus = `${id}:toggle`
-            toggle.setAttribute('aria-label', `Optional LG Bridge for ${state.name || id}`)
+            UI.bind(toggle, () => UI.t('Optional LG Bridge for {0}', [state.name || id]), 'aria-label')
             toggle.disabled = !online || !bridgeConfigured || busy.has(id) || !!state.bridgeBusy || !state.bridgeSaved
             toggle.onchange = () =>
                 run(id, () => api(`bridge/${encodeURIComponent(id)}/${toggle.checked ? 'enable' : 'disable'}`))
-            label.append(toggle, document.createTextNode(' Optional LG Bridge'))
+            label.append(
+                toggle,
+                UI.textNode(() => UI.t(' Optional LG Bridge')),
+            )
             forwarding.append(label)
         }
-        const setup = button(state.bridgeSaved || state.bridgeArchived ? 'Registration…' : 'Set up registration…', () =>
-            registrationChoice(id),
+        const setup = button(
+            state.bridgeSaved || state.bridgeArchived ? UI.t('Registration…') : UI.t('Set up registration…'),
+            () => registrationChoice(id),
         )
         setup.dataset.focus = `${id}:registration`
         setup.disabled = !online || !bridgeConfigured || busy.has(id) || !!state.bridgeBusy
@@ -116,17 +125,28 @@ function render() {
         status.className = 'row-status'
         status.setAttribute('role', 'status')
         status.setAttribute('aria-live', 'polite')
-        status.textContent = errors.get(id) || (busy.has(id) ? 'Working…' : state.bridgeError || '')
+        UI.bind(status, () =>
+            errors.has(id)
+                ? UI.diagnostic(errors.get(id), 'bridge')
+                : busy.has(id)
+                  ? UI.t('Working…')
+                  : UI.diagnostic(state.bridgeError, 'bridge'),
+        )
         forwarding.append(status)
         const monitorCell = document.createElement('td')
         const monitor = document.createElement('a')
         monitor.href = `monitor?id=${encodeURIComponent(id)}`
-        monitor.textContent = 'Monitor'
+        UI.bind(monitor, () => UI.t('Monitor'))
         monitorCell.append(monitor)
         row.append(name, model, mode, local, forwarding, monitorCell)
         Array.from(row.children).forEach((child, index) => {
             const cellElement = /** @type {HTMLElement} */ (child)
-            cellElement.dataset.label = ['Device', 'Model', 'Mode', 'Local connection', 'LG forwarding', 'Tools'][index]
+            cellElement.setAttribute('role', 'cell')
+            UI.bind(
+                cellElement,
+                () => UI.t(['Device', 'Model', 'Mode', 'Local connection', 'LG forwarding', 'Tools'][index]),
+                'data-label',
+            )
         })
         get('devices_body').append(row)
     }
@@ -155,7 +175,7 @@ async function api(path, body = {}) {
 }
 /** @param {string} id @param {() => Promise<unknown>} action */
 async function run(id, action) {
-    if (!online || busy.has(id)) return
+    if (!UI.allowed() || !online || busy.has(id)) return
     busy.add(id)
     errors.delete(id)
     render()
@@ -173,19 +193,22 @@ async function run(id, action) {
 /** @param {string} id */
 function registrationChoice(id) {
     const state = devices.get(id)
-    if (!state || !online || busy.has(id)) return
+    if (!UI.allowed() || !state || !online || busy.has(id)) return
     const dialog = document.createElement('dialog')
     dialog.setAttribute('aria-labelledby', 'registration-title')
-    const title = document.createElement('h5')
+    const title = document.createElement('h2')
     title.id = 'registration-title'
-    title.textContent = `Registration · ${state.name || id}`
+    UI.bind(title, () => UI.t('Registration · {0}', [state.name || id]))
     const text = document.createElement('p')
-    text.textContent =
-        'These actions manage upstream LG registration, not the physical appliance’s Wi-Fi certificate enrollment. Restore reuses an archived registration only when no current one exists. Renew / Set up explicitly contacts LG and may pair a new certificate. Previous local material is kept if this fails; remote pairing cannot be rolled back. DNAT preserves Home membership, which does not guarantee appliance credential continuity.'
+    UI.bind(text, () =>
+        UI.t(
+            'These actions manage upstream LG registration, not the physical appliance’s Wi-Fi certificate enrollment. Restore reuses an archived registration only when no current one exists. Renew / Set up explicitly contacts LG and may pair a new certificate. Previous local material is kept if this fails; remote pairing cannot be rolled back. DNAT preserves Home membership, which does not guarantee appliance credential continuity.',
+        ),
+    )
     const deviceType = document.createElement('input')
     deviceType.value = state.deviceType || ''
-    deviceType.placeholder = 'Device type (for example 401)'
-    deviceType.setAttribute('aria-label', 'LG device type')
+    UI.bind(deviceType, () => UI.t('Device type (for example 401)'), 'placeholder')
+    UI.bind(deviceType, () => UI.t('LG device type'), 'aria-label')
     const focusKey = `${id}:registration`
     const close = () => {
         dialog.close()
@@ -195,18 +218,18 @@ function registrationChoice(id) {
                 /** @type {HTMLElement} */ (element).focus()
         })
     }
-    const restore = button('Restore', () => {
+    const restore = button(UI.t('Restore'), () => {
         close()
         return run(id, () => api(`bridge/${encodeURIComponent(id)}/registration/restore`))
     })
     restore.disabled = !state.bridgeArchived || !!state.bridgeSaved
-    const renew = button(state.bridgeSaved ? 'Renew' : 'Set up', () => {
+    const renew = button(state.bridgeSaved ? UI.t('Renew') : UI.t('Set up'), () => {
         const value = deviceType.value.trim()
         close()
         return run(id, () => api(`bridge/${encodeURIComponent(id)}/registration/renew`, { deviceType: value }))
     })
     renew.disabled = !loggedIn
-    const cancel = button('Cancel', close)
+    const cancel = button(UI.t('Cancel'), close)
     dialog.oncancel = (event) => {
         event.preventDefault()
         close()
@@ -223,13 +246,15 @@ function connect() {
     const ws = new WebSocket(url)
     currentSocket = ws
     online = false
+    UI.bind(get('status_rethink'), () => UI.t('Waiting for Rethink connection…'))
+    UI.bind(get('status_mqtt'), () => UI.t('Unknown'))
     old?.close()
     render()
     ws.onclose = () => {
         if (currentSocket !== ws) return
         online = false
-        get('status_rethink').textContent = 'Disconnected · displayed device status is stale'
-        get('status_mqtt').textContent = 'Unknown'
+        UI.bind(get('status_rethink'), () => UI.t('Disconnected · displayed device status is stale'))
+        UI.bind(get('status_mqtt'), () => UI.t('Unknown'))
         render()
         setTimeout(() => {
             if (currentSocket === ws) connect()
@@ -244,42 +269,49 @@ function connect() {
                 devices.clear()
                 for (const [id, state] of Object.entries(json.devices)) devices.set(id, state)
                 online = true
-                get('status_rethink').textContent = 'Connected'
+                UI.bind(get('status_rethink'), () => UI.t('Connected'))
             }
             if (typeof json.ha === 'boolean')
-                get('status_mqtt').textContent = json.ha
-                    ? 'MQTT connected (entity health is separate)'
-                    : 'MQTT disconnected'
+                UI.bind(get('status_mqtt'), () =>
+                    json.ha ? UI.t('MQTT connected (entity health is separate)') : UI.t('MQTT disconnected'),
+                )
             if (json.system) {
-                get('management_version').textContent = json.system.version || '-'
-                get('management_started').textContent = formatStartedAt(json.system.startedAt)
+                UI.bind(get('management_version'), () => json.system?.version || '-')
+                UI.bind(get('management_started'), () => formatStartedAt(json.system?.startedAt || ''))
+            }
+            if (!json.bridge && json.devices) {
+                bridgeConfigured = false
+                loggedIn = false
+                UI.bind(get('status_bridge_text'), () => UI.t('LG account integration is not configured'))
             }
             if (json.bridge) {
                 bridgeConfigured = true
                 loggedIn = json.bridge.loggedIn
-                get('status_bridge_text').textContent = loggedIn
-                    ? 'Signed in · separate from appliance forwarding'
-                    : 'Sign in for explicit setup / renewal'
+                UI.bind(get('status_bridge_text'), () =>
+                    loggedIn
+                        ? UI.t('Signed in · separate from appliance forwarding')
+                        : UI.t('Sign in for explicit setup / renewal'),
+                )
                 get('btn_thinq_login').classList.toggle('hide', loggedIn)
                 get('btn_thinq_logout').classList.toggle('hide', !loggedIn)
             }
-            if (json.status) get('page_status').textContent = json.status
+            if (json.status) UI.bind(get('page_status'), () => UI.diagnostic(json.status, 'status'))
             render()
         } catch {
-            get('page_status').textContent = 'Invalid status response. Reconnect to refresh.'
+            UI.bind(get('page_status'), () => UI.t('Invalid status response. Reconnect to refresh.'))
         }
     }
 }
 /** @param {string} id @param {() => Promise<unknown>} action */
 async function accountAction(id, action) {
     const control = /** @type {HTMLButtonElement} */ (get(id))
-    if (!online || control.disabled || accountBusy) return
+    if (!UI.allowed() || !online || control.disabled || accountBusy) return
     accountBusy = true
     render()
     try {
         await action()
     } catch (error) {
-        get('page_status').textContent = String(error)
+        UI.bind(get('page_status'), () => UI.diagnostic(error, 'account'))
     } finally {
         accountBusy = false
         render()
@@ -288,6 +320,7 @@ async function accountAction(id, action) {
 document.addEventListener('DOMContentLoaded', () => {
     M.Modal.init(document.querySelectorAll('.modal'))
     get('btn_thinq_login_continue').onclick = () => {
+        if (!UI.allowed()) return
         if (input('country_code').validity.valid)
             window.open(
                 new URL(
@@ -314,3 +347,5 @@ document.addEventListener('DOMContentLoaded', () => {
         })
     connect()
 })
+
+UI.onChange(() => render())

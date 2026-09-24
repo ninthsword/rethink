@@ -1,137 +1,28 @@
 <!doctype html>
 <html lang="en">
-    <head>
-        <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet" />
-        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0/css/materialize.min.css" />
-        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-        <style>
-            .preloader-wrapper.verysmall { width: 24px; height: 24px; }
-            .state-partial { color: #ff9800; font-weight: 600; }
-            .state-unknown { color: #9e9e9e; }
-            td.actions { white-space: nowrap; }
-            .switch.busy { opacity: 0.45; pointer-events: none; }
-            .subtle { color: #757575; font-size: 0.9em; }
-            .router-settings-row {
-                display: grid;
-                grid-template-columns: minmax(150px, 2fr) 90px minmax(140px, 1.4fr) minmax(160px, 1.6fr) minmax(150px, 2fr);
-                gap: 0 18px;
-                align-items: end;
-            }
-            .router-settings-row .input-field { margin-bottom: 0; }
-            .password-field input { padding-right: 42px; box-sizing: border-box; }
-            .password-toggle {
-                position: absolute;
-                right: 0;
-                bottom: 9px;
-                width: 36px;
-                height: 36px;
-                padding: 0;
-                border: 0;
-                background: transparent;
-                color: #757575;
-                cursor: pointer;
-            }
-            .password-toggle:focus { outline: 2px solid #26a69a; outline-offset: -2px; }
-            @media (max-width: 900px) {
-                .router-settings-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-            }
-            @media (max-width: 600px) {
-                .router-settings-row { grid-template-columns: 1fr; }
-            }
-
-            /*
-             * The link between the two pages was hidden below 993px, which on a phone left
-             * no way at all to reach the router page — or back. It stays visible at every
-             * width now and becomes its icon where the words will not fit.
-             */
-            nav .nav-icon { display: none; }
-            @media only screen and (max-width: 992px) {
-                nav .nav-label { display: none; }
-                nav .nav-icon { display: inline; }
-                nav .brand-logo {
-                    font-size: 1.3rem;
-                    max-width: calc(100% - 72px);
-                    overflow: hidden;
-                    text-overflow: ellipsis;
-                    white-space: nowrap;
-                }
-            }
-        
-            body { background: #f4f7fb; color: #23364b; }
-            nav { box-shadow: none; }
-            main, body > .container { max-width: 1280px; }
-            h4.header.orange-text { color: #1e4963; font-size: 1.7rem; font-weight: 600; }
-            .section, body > .container:not(.dashboard-meta) { background: white; border: 1px solid #dce5ed; border-radius: 14px; padding: 24px; margin-top: 20px; margin-bottom: 20px; }
-            table { table-layout: fixed; }
-            th { font-size: .8rem; text-transform: uppercase; color: #52667d; letter-spacing: .04em; }
-            td { vertical-align: top; overflow-wrap: anywhere; padding: 16px 8px; }
-            td small, td a, td label { display: block; margin-top: 8px; }
-            td small { color: #53677d; line-height: 1.5; }
-            .btn, .btn-small { background: #186078; border-radius: 7px; box-shadow: none; }
-            td .btn-small { margin: 8px 6px 0 0; height: auto; min-height: 36px; white-space: normal; line-height: 1.4; padding: 9px 12px; text-transform: none; }
-            .btn:focus, .btn-small:focus, button:focus-visible, select:focus-visible, a:focus-visible { outline: 3px solid #e3a035; outline-offset: 3px; }
-            body input[type=checkbox]:not(:checked), body input[type=checkbox]:checked { position: static; opacity: 1; pointer-events: auto; width: 18px; height: 18px; vertical-align: middle; accent-color: #186078; }
-            td label { color: #23364b; }
-            button:disabled, input:disabled, select:disabled { opacity: .55; cursor: not-allowed; }
-            .row-status { color: #98331e; font-size: .9rem; margin: 8px 0 0; }
-            [aria-busy=true] { background: #edf4f8; }
-            dialog { width: min(560px, calc(100% - 32px)); max-height: 85vh; overflow: auto; border: 1px solid #c5d5e3; border-radius: 16px; padding: 28px; color: #23364b; }
-            dialog::backdrop { background: rgb(16 35 52 / 55%); }
-            dialog p { line-height: 1.65; }
-            dialog label { display: block; color: #23364b; font-size: 1rem; line-height: 1.6; }
-            dialog button { margin: 12px 10px 0 0; }
-            .mode-guide { line-height: 1.65; max-width: 80ch; color: #52667d; }
-            td.actions { white-space: normal; }
-            .offline .hide-when-offline { display: block; }
-            @media (max-width: 760px) {
-                body .container:not(.modal) { width: 94%; }
-                table, table.responsive-table, table tbody, table.responsive-table tbody { display: block; width: 100%; }
-                table thead, table.responsive-table thead { display: none; }
-                table tr, table.responsive-table tr { display: grid; grid-template-columns: minmax(0, 1fr); border: 1px solid #dce5ed; border-radius: 12px; margin: 14px 0; padding: 12px; }
-                table td, table.responsive-table td { display: block; width: auto; padding: 9px 4px; text-align: left; }
-                td::before { content: attr(data-label); display: block; color: #52667d; font-weight: 600; font-size: .78rem; margin-bottom: 4px; }
-                .row.valign-wrapper { display: block; }
-                .section, body > .container:not(.dashboard-meta) { padding: 16px; }
-                .btn { margin-top: 8px; max-width: 100%; height: auto; min-height: 36px; white-space: normal; }
-            }
-        </style>
-    </head>
+    <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title data-i18n>Router management</title><link rel="stylesheet" href="/ui.css"></head>
     <body>
-        <nav class="light-blue lighten-1" >
-            <div class="nav-wrapper container">
-                <a href="./" class="brand-logo">
-                    <span class="material-icons">router</span>
-                    Asus Router DNAT Management
-                </a>
-                <ul class="right">
-                    <li>
-                        <a href="./" title="Rethink Management Panel">
-                            <span class="nav-label">Rethink Management Panel</span>
-                            <i class="material-icons nav-icon">psychology_alt</i>
-                        </a>
-                    </li>
-                </ul>
-            </div>
-        </nav>
+        <header><h1 data-i18n>Router management</h1><nav aria-label="Management navigation" data-i18n-aria-label><a href="/" data-i18n>Devices</a><a href="/router.html" data-i18n>Router</a><label><span data-i18n>Language</span><select id="language" aria-label="Language" data-i18n-aria-label><option value="en">English</option><option value="ko">한국어</option></select></label></nav></header>
 
         <main class="container">
             <div class="section">
-                <h4 class="header orange-text">Router SSH settings</h4>
+                <h2 class="header orange-text" data-i18n>Router SSH settings</h2>
                 <div class="router-settings-row">
-                    <div class="input-field"><input id="router_host" type="text" /><label for="router_host">Router IP</label></div>
-                    <div class="input-field"><input id="router_port" type="number" value="22" /><label for="router_port">SSH Port</label></div>
-                    <div class="input-field"><input id="router_username" type="text" /><label for="router_username">Username</label></div>
+                    <div class="input-field"><input id="router_host" type="text" /><label for="router_host" data-i18n>Router IP</label></div>
+                    <div class="input-field"><input id="router_port" type="number" value="22" /><label for="router_port" data-i18n>SSH Port</label></div>
+                    <div class="input-field"><input id="router_username" type="text" /><label for="router_username" data-i18n>Username</label></div>
                     <div class="input-field password-field">
-                        <input id="router_password" type="password" />
-                        <label for="router_password">Password</label>
-                        <button id="toggle_router_password" class="password-toggle" type="button" title="Show password" aria-label="Show password" aria-pressed="false">
-                            <i class="material-icons">visibility</i>
+                        <input id="router_password" type="password" aria-describedby="password_hint" />
+                        <label for="router_password" data-i18n>Password</label>
+                        <button id="toggle_router_password" class="password-toggle" type="button" title="Show password" data-i18n-title aria-label="Show password" data-i18n-aria-label aria-pressed="false"><span data-i18n>Show password</span>
+
                         </button>
+                        <p id="password_hint" data-i18n>Leave the password blank to keep the saved password.</p>
                     </div>
-                    <div class="input-field"><input id="rethink_ip" type="text" /><label for="rethink_ip">Rethink IP</label></div>
+                    <div class="input-field"><input id="rethink_ip" type="text" /><label for="rethink_ip" data-i18n>Rethink IP</label></div>
                 </div>
-                <button type="button" id="test_router" class="btn waves-effect waves-light">Test connection</button>
-                <button type="button" id="save_router" class="btn waves-effect waves-light">Save</button>
+                <p data-i18n>Save changes first. This test uses only the saved router settings.</p><button type="button" id="test_router" class="btn waves-effect waves-light" data-i18n>Test saved settings</button>
+                <button type="button" id="save_router" class="btn waves-effect waves-light" data-i18n>Save</button>
             </div>
 
             <div class="divider"></div>
@@ -140,50 +31,45 @@
                     <!-- A quarter of a phone's width is not enough for the button, so the
                          two halves stack there and sit side by side from tablet up. -->
                     <div class="col s12 m9">
-                        <h4 class="header orange-text">Appliance modes</h4>
-                        Router: <span id="router_status" class="state-unknown">Not configured</span>
+                        <h2 class="header orange-text" data-i18n>Appliance modes</h2>
+                        <span data-i18n>Router:</span> <span id="router_status" class="state-unknown" data-i18n>Not configured</span>
                         <span id="router_error" class="red-text" role="status" aria-live="polite"></span>
                     </div>
                     <div class="col s12 m3 right-align">
-                        <button type="button" id="refresh" class="btn waves-effect waves-light">
-                            Refresh <i class="material-icons right">refresh</i>
+                        <button type="button" id="refresh" class="btn waves-effect waves-light" data-i18n>
+                            Refresh
                         </button>
                     </div>
                 </div>
 
-                <p class="mode-guide"><strong>DNAT</strong> automatically forwards to LG using saved registration when enabled. <strong>Local</strong> offers an optional LG Bridge without router SSH. Turn DNAT off before changing modes. Local requires an existing independent path from the appliance to Rethink; saving this policy does not create that path or reprovision certificates.</p>
-                <p class="mode-guide">For the supported <strong>DNAT ↔ Local</strong> switching workflow, the appliance certificates differ. In either direction, remove appliance power to reset its Wi-Fi module, restore power, then repeat Wi-Fi setup and appliance certificate enrollment for the target mode using the appliance-specific instructions. Review and explicitly approve the mode-change dialog. Saving policy does not perform or verify these physical steps. Bridge Restore / Set up / Renew concerns upstream LG registration and does not enroll the physical appliance’s Wi-Fi certificate.</p>
+                <p class="mode-guide" data-i18n>DNAT automatically forwards to LG using saved registration when enabled. Local offers an optional LG Bridge without router SSH. Turn DNAT off before changing modes. Local requires an existing independent path from the appliance to Rethink; saving this policy does not create that path or reprovision certificates.</p>
+                <p class="mode-guide" data-i18n>For the supported DNAT ↔ Local switching workflow, the appliance certificates differ. In either direction, remove appliance power to reset its Wi-Fi module, restore power, then repeat Wi-Fi setup and appliance certificate enrollment for the target mode using the appliance-specific instructions. Review and explicitly approve the mode-change dialog. Saving policy does not perform or verify these physical steps. Bridge Restore / Set up / Renew concerns upstream LG registration and does not enroll the physical appliance’s Wi-Fi certificate.</p>
                 <table class="highlight responsive-table">
-                    <thead><tr><th>Name</th><th>IP</th><th>Local connection</th><th>Mode</th><th>DNAT</th><th>LG forwarding</th><th>Action</th></tr></thead>
+                    <thead><tr><th data-i18n>Name</th><th data-i18n>IP</th><th data-i18n>Local connection</th><th data-i18n>Mode</th><th data-i18n>DNAT</th><th data-i18n>LG forwarding</th><th data-i18n>Action</th></tr></thead>
                     <tbody id="device_rows"></tbody>
                 </table>
-                <p id="empty_devices" class="subtle">No devices registered. Add an IP address first.</p>
-                <button type="button" id="add_device" class="btn waves-effect waves-light modal-trigger" data-target="device_modal">
-                    Add device <i class="material-icons right">add</i>
+                <p id="empty_devices" class="subtle" data-i18n>No devices registered. Add an IP address first.</p>
+                <button type="button" id="add_device" class="btn waves-effect waves-light modal-trigger" data-target="device_modal" data-i18n>
+                    Add device
                 </button>
             </div>
         </main>
 
-        <div id="device_modal" class="modal">
+        <dialog id="device_modal" class="modal">
             <div class="modal-content">
-                <h4>Add device</h4>
-                <div class="input-field"><input id="device_ip" type="text" /><label for="device_ip">Device IP</label></div>
-                <label for="device_mode">Forwarding mode</label>
+                <h2 data-i18n>Add device</h2>
+                <div class="input-field"><input id="device_ip" type="text" /><label for="device_ip" data-i18n>Device IP</label></div>
+                <label for="device_mode" data-i18n>Forwarding mode</label>
                 <select id="device_mode" class="browser-default"><option value="dnat">DNAT</option><option value="local">Local (existing Rethink connection)</option></select>
-                <p class="subtle">
-                    Add an appliance IP to manage forwarding. Existing entries default to DNAT.
-                    The appliance is linked when it connects to Rethink. Mode selection changes policy only;
-                    it does not change the deployment-wide appliance route, Wi-Fi setup or certificates.
-                    No cloud pairing occurs until you explicitly choose Set up or Renew.
-                </p>
+                <p class="subtle" data-i18n>Add an appliance IP to manage forwarding. Existing entries default to DNAT. The appliance is linked when it connects to Rethink. Mode selection changes policy only; it does not change the deployment-wide appliance route, Wi-Fi setup or certificates. No cloud pairing occurs until you explicitly choose Set up or Renew.</p>
             </div>
             <div class="modal-footer">
-                <a href="#!" class="modal-close btn-flat">Cancel</a>
-                <button type="button" id="save_device" class="btn waves-effect waves-light">Add</button>
+                <button type="button" class="modal-close btn-flat" data-i18n>Cancel</button>
+                <button type="button" id="save_device" class="btn waves-effect waves-light" data-i18n>Add</button>
             </div>
-        </div>
+        </dialog>
 
-        <script src="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0/js/materialize.min.js"></script>
+        <script src="/ui.js"></script>
         <script src="router.js"></script>
     </body>
 </html>

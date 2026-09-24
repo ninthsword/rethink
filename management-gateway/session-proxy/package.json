@@ -1,0 +1,12 @@
+{
+  "name": "rethink-management-session-proxy",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "express": "5.2.1",
+    "express-session": "1.19.0",
+    "memorystore": "1.6.8",
+    "httpxy": "0.5.5"
+  }
+}

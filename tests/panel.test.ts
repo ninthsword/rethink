@@ -36,7 +36,23 @@ test('failed HTTP mutation shows row error, preserves off state, and never retur
     assert.equal(calls.length, 1)
     assert.equal(page.document.getElementById('devices_body').querySelector('input').checked, false)
     assert.match(page.document.getElementById('devices_body').textContent, /Restore or set up first/)
+    assert(page.diagnostics.some((entry) => entry.context === 'bridge' && entry.value === 'Restore or set up first'))
     assert.equal(page.sockets.length, 1)
+})
+
+test('unknown WebSocket and Bridge diagnostics stay in status context without changing controls', async () => {
+    const page = await browser('panel')
+    page.sockets[0].sendStatus({
+        ...snapshot({ local: { ...local, bridgeError: 'LG upstream unknown failure' } }),
+        status: 'Remote service status unknown',
+    })
+    assert(
+        page.diagnostics.some((entry) => entry.context === 'status' && entry.value === 'Remote service status unknown'),
+    )
+    assert(
+        page.diagnostics.some((entry) => entry.context === 'bridge' && entry.value === 'LG upstream unknown failure'),
+    )
+    assert.equal(page.document.getElementById('devices_body').querySelector('input').checked, false)
 })
 
 test('busy and stale controls block duplicate requests; old socket cannot overwrite fresh snapshot', async () => {
@@ -74,7 +90,8 @@ test('registration Cancel and Escape make no request and return keyboard focus',
     const trigger = page.document.getElementById('devices_body').querySelector('button')
     assert(trigger)
     await trigger.click()
-    const dialog = page.document.querySelectorAll('dialog')[0]
+    const dialog = page.document.querySelectorAll('dialog').find((dialog) => dialog.open)
+    assert(dialog)
     assert(dialog.open)
     assert.match(
         dialog.textContent,
@@ -83,7 +100,7 @@ test('registration Cancel and Escape make no request and return keyboard focus',
     assert.equal(dialog.querySelectorAll('button').find((button) => button.textContent === 'Restore')?.disabled, true)
     assert(dialog.oncancel)
     dialog.oncancel({ preventDefault() {} })
-    assert.equal(page.document.querySelectorAll('dialog').length, 0)
+    assert.equal(page.document.querySelectorAll('dialog').filter((dialog) => dialog.open).length, 0)
     assert.equal(page.document.activeElement.dataset.focus, trigger.dataset.focus)
     assert.equal(calls, 0)
 })
@@ -98,4 +115,5 @@ test('network login failure keeps dialog open and retains form for retry', async
     await settle()
     assert.deepEqual(page.modals, [])
     assert.match(page.document.getElementById('page_status').textContent, /Network unavailable/)
+    assert(page.diagnostics.some((entry) => entry.context === 'account' && entry.value === 'Network unavailable'))
 })

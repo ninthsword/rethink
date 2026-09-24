@@ -1,0 +1,8 @@
+main {
+    max-width: 520px;
+    padding-top: 2rem;
+}
+form button {
+    width: 100%;
+    margin-top: 1rem;
+}

@@ -138,7 +138,7 @@ class Document {
         for (const match of html.matchAll(/<([a-z]+)\b[^>]*\bid="([^"]+)"[^>]*>/g)) {
             const element = this.createElement(match[1])
             element.id = match[2]
-            if (element.id === 'toggle_router_password') element.append(this.createElement('i'))
+            if (element.id === 'toggle_router_password') element.append(this.createElement('span'))
             this.body.append(element)
         }
     }
@@ -191,6 +191,7 @@ export async function browser(
     const document = new Document(readFileSync(`html/${page === 'panel' ? 'index' : 'router'}.html`, 'utf8'))
     const timers: Array<() => unknown> = []
     const modals: string[] = []
+    const diagnostics: Array<{ value: string; context: string | undefined }> = []
     const context = vm.createContext({
         document,
         HTMLElement: Element,
@@ -211,6 +212,30 @@ export async function browser(
         clearTimeout() {},
         confirm: () => true,
         prompt: () => null,
+        UI: {
+            t: (key: string, values: unknown[] = []) =>
+                key.replace(/\{(\d+)\}/g, (_match, index) => String(values[Number(index)] ?? '')),
+            locale: 'en',
+            diagnostic: (value: unknown, context?: string) => {
+                const raw =
+                    value && typeof value === 'object' && 'message' in value
+                        ? String(value.message)
+                        : String(value ?? '')
+                diagnostics.push({ value: raw, context })
+                return raw
+            },
+            bind: (element: Element, read: () => string, attribute?: string) => {
+                if (attribute) {
+                    element.setAttribute(attribute, read())
+                    if (attribute === 'title' || attribute === 'placeholder') element[attribute] = read()
+                } else element.textContent = read()
+                return element
+            },
+            textNode: (read: () => string) => document.createTextNode(read()),
+            date: (value: string) => new Date(value).toLocaleString('en'),
+            onChange() {},
+            allowed: () => true,
+        },
         M: {
             Modal: {
                 init() {},
@@ -225,6 +250,7 @@ export async function browser(
         document,
         timers,
         modals,
+        diagnostics,
         evaluate: (source: string) => vm.runInContext(source, context),
         sockets: Socket.all,
     }
