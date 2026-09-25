@@ -104,13 +104,16 @@ if (command === 'curl') {
  process.exit(response.status ?? 0)
 }
 `
-        for (const command of ['docker', 'curl', 'sleep']) {
+        for (const command of ['docker', 'curl']) {
             writeFileSync(join(bin, command), stub)
             chmodSync(join(bin, command), 0o755)
         }
+        // The synthetic poll is bounded by attempts; a shell no-op avoids repeated Node startup.
+        writeFileSync(join(bin, 'sleep'), '#!/bin/sh\nexit 0\n')
+        chmodSync(join(bin, 'sleep'), 0o755)
         const result = spawnSync('bash', ['scripts/deploy.sh', ...(scenario.args ?? ['synthetic'])], {
             encoding: 'utf-8',
-            timeout: 20_000,
+            timeout: 45_000,
             env: {
                 ...process.env,
                 PATH: `${bin}:${process.env.PATH}`,

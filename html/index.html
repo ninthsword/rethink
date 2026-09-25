@@ -1,167 +1,59 @@
 <!doctype html>
 <html lang="en">
-    <head>
-        <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet" />
-        <link
-            rel="stylesheet"
-            href="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0/css/materialize.min.css"
-        />
-        <style>
-            .offline .hide-when-offline {
-                display: none;
-            }
-
-            .status_field {
-                display: inline-block;
-                width: 1.5em;
-            }
-
-            .preloader-wrapper.verysmall {
-                width: 24px;
-                height: 24px;
-            }
-
-            .dashboard-meta {
-                color: #616161;
-                padding-top: 8px;
-                white-space: nowrap;
-            }
-
-            .dashboard-meta span + span {
-                margin-left: 24px;
-            }
-
-            /* Two nowrap items on one line run off the side of a phone. */
-            @media only screen and (max-width: 600px) {
-                .dashboard-meta span + span { margin-left: 0; display: block; }
-            }
-
-            /*
-             * The link between the two pages was hidden below 993px, which on a phone left
-             * no way at all to reach the router page — or back. It stays visible at every
-             * width now and becomes its icon where the words will not fit.
-             */
-            nav .nav-icon { display: none; }
-            @media only screen and (max-width: 992px) {
-                nav .nav-label { display: none; }
-                nav .nav-icon { display: inline; }
-                nav .brand-logo {
-                    font-size: 1.3rem;
-                    max-width: calc(100% - 72px);
-                    overflow: hidden;
-                    text-overflow: ellipsis;
-                    white-space: nowrap;
-                }
-            }
-        
-            body { background: #f4f7fb; color: #23364b; }
-            nav { box-shadow: none; }
-            main, body > .container { max-width: 1280px; }
-            h4.header.orange-text { color: #1e4963; font-size: 1.7rem; font-weight: 600; }
-            .section, body > .container:not(.dashboard-meta) { background: white; border: 1px solid #dce5ed; border-radius: 14px; padding: 24px; margin-top: 20px; margin-bottom: 20px; }
-            table { table-layout: fixed; }
-            th { font-size: .8rem; text-transform: uppercase; color: #52667d; letter-spacing: .04em; }
-            td { vertical-align: top; overflow-wrap: anywhere; padding: 16px 8px; }
-            td small, td a, td label { display: block; margin-top: 8px; }
-            td small { color: #53677d; line-height: 1.5; }
-            .btn, .btn-small { background: #186078; border-radius: 7px; box-shadow: none; }
-            td .btn-small { margin: 8px 6px 0 0; height: auto; min-height: 36px; white-space: normal; line-height: 1.4; padding: 9px 12px; text-transform: none; }
-            .btn:focus, .btn-small:focus, button:focus-visible, select:focus-visible, a:focus-visible { outline: 3px solid #e3a035; outline-offset: 3px; }
-            body input[type=checkbox]:not(:checked), body input[type=checkbox]:checked { position: static; opacity: 1; pointer-events: auto; width: 18px; height: 18px; vertical-align: middle; accent-color: #186078; }
-            td label { color: #23364b; }
-            button:disabled, input:disabled, select:disabled { opacity: .55; cursor: not-allowed; }
-            .row-status { color: #98331e; font-size: .9rem; margin: 8px 0 0; }
-            [aria-busy=true] { background: #edf4f8; }
-            dialog { width: min(560px, calc(100% - 32px)); max-height: 85vh; overflow: auto; border: 1px solid #c5d5e3; border-radius: 16px; padding: 28px; color: #23364b; }
-            dialog::backdrop { background: rgb(16 35 52 / 55%); }
-            dialog p { line-height: 1.65; }
-            dialog button { margin: 12px 10px 0 0; }
-            .mode-guide { line-height: 1.65; max-width: 80ch; color: #52667d; }
-            td.actions { white-space: normal; }
-            .offline .hide-when-offline { display: block; }
-            @media (max-width: 760px) {
-                body .container:not(.modal) { width: 94%; }
-                table, table.responsive-table, table tbody, table.responsive-table tbody { display: block; width: 100%; }
-                table thead, table.responsive-table thead { display: none; }
-                table tr, table.responsive-table tr { display: grid; grid-template-columns: minmax(0, 1fr); border: 1px solid #dce5ed; border-radius: 12px; margin: 14px 0; padding: 12px; }
-                table td, table.responsive-table td { display: block; width: auto; padding: 9px 4px; text-align: left; }
-                td::before { content: attr(data-label); display: block; color: #52667d; font-weight: 600; font-size: .78rem; margin-bottom: 4px; }
-                .row.valign-wrapper { display: block; }
-                .section, body > .container:not(.dashboard-meta) { padding: 16px; }
-                .btn { margin-top: 8px; max-width: 100%; height: auto; min-height: 36px; white-space: normal; }
-            }
-        </style>
-        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    </head>
+    <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title data-i18n>Rethink management</title><link rel="stylesheet" href="/ui.css"></head>
 
     <body class="offline">
-        <nav class="light-blue lighten-1" >
-            <div class="nav-wrapper container">
-                <a id="logo-container" href="./" class="brand-logo">
-                    <span class="material-icons">psychology_alt</span>
-                    Rethink management panel
-                </a>
-                <ul class="right">
-                    <li>
-                        <a href="router.html" title="Asus Router DNAT Management">
-                            <span class="nav-label">Asus Router DNAT Management</span>
-                            <i class="material-icons nav-icon">router</i>
-                        </a>
-                    </li>
-                </ul>
-            </div>
-        </nav>
-        <div class="container dashboard-meta right-align">
-            <span>Version : <span id="management_version">-</span></span>
-            <span>Started : <span id="management_started">-</span></span>
+        <header><h1 data-i18n>Rethink management</h1><nav aria-label="Management navigation" data-i18n-aria-label><a href="/" data-i18n>Devices</a><a href="/router.html" data-i18n>Router</a><label><span data-i18n>Language</span><select id="language" aria-label="Language" data-i18n-aria-label><option value="en">English</option><option value="ko">한국어</option></select></label></nav></header>
+<main>        <div class="container dashboard-meta right-align">
+            <span><span data-i18n>Build:</span> <span id="management_version">-</span></span>
+            <span><span data-i18n>Process started:</span> <span id="management_started">-</span></span>
         </div>
         <div class="container">
-            <h4 class="header orange-text">Connectivity</h4>
+            <h2 class="header orange-text" data-i18n>Connectivity</h2>
             <p id="page_status" role="status" aria-live="polite"></p>
-            <span id="status_rethink" class="status_field"></span>Browser 🡘 Rethink<br />
-            <span id="status_mqtt" class="status_field"></span>Rethink 🡘 MQTT<br />
+            <dl class="connectivity"><div><dt data-i18n>Browser ↔ Rethink</dt><dd id="status_rethink" role="status"></dd></div><div><dt data-i18n>Rethink ↔ MQTT</dt><dd id="status_mqtt" role="status"></dd></div></dl>
         </div>
 
         <div class="container hide-when-offline">
-            <h4 class="header orange-text">Connected devices</h4>
+            <h2 class="header orange-text" data-i18n>Connected devices</h2>
             <table class="highlight">
                 <thead>
                     <tr>
-                        <th>Device</th>
-                        <th>Model</th>
-                        <th>Mode</th>
-                        <th>Local connection</th>
-                        <th>LG forwarding</th>
-                        <th>Monitor</th>
+                        <th data-i18n>Device</th>
+                        <th data-i18n>Model</th>
+                        <th data-i18n>Mode</th>
+                        <th data-i18n>Local connection</th>
+                        <th data-i18n>LG forwarding</th>
+                        <th data-i18n>Monitor</th>
                     </tr>
                 </thead>
 
                 <tbody id="devices_body"></tbody>
             </table>
 
-            <p id="empty_devices" class="mode-guide">Waiting for appliances to connect to Rethink.</p>
-            <p class="mode-guide">DNAT couples managed router forwarding with saved LG registration. Local uses the appliance’s existing connection setup and offers an optional LG Bridge. Changing mode does not change routes or certificates. Connection status is separate from Home Assistant entity health.</p>
-                <p class="mode-guide">For the supported <strong>DNAT ↔ Local</strong> switching workflow, the appliance certificates differ. In either direction, remove appliance power to reset its Wi-Fi module, restore power, then repeat Wi-Fi setup and appliance certificate enrollment for the target mode using the appliance-specific instructions. Review and explicitly approve the mode-change dialog. Saving policy does not perform or verify these physical steps. Bridge Restore / Set up / Renew concerns upstream LG registration and does not enroll the physical appliance’s Wi-Fi certificate.</p>
+            <p id="empty_devices" class="mode-guide" data-i18n>Waiting for appliances to connect to Rethink.</p>
+            <p class="mode-guide" data-i18n>DNAT couples managed router forwarding with saved LG registration. Local uses the appliance’s existing connection setup and offers an optional LG Bridge. Changing mode does not change routes or certificates. Connection status is separate from Home Assistant entity health.</p>
+                <p class="mode-guide" data-i18n>For the supported DNAT ↔ Local switching workflow, the appliance certificates differ. In either direction, remove appliance power to reset its Wi-Fi module, restore power, then repeat Wi-Fi setup and appliance certificate enrollment for the target mode using the appliance-specific instructions. Review and explicitly approve the mode-change dialog. Saving policy does not perform or verify these physical steps. Bridge Restore / Set up / Renew concerns upstream LG registration and does not enroll the physical appliance’s Wi-Fi certificate.</p>
             <br />
-            Follow the
+            <span data-i18n>Follow the</span>
             <a
-                href="https://github.com/anszom/rethink/wiki/Installing-rethink%E2%80%90cloud#step-5-configure-your-device"
+                data-i18n href="https://github.com/anszom/rethink/wiki/Installing-rethink%E2%80%90cloud#step-5-configure-your-device"
                 >wiki instructions</a
             >
-            to connect new devices.
+            <span data-i18n>to connect new devices.</span>
         </div>
 
         <div class="container hide-when-offline">
-            <h4 class="header orange-text">LG account</h4>
-            <span id="status_bridge" class="status_field"></span>Status: <span id="status_bridge_text"></span
+            <h2 class="header orange-text" data-i18n>LG account</h2>
+            <span id="status_bridge" class="status_field"></span><span data-i18n>Status:</span> <span id="status_bridge_text"></span
             ><br /><br />
             <button
                 type="button"
                 id="btn_thinq_login"
                 class="hide btn waves-effect waves-light modal-trigger"
                 data-target="thinq_login"
-            >
-                Log into your LG account <i class="material-icons right">login</i>
+             data-i18n>
+                Log into your LG account
             </button>
             <button
                 type="button"
@@ -170,18 +62,15 @@
                 data-target="thinq_logout"
                 data-position="bottom"
                 data-tooltip="Sign out of the LG account. Saved appliance registrations and forwarding intent remain."
-            >
-                logout<i class="material-icons right">logout</i>
+             data-i18n>
+                logout
             </button>
         </div>
 
-        <div id="thinq_login" class="modal">
+</main>        <dialog id="thinq_login" class="modal">
             <div class="modal-content">
-                <h4>Log into your LG ThinQ account</h4>
-                <p>
-                    Make sure to enter a country code that matches your account. The LG login page will open in a
-                    window. Please proceed with the login, then copy the URL from the final blank page.
-                </p>
+                <h2 data-i18n>Log into your LG ThinQ account</h2>
+                <p data-i18n>Make sure to enter a country code that matches your account. The LG login page will open in a window. Please proceed with the login, then copy the URL from the final blank page.</p>
                 <div class="row">
                     <form class="col s12">
                         <div class="row">
@@ -195,34 +84,34 @@
                                     pattern="[A-Za-z]{2}"
                                     required
                                 />
-                                <label for="country_code">Country code</label>
+                                <label for="country_code" data-i18n>Country code</label>
                             </div>
                             <div class="input-field col s3">
                                 <button
                                     type="button"
                                     class="btn waves-effect waves-light"
                                     id="btn_thinq_login_continue"
-                                >
-                                    Log in <i class="material-icons right">login</i>
+                                 data-i18n>
+                                    Log in
                                 </button>
                             </div>
                         </div>
                     </form>
                 </div>
-                <p>Paste the final URL below.</p>
+                <p data-i18n>Paste the final URL below.</p>
                 <div class="row">
                     <form class="col s12">
                         <div class="row">
                             <div class="input-field col s9">
                                 <input id="login_url" type="text" class="validate" required />
-                                <label for="login_url">URL</label>
+                                <label for="login_url" data-i18n>URL</label>
                             </div>
                             <div class="input-field col s3">
                                 <button
                                     type="button"
                                     class="btn waves-effect waves-light"
                                     id="btn_thinq_login_complete"
-                                >
+                                 data-i18n>
                                     Continue
                                 </button>
                             </div>
@@ -231,31 +120,27 @@
                 </div>
             </div>
             <div class="modal-footer">
-                <a href="#!" class="modal-close waves-effect waves-green btn-flat">Close</a>
+                <button type="button" class="modal-close waves-effect waves-green btn-flat" data-i18n>Close</button>
             </div>
-        </div>
+        </dialog>
 
-        <div id="thinq_logout" class="modal">
+        <dialog id="thinq_logout" class="modal">
             <div class="modal-content">
-                <h4>Logout confirmation</h4>
-                <p>Signing out removes the account login used for setup and renewal. Saved appliance registrations and forwarding intent remain.</p>
-                <button type="button" class="btn waves-effect waves-light" id="btn_thinq_logout_continue">
-                    Log out <i class="material-icons right">logout</i>
+                <h2 data-i18n>Logout confirmation</h2>
+                <p data-i18n>Signing out removes the account login used for setup and renewal. Saved appliance registrations and forwarding intent remain.</p>
+                <button type="button" class="btn waves-effect waves-light" id="btn_thinq_logout_continue" data-i18n>
+                    Log out
                 </button>
             </div>
             <div class="modal-footer">
-                <a href="#!" class="modal-close waves-effect waves-green btn-flat">Cancel</a>
+                <button type="button" class="modal-close waves-effect waves-green btn-flat" data-i18n>Cancel</button>
             </div>
-        </div>
+        </dialog>
 
-        <div id="devicetype_query" class="modal">
+        <dialog id="devicetype_query" class="modal">
             <div class="modal-content">
-                <h4>Select device type</h4>
-                <p>
-                    Please select the appropriate type for this device. This value usually consists of three digits and
-                    can be obtained during the setup process. The device will only register with the ThinQ cloud if the
-                    device type is set correctly.
-                </p>
+                <h2 data-i18n>Select device type</h2>
+                <p data-i18n>Please select the appropriate type for this device. This value usually consists of three digits and can be obtained during the setup process. The device will only register with the ThinQ cloud if the device type is set correctly.</p>
                 <div class="row">
                     <form class="col s12">
                         <div class="row">
@@ -267,10 +152,10 @@
                                     minlength="3"
                                     required
                                 />
-                                <label for="devtype-input">Device type</label>
+                                <label for="devtype-input" data-i18n>Device type</label>
                             </div>
                             <div class="input-field col s3">
-                                <button type="button" class="btn waves-effect waves-light" id="btn_devicetype_continue">
+                                <button type="button" class="btn waves-effect waves-light" id="btn_devicetype_continue" data-i18n>
                                     Continue
                                 </button>
                             </div>
@@ -279,11 +164,11 @@
                 </div>
             </div>
             <div class="modal-footer">
-                <a href="#!" class="modal-close waves-effect waves-green btn-flat">Close</a>
+                <button type="button" class="modal-close waves-effect waves-green btn-flat" data-i18n>Close</button>
             </div>
-        </div>
+        </dialog>
 
-        <script src="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0/js/materialize.min.js"></script>
+        <script src="/ui.js"></script>
         <script src="panel.js"></script>
     </body>
 </html>

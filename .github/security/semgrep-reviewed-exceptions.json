@@ -19,6 +19,63 @@
       "source_line_sha256": "0309207bfe1ddbb65cc28b95d20ffc72d291637ef8e43bb45d4e66557d11bb91",
       "max_count": 1,
       "rationale": "The unauthenticated management endpoint is restricted to the literal IPv6 loopback address and configured port, with authority validation repeated immediately before each connection."
+    },
+    {
+      "id": "session-login-same-origin-return",
+      "rule_id": "javascript.browser.security.open-redirect.js-open-redirect",
+      "path": "management-gateway/session-proxy/login.js",
+      "source_sha256": "59c8ea59a54d0d9482c06d116a43c79fc702d928581ee6254ced9d3e46aa2e80",
+      "start": {
+        "line": 30,
+        "col": 26,
+        "offset": 1422
+      },
+      "end": {
+        "line": 30,
+        "col": 63,
+        "offset": 1459
+      },
+      "source_line_sha256": "0e8f19c0871e0a7bfa5255470db73157cf78159c320d80c08caaa529022ef4bf",
+      "max_count": 1,
+      "rationale": "The server restricts returnTo to a local path, and the browser independently parses the response against its current origin, rejects other origins and non-HTTP(S) protocols, and navigates only the normalized path, search, and hash."
+    },
+    {
+      "id": "session-fixture-websocket-sha1",
+      "rule_id": "python.lang.security.insecure-hash-algorithms.insecure-hash-algorithm-sha1",
+      "path": "management-gateway/tests/integration.py",
+      "source_sha256": "4c9c1412527d61b9b56881edadbf7bfc2da69c8e2d841f9a44f96df6d17688d9",
+      "start": {
+        "line": 71,
+        "col": 39,
+        "offset": 3085
+      },
+      "end": {
+        "line": 72,
+        "col": 73,
+        "offset": 3171
+      },
+      "source_line_sha256": "b08a5f3e0450fc2db37235f5b0405cf4cee77b6bd189e58eb91c4bfb1234b94e",
+      "max_count": 1,
+      "rationale": "This SHA-1 computes the public RFC 6455 WebSocket handshake accept value in a synthetic test fixture; it is protocol-mandated and is not used for passwords, authentication, or integrity decisions."
+    },
+    {
+      "id": "session-fixture-trusted-https-client",
+      "rule_id": "python.lang.security.audit.httpsconnection-detected.httpsconnection-detected",
+      "path": "management-gateway/tests/integration.py",
+      "source_sha256": "4c9c1412527d61b9b56881edadbf7bfc2da69c8e2d841f9a44f96df6d17688d9",
+      "start": {
+        "line": 172,
+        "col": 22,
+        "offset": 7288
+      },
+      "end": {
+        "line": 174,
+        "col": 75,
+        "offset": 7499
+      },
+      "source_line_sha256": "55fc5d39a67d45e290d15a02791390cb51265352640094aa5810fb1bcdecaec4",
+      "max_count": 1,
+      "rationale": "This HTTPSConnection is confined to a synthetic integration fixture with explicit trusted CA verification and loopback routing; it does not alter production TLS behavior."
     }
   ]
 }

@@ -45,6 +45,26 @@ test('router failed fetch marks stale and disables every row mutation', async ()
     )
 })
 
+test('unknown SSH status and router mutation errors keep their context and never claim a save', async () => {
+    const raw = 'SSH handshake failed: <img src=x onerror=bad()>'
+    const page = await browser('router', async (path, options) =>
+        options.method === 'PUT'
+            ? response('Unknown router service failure', 503)
+            : response(path.endsWith('status') ? { ...state, error: raw } : {}),
+    )
+    assert(page.diagnostics.some((entry) => entry.context === 'ssh' && entry.value === raw))
+    assert.equal(page.document.getElementById('router_error').querySelectorAll('img').length, 0)
+    page.document.getElementById('router_password').value = 'synthetic password'
+    await page.document.getElementById('save_router').click()
+    assert(
+        page.diagnostics.some(
+            (entry) => entry.context === 'router' && entry.value === 'Unknown router service failure',
+        ),
+    )
+    assert.equal(page.document.getElementById('router_password').value, 'synthetic password')
+    assert.doesNotMatch(page.document.getElementById('router_error').textContent, /settings saved/i)
+})
+
 test('failed mutation exposes actionable row error and does not toggle saved state', async () => {
     const calls: string[] = []
     const page = await browser('router', async (path) => {
@@ -55,6 +75,7 @@ test('failed mutation exposes actionable row error and does not toggle saved sta
     })
     await page.document.getElementById('device_rows').querySelector('input').change(true)
     assert.match(page.document.getElementById('device_rows').textContent, /Registration required/)
+    assert(page.diagnostics.some((entry) => entry.context === 'bridge' && entry.value === 'Registration required'))
     assert.equal(page.document.getElementById('device_rows').querySelector('input').checked, false)
     assert.equal(calls.filter((path) => path.endsWith('resume')).length, 1)
 })
@@ -77,12 +98,13 @@ test('newer refresh wins over slow stale poll and dialog cancel restores focus',
         .find((button) => button.textContent === 'Registration…')
     assert(trigger)
     await trigger.click()
-    const dialog = page.document.querySelectorAll('dialog')[0]
+    const dialog = page.document.querySelectorAll('dialog').find((dialog) => dialog.open)
+    assert(dialog)
     const cancel = dialog.querySelectorAll('button').find((button) => button.textContent === 'Cancel')
     assert(cancel)
     await cancel.click()
     assert.equal(page.document.activeElement.dataset.focus, trigger.dataset.focus)
-    assert.equal(page.document.querySelectorAll('dialog').length, 0)
+    assert.equal(page.document.querySelectorAll('dialog').filter((dialog) => dialog.open).length, 0)
 })
 
 test('password saves with blank-preserves semantics and clears only after successful save', async () => {
@@ -134,7 +156,7 @@ async function transitionFixture(from: 'dnat' | 'local', outcome: 'ok' | 'failur
             .find((element) => element.dataset.focus === 'entry:mode')
         assert(selector)
         await selector.change(from === 'dnat' ? 'local' : 'dnat')
-        const dialog = page.document.querySelectorAll('dialog')[0]
+        const dialog = page.document.querySelectorAll('dialog').find((dialog) => dialog.open)
         assert(dialog)
         const approve = dialog.querySelectorAll('button').find((button) => button.textContent === 'Approve mode change')
         const cancel = dialog.querySelectorAll('button').find((button) => button.textContent === 'Cancel')
@@ -181,7 +203,7 @@ for (const from of ['dnat', 'local'] as const) {
         assert.equal(approve.disabled, false)
         await approve.click()
         assert.deepEqual(f.puts, [{ mode: to, modeTransition: { from, to, acknowledged: true } }])
-        assert.equal(f.page.document.querySelectorAll('dialog').length, 0)
+        assert.equal(f.page.document.querySelectorAll('dialog').filter((dialog) => dialog.open).length, 0)
         assert.equal(f.page.document.activeElement.dataset.focus, 'entry:mode')
         const row = f.page.document.getElementById('device_rows')
         assert.match(row.textContent, /policy saved/)
@@ -202,7 +224,7 @@ for (const from of ['dnat', 'local'] as const) {
                 dialog.oncancel({ preventDefault() {} })
             } else await cancel.click()
             assert.equal(f.puts.length, 0)
-            assert.equal(f.page.document.querySelectorAll('dialog').length, 0)
+            assert.equal(f.page.document.querySelectorAll('dialog').filter((dialog) => dialog.open).length, 0)
             assert.equal(f.page.document.activeElement.dataset.focus, 'entry:mode')
         }
     })
@@ -257,4 +279,32 @@ test('approved transition disables busy controls and rejects duplicate submissio
     f.finish()
     await pending
     assert.equal(f.page.document.activeElement.dataset.focus, 'entry:mode')
+})
+
+test('polling preserves an unsaved appliance selection and keyboard focus without linking', async () => {
+    const incoming = {
+        ...state,
+        devices: [{ ...local, deviceId: undefined }],
+        unassigned: [
+            { deviceId: 'first', name: 'First synthetic' },
+            { deviceId: 'second', name: 'Second synthetic' },
+        ],
+    }
+    const mutations: string[] = []
+    const page = await browser('router', async (path, options) => {
+        if (options.method && options.method !== 'GET') mutations.push(path)
+        return response(path.endsWith('status') ? incoming : {})
+    })
+    const select = () => {
+        const control = page.document
+            .querySelectorAll('select')
+            .find((element) => element.dataset.focus === 'entry:link')
+        assert(control)
+        return control
+    }
+    await select().change('second')
+    await page.evaluate('refresh()')
+    assert.equal(select().value, 'second')
+    assert.equal(page.document.activeElement.dataset.focus, 'entry:link')
+    assert.deepEqual(mutations, [])
 })

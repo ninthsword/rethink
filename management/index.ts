@@ -8,9 +8,10 @@ import type HA_bridge from '@/cloud/ha_bridge'
 import { Device as T1Device } from '@/cloud/thinq1/device'
 import { Device as T2Device } from '@/cloud/thinq2/device'
 import log from '@/util/logging'
+import { readBuildInfo } from './build-info'
 import { RouterAPI } from './router-api'
 
-const MANAGEMENT_VERSION = '20260814'
+const MANAGEMENT_VERSION = readBuildInfo()
 
 export function serializeDeviceEntries(entries: Array<[string, object]>) {
     return Object.fromEntries(entries)
