@@ -23,6 +23,24 @@ MCP_PATH = "tools/mcp-server.ts"
 MATCH_LENGTH = 5
 MATCH_SHA256 = "2edfb372706c7f539289f553822d89cc0747e34c746deadffa3fe22fc5ca00c7"
 RESULT_FIELDS = {"schema", "status", "finding_count", "exception_ids", "error"}
+EXPECTED_RULE_PATHS = {
+    (
+        "javascript.lang.security.detect-insecure-websocket.detect-insecure-websocket",
+        MCP_PATH,
+    ),
+    (
+        "javascript.browser.security.open-redirect.js-open-redirect",
+        "management-gateway/session-proxy/login.js",
+    ),
+    (
+        "python.lang.security.insecure-hash-algorithms.insecure-hash-algorithm-sha1",
+        "management-gateway/tests/integration.py",
+    ),
+    (
+        "python.lang.security.audit.httpsconnection-detected.httpsconnection-detected",
+        "management-gateway/tests/integration.py",
+    ),
+}
 UNSET = object()
 
 
@@ -55,13 +73,15 @@ class FilterSemgrepTests(unittest.TestCase):
         self.source_path = self.root / MCP_PATH
         self.policy_path = self.root / ".github/security/semgrep-reviewed-exceptions.json"
         self.report_path = self.root / "semgrep-report.json"
-        self.source_path.parent.mkdir(parents=True)
+        self.policy = json.loads(POLICY.read_text(encoding="utf-8"))
+        for entry in self.policy["exceptions"]:
+            target = self.root / entry["path"]
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(REPOSITORY_ROOT / entry["path"], target)
         self.policy_path.parent.mkdir(parents=True)
-        shutil.copyfile(SOURCE, self.source_path)
         shutil.copyfile(POLICY, self.policy_path)
 
         self.source = SOURCE.read_bytes()
-        self.policy = json.loads(POLICY.read_text(encoding="utf-8"))
         self.entry = self.policy["exceptions"][0]
         self.finding = self.finding_from_entry(self.entry)
         self.report = {
@@ -194,7 +214,7 @@ class FilterSemgrepTests(unittest.TestCase):
             self.assertEqual(payload["error"], error)
 
     def test_real_source_policy_and_bound_finding_pass(self) -> None:
-        self.assertEqual(len(self.policy["exceptions"]), 1)
+        self.assertEqual(len(self.policy["exceptions"]), 4)
         self.assertEqual(self.entry["path"], MCP_PATH)
         self.assertEqual(self.entry["source_sha256"], sha256(self.source))
         start = self.entry["start"]["offset"]
@@ -213,6 +233,64 @@ class FilterSemgrepTests(unittest.TestCase):
             1,
             [self.entry["id"]],
         )
+
+    def test_all_reviewed_exceptions_bind_actual_source_and_report_positions(self) -> None:
+        entries = self.policy["exceptions"]
+        self.assertEqual({(entry["rule_id"], entry["path"]) for entry in entries}, EXPECTED_RULE_PATHS)
+        for entry in entries:
+            with self.subTest(exception=entry["id"]):
+                source = (REPOSITORY_ROOT / entry["path"]).read_bytes()
+                start = entry["start"]["offset"]
+                end = entry["end"]["offset"]
+                self.assertEqual(entry["source_sha256"], sha256(source))
+                self.assertEqual(entry["start"], position_at(source, start))
+                self.assertEqual(entry["end"], position_at(source, end))
+                self.assertEqual(entry["source_line_sha256"], sha256(line_bytes_at(source, start)))
+                self.assertEqual(entry["max_count"], 1)
+
+        combined = copy.deepcopy(self.report)
+        combined["results"] = [self.finding_from_entry(entry) for entry in entries]
+        self.assert_pass(self.run_filter(report=combined), len(entries), sorted(entry["id"] for entry in entries))
+
+    def test_residual_exceptions_fail_on_wrong_binding_or_count(self) -> None:
+        for index, entry in enumerate(self.policy["exceptions"][1:], start=1):
+            with self.subTest(exception=entry["id"]):
+                finding = self.finding_from_entry(entry)
+                report = {"results": [finding], "errors": []}
+                self.assert_pass(self.run_filter(report=report), 1, [entry["id"]])
+
+                unknown_rule = copy.deepcopy(report)
+                unknown_rule["results"][0]["check_id"] = "example.rules.unreviewed"
+                self.assert_fail(self.run_filter(report=unknown_rule), "UNLISTED_FINDING")
+
+                alternate_path = f"synthetic/duplicate-{index}.txt"
+                duplicate_source = self.root / alternate_path
+                duplicate_source.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(self.root / entry["path"], duplicate_source)
+                wrong_path = copy.deepcopy(report)
+                wrong_path["results"][0]["path"] = alternate_path
+                self.assert_fail(self.run_filter(report=wrong_path), "UNLISTED_FINDING")
+
+                wrong_position = copy.deepcopy(report)
+                wrong_position["results"][0]["start"]["col"] += 1
+                wrong_position["results"][0]["start"]["offset"] += 1
+                self.assert_fail(self.run_filter(report=wrong_position), "UNLISTED_FINDING")
+
+                duplicate = copy.deepcopy(report)
+                duplicate["results"].append(copy.deepcopy(finding))
+                self.assert_fail(self.run_filter(report=duplicate), "COUNT_OVERFLOW")
+
+                wrong_hash = copy.deepcopy(self.policy)
+                wrong_hash["exceptions"][index]["source_sha256"] = "0" * 64
+                self.assert_fail(self.run_filter(report=report, policy=wrong_hash), "SOURCE_HASH_MISMATCH")
+
+                wrong_line_hash = copy.deepcopy(self.policy)
+                wrong_line_hash["exceptions"][index]["source_line_sha256"] = "0" * 64
+                self.assert_fail(self.run_filter(report=report, policy=wrong_line_hash), "SOURCE_LINE_HASH_MISMATCH")
+
+                wrong_count = copy.deepcopy(self.policy)
+                wrong_count["exceptions"][index]["max_count"] = 2
+                self.assert_fail(self.run_filter(report=report, policy=wrong_count), "INVALID_EXCEPTIONS")
 
     def test_display_fields_are_ignored(self) -> None:
         reports = []

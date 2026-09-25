@@ -203,12 +203,18 @@ export async function exerciseManagementUI() {
         assert.equal(await page.locator('#router_password').inputValue(), 'unsaved-synthetic-password')
         await page.keyboard.press('Escape')
         assert.equal(mutations(), before)
+        const routerTestsBefore = calls.filter(
+            (call) => call.method === 'POST' && call.path === '/api/router/test',
+        ).length
         await page.locator('#test_router').click()
-        assert.equal(calls.at(-1).path, '/api/router/test')
         await page.waitForFunction(
             () => document.getElementById('router_error')?.textContent === '공유기 연결 테스트에 성공했습니다',
             undefined,
             { timeout: 15_000 },
+        )
+        assert.equal(
+            calls.filter((call) => call.method === 'POST' && call.path === '/api/router/test').length,
+            routerTestsBefore + 1,
         )
         assert(!calls.some((call) => call.path === '/api/router/config' && call.method !== 'GET'))
         await page.evaluate(() =>

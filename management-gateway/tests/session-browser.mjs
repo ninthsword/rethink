@@ -76,6 +76,69 @@ async function exercise(mode) {
         assert.equal(new URL(page.url()).pathname, '/__management/login')
         assert.ok(await response.securityDetails(), 'Browser must verify HTTPS without ignore flags')
         assert.equal(await page.title(), '관리 로그인')
+        if (metadata.duration === 600000) {
+            for (const returnTo of [
+                'https://external.invalid/escape',
+                '//external.invalid/escape',
+                'javascript:alert(1)',
+                '/\\external.invalid/escape',
+            ]) {
+                const error = page.locator('#login-error')
+                await error.evaluate(
+                    (element) => {
+                        element.textContent = ''
+                    },
+                    undefined,
+                    { timeout: 15_000 },
+                )
+                assert.equal((await error.textContent({ timeout: 15_000 })).trim(), '')
+                let interceptedPosts = 0
+                const dialogs = []
+                const dialogDismissalErrors = []
+                const routeHandler = (route) => {
+                    if (route.request().method() !== 'POST') return route.continue()
+                    interceptedPosts += 1
+                    return route.fulfill({
+                        status: 200,
+                        contentType: 'application/json',
+                        body: JSON.stringify({ returnTo }),
+                    })
+                }
+                const dialogHandler = (dialog) => {
+                    dialogs.push(dialog.type())
+                    dialog.dismiss().catch((dismissError) => dialogDismissalErrors.push(dismissError.message))
+                }
+                await page.route('**/__management/login', routeHandler)
+                page.on('dialog', dialogHandler)
+                try {
+                    await page.locator('#password').fill(metadata.password, { timeout: 15_000 })
+                    const response = page.waitForResponse(
+                        (candidate) =>
+                            candidate.url() === `${metadata.origin}/__management/login` &&
+                            candidate.request().method() === 'POST',
+                        { timeout: 15_000 },
+                    )
+                    const [forged] = await Promise.all([response, page.locator('#sign-in').click({ timeout: 15_000 })])
+                    assert.equal(forged.status(), 200)
+                    assert.deepEqual(await forged.json(), { returnTo })
+                    await page.waitForFunction(
+                        () =>
+                            !document.getElementById('sign-in').disabled &&
+                            document.getElementById('login-error').textContent.trim(),
+                        null,
+                        { timeout: 15_000 },
+                    )
+                    assert.equal(interceptedPosts, 1)
+                    assert.equal(new URL(page.url()).pathname, '/__management/login')
+                    assert.equal(new URL(page.url()).origin, metadata.origin)
+                } finally {
+                    page.off('dialog', dialogHandler)
+                    await page.unroute('**/__management/login', routeHandler)
+                    assert.deepEqual(dialogs, [], `Forged returnTo executed a dialog: ${returnTo}`)
+                    assert.deepEqual(dialogDismissalErrors, [])
+                }
+            }
+        }
         await page.locator('#password').fill(metadata.password)
         await page.locator('#sign-in').click()
         await page.waitForURL(metadata.origin + '/')

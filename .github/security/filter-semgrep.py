@@ -21,6 +21,23 @@ INSECURE_WEBSOCKET_RULE = (
     "javascript.lang.security.detect-insecure-websocket.detect-insecure-websocket"
 )
 MCP_SOURCE_PATH = "tools/mcp-server.ts"
+REVIEWED_RULE_PATHS = frozenset(
+    {
+        (INSECURE_WEBSOCKET_RULE, MCP_SOURCE_PATH),
+        (
+            "javascript.browser.security.open-redirect.js-open-redirect",
+            "management-gateway/session-proxy/login.js",
+        ),
+        (
+            "python.lang.security.insecure-hash-algorithms.insecure-hash-algorithm-sha1",
+            "management-gateway/tests/integration.py",
+        ),
+        (
+            "python.lang.security.audit.httpsconnection-detected.httpsconnection-detected",
+            "management-gateway/tests/integration.py",
+        ),
+    }
+)
 REQUIRED_SPAN_LENGTH = 5
 REQUIRED_SPAN_SHA256 = (
     "2edfb372706c7f539289f553822d89cc0747e34c746deadffa3fe22fc5ca00c7"
@@ -347,7 +364,7 @@ def _exception_specs(document: Any) -> list[ExceptionSpec]:
         seen_ids.add(exception_id)
         rule_id = _bounded_string(item["rule_id"], 512, "INVALID_EXCEPTIONS")
         path = _bounded_string(item["path"], 1024, "INVALID_EXCEPTIONS")
-        if rule_id != INSECURE_WEBSOCKET_RULE or path != MCP_SOURCE_PATH:
+        if (rule_id, path) not in REVIEWED_RULE_PATHS:
             raise PolicyError("INVALID_EXCEPTIONS")
         max_count = item["max_count"]
         if type(max_count) is not int or max_count != 1:
