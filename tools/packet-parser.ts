@@ -1,6 +1,7 @@
-import * as mqtt from 'mqtt'
+import { parseDevicePayload } from '../cloud/mqtt-access'
 import crc16 from '../util/crc16'
 import * as TLV from '../util/tlv'
+import { diagnosticCLI } from './mqtt-diagnostic'
 
 if (process.argv.length === 4 && (process.argv[2] === '-message' || process.argv[2] === '-message-raw')) {
     const raw = process.argv[2] === '-message-raw'
@@ -21,8 +22,8 @@ if (process.argv.length === 4 && (process.argv[2] === '-message' || process.argv
 
 if (process.argv.length !== 4) {
     console.warn(
-        `Usage:
-	tsx packet-parser.ts mqtt-hostname[:port] device-uuid
+        `사용법:
+	tsx packet-parser.ts TLS호스트[:포트] device-uuid
 	tsx packet-parser.ts [-message|-message-raw] HEX-STRING
 `,
     )
@@ -31,13 +32,13 @@ if (process.argv.length !== 4) {
 
 const [mqttHostname, deviceId] = process.argv.slice(2)
 
-const client = mqtt.connect(`mqtt://${mqttHostname}`)
+const client = diagnosticCLI(mqttHostname, deviceId)
 
 client.on('connect', () => {
     client.on('message', (topic, message, _packet) => {
         if (topic === `clip/message/devices/${deviceId}`) {
-            const payload = JSON.parse(message.subarray(0, message.length - 1).toString('utf-8'))
-            if (payload.cmd === 'device_packet') {
+            const payload = parseDevicePayload(message)
+            if (payload?.cmd === 'device_packet' && typeof payload.data === 'string') {
                 console.log(Date.now(), payload.data)
                 const buf = Buffer.from(payload.data, 'hex')
                 try {

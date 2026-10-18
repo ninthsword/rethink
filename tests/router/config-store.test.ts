@@ -110,3 +110,91 @@ test('explicit unlink survives automatic IP discovery until an explicit link', (
     store.linkDevice(entry.entryId, 'device')
     assert.equal(store.requireDevice(entry.entryId).deviceId, 'device')
 })
+
+test('legacy SSH trust loads only from an exact private regular companion, without changing inventory', async () => {
+    const { chmodSync, readFileSync, symlinkSync, unlinkSync } = await import('node:fs')
+    const fingerprint = `SHA256:${Buffer.alloc(32, 2).toString('base64').replace(/=+$/, '')}`
+    const router = { host: '192.0.2.1', port: 22, username: 'synthetic', password: 'synthetic', rethinkIp: '192.0.2.2' }
+    const devices = [{ entryId: 'legacy', ip: '192.0.2.15', mode: 'local', dnatDesired: true }]
+    const original = JSON.stringify({ router, devices })
+    writeFileSync(file, original)
+    const companion = join(dir, 'router-ssh-trust.json')
+    const trust = { host: router.host, port: router.port, hostKeyFingerprint: fingerprint }
+    const writeTrust = (value: object) => writeFileSync(companion, JSON.stringify(value), { mode: 0o600 })
+    assert.equal(new RouterConfigStore(file).router().hostKeyFingerprint, undefined)
+    writeTrust(trust)
+    const store = new RouterConfigStore(file)
+    assert.equal(store.router().hostKeyFingerprint, fingerprint)
+    assert.deepEqual(store.devices(), devices)
+    assert.equal(readFileSync(file, 'utf8'), original)
+    store.updateRouter({ username: 'updated', password: '' })
+    assert.equal(store.router().password, 'synthetic')
+    assert.equal(store.router().hostKeyFingerprint, fingerprint)
+    assert.deepEqual(store.devices(), devices)
+    store.updateRouter({ host: '192.0.2.3' })
+    assert.equal(store.router().hostKeyFingerprint, undefined, 'new endpoints cannot inherit trust')
+    writeFileSync(file, original)
+    chmodSync(companion, 0o644)
+    assert.equal(new RouterConfigStore(file).router().hostKeyFingerprint, undefined)
+    chmodSync(companion, 0o600)
+    for (const value of [
+        { ...trust, host: '192.0.2.9' },
+        { ...trust, port: 23 },
+        { ...trust, hostKeyFingerprint: 'bad' },
+    ]) {
+        writeTrust(value)
+        assert.equal(new RouterConfigStore(file).router().hostKeyFingerprint, undefined)
+        assert.equal(readFileSync(file, 'utf8'), original)
+    }
+    writeTrust(trust)
+    chmodSync(companion, 0o4600)
+    assert.equal(new RouterConfigStore(file).router().hostKeyFingerprint, undefined)
+    chmodSync(companion, 0o600)
+    writeFileSync(companion, 'x'.repeat(4097))
+    assert.equal(new RouterConfigStore(file).router().hostKeyFingerprint, undefined)
+    writeTrust(trust)
+    writeFileSync(file, JSON.stringify({ router: { ...router, hostKeyFingerprint: 'explicit-bad' }, devices }))
+    assert.equal(
+        new RouterConfigStore(file).router().hostKeyFingerprint,
+        'explicit-bad',
+        'explicit invalid pins never fall back',
+    )
+    writeFileSync(file, original)
+    unlinkSync(companion)
+    const target = join(dir, 'trust-target.json')
+    writeFileSync(target, JSON.stringify(trust), { mode: 0o600 })
+    symlinkSync(target, companion)
+    assert.equal(new RouterConfigStore(file).router().hostKeyFingerprint, undefined)
+    assert.deepEqual(new RouterConfigStore(file).devices(), devices)
+})
+
+test('fingerprint validation rejects malformed input without altering password, intent or inventory', () => {
+    const store = new RouterConfigStore(file)
+    const entry = store.addDevice('192.0.2.15', 'local')
+    store.setDnatDesired(entry.entryId, true)
+    store.updateRouter({ host: '192.0.2.1', rethinkIp: '192.0.2.2', username: 'synthetic', password: 'synthetic' })
+    const previous = store.router()
+    for (const fingerprint of ['bad', 'SHA256:AAAA', `SHA256:${'A'.repeat(42)}B`]) {
+        assert.throws(() => store.updateRouter({ hostKeyFingerprint: fingerprint, password: '' }), /SHA256/)
+        assert.deepEqual(store.router(), previous)
+        assert.equal(store.devices()[0].dnatDesired, true)
+    }
+})
+
+test('saved connection settings remain distinguishable from trusted SSH readiness', () => {
+    const store = new RouterConfigStore(file)
+    const entry = store.addDevice('192.0.2.20')
+    assert.equal(store.hasConnectionSettings(), false)
+    assert.equal(store.configured(), false)
+    store.updateRouter({ host: '192.0.2.1', rethinkIp: '192.0.2.2', username: 'synthetic', password: 'synthetic' })
+    assert.equal(store.hasConnectionSettings(), true)
+    assert.equal(store.configured(), false)
+    const inventory = store.devices()
+    store.recoverHostKeyFingerprint({
+        hostKeyFingerprint: `SHA256:${Buffer.alloc(32, 7).toString('base64').replace(/=+$/, '')}`,
+    })
+    assert.equal(store.hasConnectionSettings(), true)
+    assert.equal(store.configured(), true)
+    assert.deepEqual(store.devices(), inventory)
+    assert.equal(store.requireDevice(entry.entryId).dnatDesired, undefined)
+})

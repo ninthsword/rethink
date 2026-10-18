@@ -1,3 +1,4 @@
+import { isIP } from 'node:net'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { Request, Response } from 'express'
@@ -7,6 +8,7 @@ import type { AnyDevice, DeviceManager } from '@/cloud/devmgr'
 import type HA_bridge from '@/cloud/ha_bridge'
 import { Device as T1Device } from '@/cloud/thinq1/device'
 import { Device as T2Device } from '@/cloud/thinq2/device'
+import type { RouterConfigStore } from '@/router/config-store'
 import log from '@/util/logging'
 import { readBuildInfo } from './build-info'
 import { RouterAPI } from './router-api'
@@ -17,8 +19,38 @@ export function serializeDeviceEntries(entries: Array<[string, object]>) {
     return Object.fromEntries(entries)
 }
 
-export function app(ha: HA_bridge, manager: DeviceManager, bridge: Bridge | undefined, routerConfigPath: string) {
+export function isLoopbackAuthority(authority: string, port: number | undefined) {
+    const match = /^(localhost|[0-9.]+|\[[0-9a-f:]+\])(?::([1-9][0-9]{0,4}))?$/i.exec(authority)
+    if (!match || (match[2] ?? '80') !== String(port)) return false
+    const host = match[1]
+    if (host.toLowerCase() === 'localhost') return true
+    if (isIP(host) === 4) return host.startsWith('127.')
+    return host.startsWith('[') && isIP(host.slice(1, -1)) === 6 && new URL(`http://${host}`).hostname === '[::1]'
+}
+
+export function app(
+    ha: HA_bridge,
+    manager: DeviceManager,
+    bridge: Bridge | undefined,
+    routerConfigPath: string,
+    sharedStore?: RouterConfigStore,
+) {
     const app = new WebSocketExpress()
+    // Validate the raw authority before JSON parsing, API effects or WebSocket acceptance.
+    app.use((req, res, next) => {
+        const hostHeaders = req.rawHeaders.filter(
+            (_value, index) => index % 2 === 0 && req.rawHeaders[index].toLowerCase() === 'host',
+        )
+        const originHeaders = req.rawHeaders.filter(
+            (_value, index) => index % 2 === 0 && req.rawHeaders[index].toLowerCase() === 'origin',
+        )
+        const host = req.headers.host
+        if (hostHeaders.length !== 1 || !host || !isLoopbackAuthority(host, req.socket.localPort))
+            return res.status(421).end()
+        if (originHeaders.length > 1 || (req.headers.origin !== undefined && req.headers.origin !== `http://${host}`))
+            return res.status(403).end()
+        next()
+    })
     let subscribers: ExtendedWebSocket[] = []
     const startedAt = new Date(Date.now() - process.uptime() * 1000).toISOString()
 
@@ -40,7 +72,7 @@ export function app(ha: HA_bridge, manager: DeviceManager, bridge: Bridge | unde
     })
     app.use(WebSocketExpress.json())
 
-    const routerApi = new RouterAPI(routerConfigPath, ha, manager, bridge)
+    const routerApi = new RouterAPI(routerConfigPath, ha, manager, bridge, sharedStore)
     routerApi.register(app)
 
     const currentDir = path.dirname(fileURLToPath(import.meta.url))

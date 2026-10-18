@@ -197,3 +197,57 @@ describe('routing a live connection', () => {
         close()
     })
 })
+
+test('idle and slow-drip prefaces expire absolutely, excess sockets close, and capacity returns', async () => {
+    const net = await import('node:net')
+    const { createSNIRouter, MAX_PENDING_PREFACES, PREFACE_TIMEOUT_MS } = await import('@/cloud/sni_router')
+    const accepted: import('node:net').Socket[] = []
+    const clients: import('node:net').Socket[] = []
+    const router = createSNIRouter({
+        passThrough: [],
+        upstreamPort: 443,
+        handleLocally: (socket) => {
+            accepted.push(socket)
+            socket.destroy()
+        },
+    })
+    await new Promise<void>((resolve) => router.listen(0, '127.0.0.1', resolve))
+    const address = router.address()
+    assert(address && typeof address === 'object')
+    const port = address.port
+    async function connect() {
+        const socket = net.connect(port, '127.0.0.1')
+        clients.push(socket)
+        socket.on('error', () => {})
+        await new Promise<void>((resolve) => socket.once('connect', resolve))
+        return socket
+    }
+    try {
+        const started = Date.now()
+        for (let index = 0; index < MAX_PENDING_PREFACES; index++) await connect()
+        const excess = await connect()
+        await new Promise<void>((resolve) => excess.once('close', () => resolve()))
+        const drip = setInterval(() => clients[0].write(Buffer.from([0x16])), 300)
+        try {
+            await new Promise<void>((resolve) => clients[0].once('close', () => resolve()))
+            assert(Date.now() - started < PREFACE_TIMEOUT_MS + 2000)
+        } finally {
+            clearInterval(drip)
+        }
+        await new Promise<void>((resolve) => setTimeout(resolve, 100))
+        const legitimate = await connect()
+        const hello = clientHello('local.test')
+        legitimate.write(hello.subarray(0, 20))
+        legitimate.write(hello.subarray(20))
+        await new Promise<void>((resolve) => legitimate.once('close', () => resolve()))
+        assert.equal(accepted.length, 1)
+    } finally {
+        clients.forEach((socket) => {
+            socket.destroy()
+        })
+        accepted.forEach((socket) => {
+            socket.destroy()
+        })
+        await new Promise<void>((resolve) => router.close(() => resolve()))
+    }
+})

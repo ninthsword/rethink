@@ -1,11 +1,11 @@
-import * as mqtt from 'mqtt'
 import crc16 from '../util/crc16'
 import * as TLV from '../util/tlv'
+import { diagnosticCLI } from './mqtt-diagnostic'
 
 if (process.argv.length < 9) {
     console.warn(
-        `Usage:
-	tsx packet-sender.ts mqtt-hostname[:port] device-uuid a_value s_value byte5 byte6 byte7 [t1 v1] [t2 v2] [...]
+        `사용법:
+	tsx packet-sender.ts TLS호스트[:포트] device-uuid a_value s_value byte5 byte6 byte7 [t1 v1] [t2 v2] [...]
 
 	a_value, s_value - see https://github.com/anszom/rethink/wiki/CloudProtocol#packet
 	byte5, byte6, byte7 - see https://github.com/anszom/rethink/wiki/UartProtocol#framing-format
@@ -34,9 +34,10 @@ const messagestr = JSON.stringify({
 })
 console.log(messagestr)
 
-const client = mqtt.connect(`mqtt://${mqttHostname}`)
+const client = diagnosticCLI(mqttHostname, deviceId, true)
 
 client.on('connect', () => {
-    client.publish(`lime/devices/${deviceId}`, `${messagestr} `)
-    client.end()
+    client.publish(`lime/devices/${deviceId}`, `${messagestr} `, { qos: 1 }, (error) => {
+        if (!error) client.end()
+    })
 })

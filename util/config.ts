@@ -1,4 +1,5 @@
 import { isIP } from 'node:net'
+import { type MQTTDiagnosticAccount, validateMQTTDiagnostics } from '@/cloud/mqtt-access'
 import { isDNSHostname } from './hostname'
 
 export type RawConfig = {
@@ -13,6 +14,7 @@ export type RawConfig = {
     management_host?: string
     thinq1_https_port?: Port | number
     thinq1_port?: Port | number
+    mqtt_diagnostics?: MQTTDiagnosticAccount[]
     mqtt?: boolean
     sni_certificates?: boolean
     /**
@@ -51,6 +53,7 @@ export type Config = {
     management_host: string
     thinq1_https_port: Port
     thinq1_port: Port
+    mqtt_diagnostics: MQTTDiagnosticAccount[]
     mqtt: boolean
     sni_certificates: boolean
     route_servers?: { apiServer: string; mqttServer: string }
@@ -177,6 +180,7 @@ export function normalize(config: RawConfig): Config {
          */
         ...config,
         homeassistant,
+        mqtt_diagnostics: validateMQTTDiagnostics(config.mqtt_diagnostics),
         bridge: config.bridge
             ? {
                   preserve_existing_devices: false,

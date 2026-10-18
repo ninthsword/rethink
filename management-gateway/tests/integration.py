@@ -414,9 +414,9 @@ class Unit(unittest.TestCase):
                                    'global_burst': 100, 'peer_connections': 32,
                                    'global_connections': 128})
         config = g.config_text('10.0.0.1:8443', g.BACKEND)
-        # Golden digest of the frozen LAN-only predecessor, with synthetic inputs.
+        # Golden digest of the canonical final backend hop, with synthetic inputs.
         self.assertEqual(hashlib.sha256(config.encode()).hexdigest(),
-                         '1419719f96ea011a5438501d0385b0dceeb644145e70b75161e37aa617ddc343')
+                         '8ffef4b7198accc3294951bfd1e26635fef25326b2dabcbe21c17ff0885ce2e4')
         for directive in ('zone=peer:1m rate=10r/s;', 'zone=global:1m rate=30r/s;',
                           'zone=peer burst=60 nodelay;', 'zone=global burst=100 nodelay;',
                           'limit_conn peer_conn 32;', 'limit_conn global_conn 128;'):
@@ -457,6 +457,45 @@ class Unit(unittest.TestCase):
         hashed = g.password_hash(secret)
         self.assertTrue(hashed.startswith(('admin:$6$rounds=200000$', 'admin:$2')))
         self.assertNotIn(secret, hashed)
+        if g.shutil.which('htpasswd'):
+            self.assertIsNotNone(g.re.fullmatch(r'admin:\$2[aby]\$12\$[./A-Za-z0-9]{53}\n', hashed))
+
+        for prefix in ('a', 'b', 'y'):
+            entry = 'admin:$2' + prefix + '$12$' + 'A' * 53
+            for newlines in (1, 2):
+                with self.subTest(prefix=prefix, newlines=newlines):
+                    with patch.object(g.shutil, 'which', return_value='synthetic-htpasswd'), \
+                            patch.object(g, 'run', return_value=(entry + '\n' * newlines).encode()) as run:
+                        self.assertEqual(g.password_hash(secret), entry + '\n')
+                        run.assert_called_once_with(['htpasswd', '-niBC', '12', 'admin'],
+                                                    data=(secret + '\n').encode())
+
+        entry = 'admin:$2y$12$' + 'A' * 53
+        invalid = {
+            'no newline': entry,
+            'three newlines': entry + '\n\n\n',
+            'CRLF': entry + '\r\n',
+            'two CRLF': entry + '\r\n\r\n',
+            'leading whitespace': ' ' + entry + '\n',
+            'trailing whitespace': entry + ' \n',
+            'whitespace after newline': entry + '\n\t',
+            'wrong username': entry.replace('admin:', 'other:') + '\n',
+            'lower cost': entry.replace('$12$', '$11$') + '\n',
+            'higher cost': entry.replace('$12$', '$13$') + '\n',
+            'wrong bcrypt prefix': entry.replace('$2y$', '$2x$') + '\n',
+            'wrong algorithm': entry.replace('$2y$', '$6$') + '\n',
+            'short hash': entry[:-1] + '\n',
+            'long hash': entry + 'A\n',
+            'invalid alphabet': entry[:-1] + '@\n',
+            'unicode alphabet': entry[:-1] + 'é\n',
+            'multiple entries': entry + '\n' + entry + '\n',
+        }
+        for label, output in invalid.items():
+            with self.subTest(invalid=label):
+                with patch.object(g.shutil, 'which', return_value='synthetic-htpasswd'), \
+                        patch.object(g, 'run', return_value=output.encode()):
+                    with self.assertRaisesRegex(g.GatewayError, 'Unexpected bcrypt output'):
+                        g.password_hash(secret)
 
 
 class Integration(unittest.TestCase):
@@ -521,8 +560,8 @@ class Integration(unittest.TestCase):
         self.assertNotIn('Authorization', headers)
         self.assertNotIn('Proxy-Authorization', headers)
         self.assertNotIn('Forwarded', headers)
-        self.assertEqual(headers['X-Forwarded-For'], '127.0.0.1')
-        self.assertEqual(headers['X-Forwarded-Proto'], 'https')
+        self.assertNotIn('X-Forwarded-For', headers)
+        self.assertNotIn('X-Forwarded-Proto', headers)
         sock, status = f.websocket()
         try:
             self.assertEqual(status, 101)
@@ -624,8 +663,8 @@ class IsolatedLimits(unittest.TestCase):
             for sock in (first, second, other):
                 assert_echo(self, sock)
             seen = f.backend.seen
-            self.assertEqual([r['headers']['X-Forwarded-For'] for r in seen],
-                             ['127.0.0.11', '127.0.0.11', '127.0.0.12'])
+            self.assertEqual([r['headers'].get('X-Forwarded-For') for r in seen],
+                             [None, None, None])
             first.close()
             self.assert_slot_recovers(f, '127.0.0.11')
 
@@ -639,8 +678,8 @@ class IsolatedLimits(unittest.TestCase):
             self.assertEqual(f.count(), before)
             for sock in held:
                 assert_echo(self, sock)
-            self.assertEqual([r['headers']['X-Forwarded-For'] for r in f.backend.seen],
-                             ['127.0.0.11', '127.0.0.12', '127.0.0.13'])
+            self.assertEqual([r['headers'].get('X-Forwarded-For') for r in f.backend.seen],
+                             [None, None, None])
             held[0].close()
             self.assert_slot_recovers(f, '127.0.0.14')
 
@@ -940,9 +979,9 @@ class IngressChain(unittest.TestCase):
                 'Origin': f.public_origin, 'Forwarded': 'for=forged', 'X-Forwarded-For': 'forged'})
             self.assertEqual(status, 200)
             headers = json.loads(body)['headers']
-            self.assertEqual(headers['Host'], f'{INGRESS_HOST}:{f.public_port}')
-            self.assertEqual(headers['Origin'], f.public_origin)
-            self.assertEqual(headers['X-Forwarded-For'], '127.0.0.20')
+            self.assertEqual(headers['Host'], f'127.0.0.1:{f.backend.server_port}')
+            self.assertNotIn('Origin', headers)
+            self.assertNotIn('X-Forwarded-For', headers)
             self.assertNotIn('Authorization', headers)
             self.assertNotIn('Forwarded', headers)
             with contextlib.ExitStack() as stack:
@@ -1040,8 +1079,8 @@ class IngressSharedLimits(unittest.TestCase):
                 if status == 101:
                     held.append(sock)
             self.assertEqual(f.count(), 2)
-            self.assertEqual([r['headers']['X-Forwarded-For'] for r in f.backend.seen],
-                             ['127.0.0.20', '127.0.0.20'])
+            self.assertEqual([r['headers'].get('X-Forwarded-For') for r in f.backend.seen],
+                             [None, None])
             for sock in held:
                 assert_echo(self, sock)
             direct, status = f.websocket(peer='127.0.0.12')

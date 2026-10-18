@@ -45,6 +45,7 @@ test('Docker context excludes private runtime material but keeps public config t
         'thinq1-metadata.json',
         'config.json',
         'router-dnat.json',
+        'router-ssh-trust.json',
         'state/',
         'captures/',
         '*.key',

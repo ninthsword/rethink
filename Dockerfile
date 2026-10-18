@@ -2,7 +2,7 @@
 FROM alpine:3.24.2@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6 AS build
 WORKDIR /app
 
-RUN apk add --no-cache nodejs=24.18.1-r0 npm=11.12.1-r0
+RUN apk add --no-cache nodejs=24.18.1-r0 npm=11.12.1-r0 zlib=1.3.2-r1
 
 COPY package.json package-lock.json ./
 RUN npm ci --ignore-scripts
@@ -15,7 +15,7 @@ RUN chmod -R a+rX dist node_modules
 FROM alpine:3.24.2@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6 AS runtime
 WORKDIR /app
 
-RUN apk add --no-cache nodejs=24.18.1-r0 openssl=3.5.9-r0 \
+RUN apk add --no-cache nodejs=24.18.1-r0 openssl=3.5.9-r0 zlib=1.3.2-r1 \
 	&& addgroup -S app \
 	&& adduser -S -G app app
 

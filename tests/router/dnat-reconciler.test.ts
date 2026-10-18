@@ -10,7 +10,14 @@ import { type DNATActuator, DNATReconciler } from '@/router/dnat-reconciler'
 function makeStore() {
     const dir = mkdtempSync(path.join(tmpdir(), 'rethink-router-'))
     const store = new RouterConfigStore(path.join(dir, 'router-dnat.json'))
-    store.updateRouter({ host: '192.168.1.1', port: 22, username: 'admin', password: 'x', rethinkIp: '192.168.1.2' })
+    store.updateRouter({
+        host: '192.168.1.1',
+        port: 22,
+        username: 'admin',
+        password: 'x',
+        hostKeyFingerprint: `SHA256:${Buffer.alloc(32, 2).toString('base64').replace(/=+$/, '')}`,
+        rethinkIp: '192.168.1.2',
+    })
     return { store, cleanup: () => rmSync(dir, { recursive: true, force: true }) }
 }
 

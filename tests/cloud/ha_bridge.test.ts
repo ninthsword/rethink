@@ -228,3 +228,39 @@ describe('a handler that has been superseded', () => {
         assert.notEqual(bridge.haDevices.get('ac-id'), superseded, 'the replacement should be in charge')
     })
 })
+
+test('refrigerator replacement and real drop retire period and door warning timers', (t) => {
+    enableMockTimers(t)
+    const ha = new AvailabilityRecordingHA()
+    const bridge = new Bridge(ha.asConnection(), 0)
+    const meta = { modelId: '2RES2VE300UA2', modelName: '2RES2VE300UA2', swVersion: '' }
+    const first = new MockThinq2Device('fridge', meta)
+    bridge.newDevice(first)
+    type TimedFridge = {
+        midnightTimer?: NodeJS.Timeout
+        doorWarningTimer?: NodeJS.Timeout
+        processDoor(open: boolean, now: number): void
+        stopTimers(): void
+    }
+    const old = bridge.haDevices.get('fridge') as unknown as TimedFridge
+    old.processDoor(true, Date.now())
+    assert(old.midnightTimer)
+    assert(old.doorWarningTimer)
+    const availability = ha.availabilityHistory.length
+    const second = new MockThinq2Device('fridge', meta)
+    bridge.newDevice(second)
+    assert.equal(old.midnightTimer, undefined)
+    assert.equal(old.doorWarningTimer, undefined)
+    old.stopTimers()
+    assert(!ha.availabilityHistory.slice(availability).includes('offline'))
+    const replacement = bridge.haDevices.get('fridge') as unknown as TimedFridge
+    replacement.processDoor(true, Date.now())
+    assert(replacement.midnightTimer)
+    assert(replacement.doorWarningTimer)
+    first.emit('close')
+    assert(replacement.midnightTimer)
+    second.emit('close')
+    tickMockTimers(t, 1)
+    assert.equal(replacement.midnightTimer, undefined)
+    assert.equal(replacement.doorWarningTimer, undefined)
+})

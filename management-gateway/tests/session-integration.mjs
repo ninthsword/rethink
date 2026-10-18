@@ -157,6 +157,10 @@ test('real Unix service rejects fixation and spoofing; pending and established u
     const ws = new WebSocketServer({ noServer: true })
     let release
     backend.on('upgrade', (req, socket, head) => {
+        assert.equal(req.headers.host, `127.0.0.1:${backend.address().port}`)
+        assert.equal(req.headers.origin, undefined)
+        assert.equal(req.headers.authorization, undefined)
+        assert.equal(req.headers['x-forwarded-for'], undefined)
         upstreams.add(socket)
         socket.on('close', () => upstreams.delete(socket))
         const accept = () =>
@@ -224,6 +228,8 @@ test('real Unix service rejects fixation and spoofing; pending and established u
         assert.equal(read.status, 200)
         assert.equal(read.headers['set-cookie'], undefined)
         assert.equal(seen.at(-1).authorization, undefined)
+        assert.equal(seen.at(-1).host, `127.0.0.1:${backend.address().port}`)
+        assert.equal(seen.at(-1).origin, undefined)
         assert.equal(seen.at(-1)['x-forwarded-for'], undefined)
         assert.equal(seen.at(-1).cookie, 'application=preserved')
         assert.equal(
@@ -396,7 +402,7 @@ test('actual nginx hash verifier and migrated cookie perimeter isolate the synth
         const cookie = signed.headers['set-cookie'][0].split(';')[0]
         const proxied = await call('/api/private', undefined, cookie)
         assert.equal(proxied.status, 200)
-        assert.equal(JSON.parse(proxied.body).headers.host, new URL(f.origin).host)
+        assert.equal(JSON.parse(proxied.body).headers.host, new URL(f.backend).host)
         assert.equal((await call('/api/write', {}, cookie, { Origin: 'https://foreign.test' })).status, 403)
         assert.equal((await call('/api/private', undefined, undefined, { Authorization: f.basic })).status, 401)
         const renewed = await call('/__management/extend', { generation: 1 }, cookie)

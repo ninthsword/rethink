@@ -8,7 +8,7 @@ import { test } from 'node:test'
 import WebSocket from 'ws'
 import { type AnyDevice, DeviceManager } from '@/cloud/devmgr'
 import type HA_bridge from '@/cloud/ha_bridge'
-import { app, serializeDeviceEntries } from '@/management/index'
+import { app, isLoopbackAuthority, serializeDeviceEntries } from '@/management/index'
 
 type SyntheticDevice = EventEmitter & {
     id: string
@@ -35,7 +35,7 @@ function fakeHA() {
     return { HA: connection, haDevices: new Map() } as unknown as HA_bridge
 }
 
-async function createMonitorFixture() {
+async function createMonitorFixture(bindHost = '127.0.0.1') {
     const directory = await mkdtemp(path.join(tmpdir(), 'rethink-management-monitor-'))
     const manager = new DeviceManager()
     const deviceId = 'synthetic-device'
@@ -48,7 +48,13 @@ async function createMonitorFixture() {
         sockets.add(socket)
         socket.on('close', () => sockets.delete(socket))
     })
-    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+    await new Promise<void>((resolve, reject) => {
+        server.once('error', reject)
+        server.listen(0, bindHost, () => {
+            server.removeListener('error', reject)
+            resolve()
+        })
+    })
     const address = server.address()
     assert(address && typeof address === 'object')
     const port = address.port
@@ -58,8 +64,11 @@ async function createMonitorFixture() {
         dropDevice: manager.listenerCount('dropDevice'),
     }
 
-    async function openMonitor() {
-        const client = new WebSocket(`ws://127.0.0.1:${port}/device?id=${deviceId}`)
+    async function openMonitor(authority = `127.0.0.1:${port}`, origin?: string) {
+        const connectionHost = bindHost.includes(':') ? `[${bindHost}]` : bindHost
+        const client = new WebSocket(`ws://${connectionHost}:${port}/device?id=${deviceId}`, {
+            headers: { Host: authority, ...(origin === undefined ? {} : { Origin: origin }) },
+        })
         clients.add(client)
         client.on('close', () => clients.delete(client))
         client.on('error', () => {})
@@ -109,7 +118,7 @@ async function createMonitorFixture() {
         }
     }
 
-    return { cleanup, closeClient, device, deviceId, manager, managerBaseline, openMonitor }
+    return { cleanup, closeClient, device, deviceId, manager, managerBaseline, openMonitor, directory, port }
 }
 
 function assertManagerMonitorCount(
@@ -264,5 +273,319 @@ test('direct bridge API rejects DNAT switches with 409 and resumes Local saved s
         server.closeAllConnections()
         await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())))
         await rm(dir, { recursive: true, force: true })
+    }
+})
+
+test('raw management authority and Origin reject browser and WebSocket effects before routes', async () => {
+    const http = await import('node:http')
+    const { existsSync } = await import('node:fs')
+    const fixture = await createMonitorFixture()
+    const host = `127.0.0.1:${fixture.port}`
+    const call = (headers: Record<string, string | string[]>) =>
+        new Promise<number>((resolve, reject) => {
+            const request = http.request(
+                {
+                    host: '127.0.0.1',
+                    port: fixture.port,
+                    method: 'POST',
+                    path: '/api/router/devices',
+                    headers: { 'Content-Type': 'application/json', ...headers },
+                },
+                (response) => {
+                    response.resume()
+                    response.on('end', () => resolve(response.statusCode!))
+                },
+            )
+            request.on('error', reject)
+            request.end(JSON.stringify({ ip: '192.0.2.77', mode: 'local' }))
+        })
+    try {
+        for (const headers of [
+            { Host: 'foreign.invalid', Origin: 'http://foreign.invalid' },
+            { Host: host, Origin: 'null' },
+            { Host: host, Origin: 'https://' + host },
+            { Host: host, Origin: 'http://' + host + '/' },
+            { Host: host, Origin: '' },
+            { Host: host, Origin: ['http://' + host, 'http://' + host] },
+        ])
+            assert([403, 421].includes(await call(headers)))
+        assert.equal(existsSync(path.join(fixture.directory, 'missing-router-config.json')), false)
+        for (const headers of [{ Host: 'foreign.invalid' }, { Origin: 'http://foreign.invalid' }]) {
+            const client = new WebSocket(`ws://${host}/device?id=${fixture.deviceId}`, { headers })
+            const status = await new Promise<number>((resolve, reject) => {
+                client.once('unexpected-response', (_request, response) => {
+                    response.resume()
+                    resolve(response.statusCode!)
+                })
+                client.once('open', () => {
+                    client.terminate()
+                    reject(new Error('foreign WebSocket accepted'))
+                })
+                client.on('error', () => {})
+            })
+            assert([403, 421].includes(status))
+        }
+        assertDeviceMonitorCount(fixture.device, 0)
+        assert.equal(await call({ Host: host, Origin: `http://${host}` }), 201)
+        const native = await fetch(`http://${host}/api/router/config`)
+        assert.equal(native.status, 200)
+        const ws = await fixture.openMonitor()
+        await fixture.closeClient(ws)
+    } finally {
+        await fixture.cleanup()
+    }
+})
+
+for (const [bindHost, hosts] of [
+    ['127.0.0.1', ['127.0.0.1', 'localhost', 'LOCALHOST', '127.0.0.2']],
+    ['127.0.0.2', ['127.0.0.2', 'localhost']],
+    ['::1', ['[::1]', '[0:0:0:0:0:0:0:1]', '[0000:0000:0000:0000:0000:0000:0000:0001]']],
+] as const) {
+    test(`supported management authorities reach HTTP and WebSocket routes on ${bindHost}`, async () => {
+        const http = await import('node:http')
+        const fixture = await createMonitorFixture(bindHost)
+        try {
+            for (const hostname of hosts) {
+                const authority = `${hostname}:${fixture.port}`
+                for (const origin of [undefined, `http://${authority}`]) {
+                    const status = await new Promise<number>((resolve, reject) => {
+                        const request = http.get(
+                            {
+                                host: bindHost,
+                                port: fixture.port,
+                                path: '/api/router/config',
+                                headers: { Host: authority, ...(origin === undefined ? {} : { Origin: origin }) },
+                            },
+                            (response) => {
+                                response.resume()
+                                response.on('end', () => resolve(response.statusCode ?? 0))
+                            },
+                        )
+                        request.on('error', reject)
+                    })
+                    assert.equal(status, 200, `${authority} with Origin ${origin}`)
+                    const client = await fixture.openMonitor(authority, origin)
+                    assertDeviceMonitorCount(fixture.device, 1)
+                    await fixture.closeClient(client)
+                    assertDeviceMonitorCount(fixture.device, 0)
+                }
+            }
+        } finally {
+            await fixture.cleanup()
+        }
+    })
+}
+
+test('raw authority rejects ambiguous aliases, duplicates and mismatched origins before parsing or effects', async () => {
+    const { connect } = await import('node:net')
+    const { existsSync } = await import('node:fs')
+    const fixture = await createMonitorFixture()
+    const host = `127.0.0.1:${fixture.port}`
+    const headers = [
+        [],
+        [`Host: ${host}`, `Host: ${host}`],
+        ...[
+            'foreign.invalid',
+            'localhost.foreign.invalid',
+            'localhost.',
+            '127.1',
+            '2130706433',
+            '0177.0.0.1',
+            '127.000.0.1',
+            '0x7f000001',
+            '192.0.2.1',
+            '[::ffff:127.0.0.1]',
+            '[::2]',
+            '::1',
+            'user@localhost',
+            'localhost/path',
+            'localhost#fragment',
+        ].map((hostname) => [`Host: ${hostname}:${fixture.port}`]),
+        [`Host: ${host}/`],
+        [`Host: localhost:0${fixture.port}`],
+        [`Host: localhost:${fixture.port === 65535 ? 65534 : fixture.port + 1}`],
+        [`Host: localhost`],
+        ...[
+            'null',
+            `https://${host}`,
+            `http://${host}/`,
+            'http://foreign.invalid',
+            `http://localhost:${fixture.port}`,
+            `http://127.0.0.1:${fixture.port + 1}`,
+        ].map((origin) => [`Host: ${host}`, `Origin: ${origin}`]),
+        [`Host: ${host}`, `Origin: http://${host}`, `Origin: http://${host}`],
+    ]
+    try {
+        for (const fields of headers) {
+            for (const upgrade of [false, true]) {
+                const code = await new Promise<number>((resolve, reject) => {
+                    const socket = connect(fixture.port, '127.0.0.1')
+                    let response = ''
+                    socket.on('error', reject)
+                    socket.on('data', (chunk) => {
+                        response += chunk.toString()
+                        if (!response.includes('\r\n')) return
+                        socket.destroy()
+                        resolve(Number(response.split(' ')[1]))
+                    })
+                    socket.on('connect', () => {
+                        // Invalid JSON proves authority validation runs before the body parser.
+                        const body = '{invalid-json'
+                        socket.write(
+                            [
+                                `${upgrade ? 'GET' : 'POST'} ${upgrade ? `/device?id=${fixture.deviceId}` : '/api/router/devices'} HTTP/1.1`,
+                                ...fields,
+                                ...(upgrade
+                                    ? [
+                                          'Connection: Upgrade',
+                                          'Upgrade: websocket',
+                                          'Sec-WebSocket-Version: 13',
+                                          'Sec-WebSocket-Key: AAAAAAAAAAAAAAAAAAAAAA==',
+                                      ]
+                                    : [
+                                          'Content-Type: application/json',
+                                          `Content-Length: ${body.length}`,
+                                          'Connection: close',
+                                      ]),
+                                '',
+                                upgrade ? '' : body,
+                            ].join('\r\n'),
+                        )
+                    })
+                })
+                assert(
+                    (fields.length === 0 ? [upgrade ? 421 : 400] : [403, 421]).includes(code),
+                    `${fields.join('; ')} upgrade=${upgrade}: ${code}`,
+                )
+            }
+        }
+        assert.equal(existsSync(path.join(fixture.directory, 'missing-router-config.json')), false)
+        assertDeviceMonitorCount(fixture.device, 0)
+        assertManagerMonitorCount(fixture.manager, fixture.managerBaseline, 0)
+    } finally {
+        await fixture.cleanup()
+    }
+})
+
+test('the middleware authority predicate compares implicit HTTP port 80 with the actual socket port', () => {
+    for (const authority of ['localhost', 'LOCALHOST', '127.0.0.1', '127.0.0.2', '[::1]', '[0:0:0:0:0:0:0:1]']) {
+        assert.equal(isLoopbackAuthority(authority, 80), true, authority)
+        assert.equal(isLoopbackAuthority(`${authority}:80`, 80), true, authority)
+        assert.equal(isLoopbackAuthority(authority, 8080), false, authority)
+        assert.equal(isLoopbackAuthority(`${authority}:80`, 8080), false, authority)
+        assert.equal(isLoopbackAuthority(`${authority}:8080`, 80), false, authority)
+    }
+    for (const authority of ['foreign.invalid', '127.1', 'localhost:080', 'localhost:', '[::2]'])
+        assert.equal(isLoopbackAuthority(authority, 80), false, authority)
+})
+
+test('bridge-absent management HTTP and MQTT share live inventory, provisioning linkage and the exclusive queue', async () => {
+    const { RouterConfigStore } = await import('@/router/config-store')
+    const { DeviceMQTTAccess } = await import('@/cloud/mqtt-access')
+    const { Broker } = await import('@/cloud/mqtt-broker')
+    const { DeviceAcceptor } = await import('@/cloud/thinq2/device')
+    const { createServer, createConnection } = await import('node:net')
+    const { MqttClient } = await import('mqtt')
+    const directory = await mkdtemp(path.join(tmpdir(), 'rethink-shared-mqtt-'))
+    const store = new RouterConfigStore(path.join(directory, 'router.json'))
+    const manager = new DeviceManager(),
+        broker = new Broker(new DeviceMQTTAccess(() => store.devices()))
+    const acceptor = new DeviceAcceptor(broker)
+    acceptor.on('newDevice', (device) => manager.accept(device))
+    const management = app(fakeHA(), manager, undefined, store.filename, store)
+    const mqttServer = createServer((socket) => broker.accept(socket))
+    await Promise.all([
+        new Promise<void>((resolve) => management.listen(0, '127.0.0.1', resolve)),
+        new Promise<void>((resolve) => mqttServer.listen(0, '127.0.0.1', resolve)),
+    ])
+    const address = management.address(),
+        mqttAddress = mqttServer.address()
+    assert(address && typeof address === 'object' && mqttAddress && typeof mqttAddress === 'object')
+    const url = `http://127.0.0.1:${address.port}`
+    const call = (method: string, route: string, body?: object) =>
+        fetch(`${url}${route}`, {
+            method,
+            headers: { 'content-type': 'application/json' },
+            body: body ? JSON.stringify(body) : undefined,
+        })
+    const client = new MqttClient(
+        () => createConnection({ host: '127.0.0.1', port: mqttAddress.port, localAddress: '127.0.0.2' }),
+        { reconnectPeriod: 0, manualConnect: true },
+    )
+    client.on('error', () => {})
+    try {
+        let unlock = () => {}
+        const held = store.exclusive(
+            () =>
+                new Promise<void>((resolve) => {
+                    unlock = resolve
+                }),
+        )
+        await new Promise<void>((resolve) => setImmediate(resolve))
+        let added = false
+        const adding = call('POST', '/api/router/devices', { ip: '127.0.0.2', mode: 'local' }).then((response) => {
+            added = true
+            return response
+        })
+        await new Promise<void>((resolve) => setTimeout(resolve, 25))
+        assert.equal(added, false, 'HTTP uses the same exclusive queue')
+        unlock()
+        await held
+        const response = await adding
+        assert.equal(response.status, 201)
+        const entry = (await response.json()) as { entryId: string }
+        assert.equal(store.devices().length, 1)
+        const connected = new Promise<void>((resolve, reject) => {
+            client.once('connect', () => resolve())
+            client.once('error', reject)
+        })
+        client.connect()
+        await connected
+        await new Promise<void>((resolve, reject) =>
+            client.subscribe('lime/devices/shared', (error) => (error ? reject(error) : resolve())),
+        )
+        const publish = (topic: string, value: object) =>
+            new Promise<void>((resolve, reject) =>
+                client.publish(topic, JSON.stringify(value), { qos: 1 }, (error) =>
+                    error ? reject(error) : resolve(),
+                ),
+            )
+        await publish('clip/provisioning/devices/shared', {
+            did: 'shared',
+            cmd: 'deploy',
+            kind: 'TEST',
+            data: { appInfo: { modelName: 'TEST' } },
+        })
+        await publish('clip/message/devices/shared', { did: 'shared', cmd: 'completeProvisioning_ack' })
+        await store.exclusive(async () => {})
+        assert.equal(store.devices()[0].deviceId, 'shared')
+        const linked = manager.allDevices.get('shared')
+        assert(linked && 'sourceIp' in linked)
+        assert.equal(linked.sourceIp, '127.0.0.2')
+        const peer = [...broker.clients][0]
+        assert.equal((await call('DELETE', `/api/router/devices/${entry.entryId}/link`)).status, 200)
+        assert.equal(
+            broker.publish(
+                {
+                    topic: 'clip/message/devices/shared',
+                    payload: '{"did":"shared"}',
+                    qos: 0,
+                    retain: false,
+                    dup: false,
+                },
+                peer,
+            ),
+            false,
+        )
+        assert.equal((await call('DELETE', `/api/router/devices/${entry.entryId}`)).status, 204)
+        assert.equal(store.devices().length, 0)
+    } finally {
+        client.end(true)
+        for (const peer of broker.clients) peer.destroy(true)
+        await Promise.all([
+            new Promise<void>((resolve) => management.close(() => resolve())),
+            new Promise<void>((resolve) => mqttServer.close(() => resolve())),
+        ])
+        await rm(directory, { recursive: true, force: true })
     }
 })
