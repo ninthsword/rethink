@@ -261,6 +261,8 @@ python3 -B -m unittest discover -s tests/security -p test_filter_semgrep.py -v
 npm run typecheck:cpp
 npm run build
 npm test
+npx playwright install chromium
+npm run test:ui-browser
 ```
 
 Biome이 포맷과 lint를 모두 담당합니다. `npm run format`은 전체 대상 파일을 수정하고, `npm run format:check`, `npm run lint`, `npm run check`는 각각 포맷, lint, 통합 검사를 수정 없이 수행합니다. pre-commit 훅도 staged 파일에 같은 통합 검사를 적용합니다.
@@ -276,6 +278,11 @@ Pyright 1.1.413을 설치하며, `npm run typecheck:python`이 두 파일을 검
 `CXX`를 지정하세요. 이 검사는 시뮬레이터를 링크하거나 실행하지 않고 경고를 켠 채
 문법만 확인합니다. CI는 지원하는 두 Node 버전 모두에서 Python 검사와 C++ 문법 검사를
 실행하고 Python과 컴파일러 버전을 기록합니다.
+
+`npm run test:ui-browser`는 실제 관리, 라우터, 모니터 페이지를 합성 데이터로 Chromium에서 열어
+내용, 여러 화면 너비에서의 레이아웃, 접근성을 검사합니다. CI는 모든 pull request와 master
+push에서 이 검사를 실행하고 스크린샷과 접근성 검사 결과를 7일 동안 artifact로 보관합니다.
+로컬에서는 `MANAGEMENT_SCREENSHOT_DIR`에 디렉터리를 지정하면 같은 결과를 그곳에 저장합니다.
 
 ## 전체 설치 순서
 
