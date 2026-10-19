@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import * as HTTPS from 'node:https'
+import { isIP } from 'node:net'
 import * as tls from 'node:tls'
 import fetch, { type Response } from 'node-fetch'
 import { TypedEmitter } from 'tiny-typed-emitter'
@@ -38,6 +39,7 @@ export class Connection extends TypedEmitter<ConnectionEvents> {
     isLive: boolean = false
     aliveTimer?: NodeJS.Timeout
     private destroyed = false
+    private closed = false
     private requestAbort?: AbortController
     private readonly fetchImpl: typeof fetch
     private readonly tlsConnect: typeof tls.connect
@@ -78,7 +80,7 @@ export class Connection extends TypedEmitter<ConnectionEvents> {
                     'x-lgedm-devicetype': deviceType,
                 },
                 body: `<lgedmRoot><countryCode>WW</countryCode><modelName>${escapeXmlText(this.device.meta.modelName)}</modelName><itemList><item>THINQ_TIME_SYNC_URI</item><elementList><elementCode>pushDetailYn</elementCode><elementValue>Y</elementValue></elementList></itemList></lgedmRoot>`,
-                agent: new HTTPS.Agent({ keepAlive: true, rejectUnauthorized: false }),
+                agent: new HTTPS.Agent({ keepAlive: true, rejectUnauthorized: true }),
                 signal: abort.signal,
             })
         } finally {
@@ -107,7 +109,8 @@ export class Connection extends TypedEmitter<ConnectionEvents> {
             {
                 host,
                 port: Number(port),
-                rejectUnauthorized: false /*FIXME*/,
+                rejectUnauthorized: true,
+                servername: isIP(host) ? undefined : host,
             },
             () => {
                 if (this.destroyed) {
@@ -143,52 +146,66 @@ export class Connection extends TypedEmitter<ConnectionEvents> {
             socket.destroy(new Error(`ThinQ1 RTI connection timed out after ${this.connectTimeoutMs} ms`))
         })
 
-        socket.on(
-            'data',
-            splitter((payload: Buffer) => {
-                if (this.destroyed) return
-                try {
-                    const str = payload.toString('utf-8')
-                    const j = JSON.parse(str)
-                    if (typeof j.Body === 'object') {
-                        if (j.Body.CmdOpt === 'Start') {
-                            this.isLive = true
-                            if (this.lastState) this.send(this.lastState)
+        const split = splitter((payload: Buffer) => {
+            if (this.destroyed) return
+            try {
+                const str = payload.toString('utf-8')
+                const j = JSON.parse(str)
+                if (typeof j.Body === 'object') {
+                    if (j.Body.CmdOpt === 'Start') {
+                        this.isLive = true
+                        if (this.lastState) this.send(this.lastState)
 
-                            // don't forward upstream Start & Stop to the actual device
-                            return
-                        }
-
-                        if (j.Body.CmdOpt === 'Stop') {
-                            this.isLive = false
-                            // don't forward upstream Start & Stop to the actual device
-                            return
-                        }
-
-                        log('bridge', `${this.device.deviceId} <- ${JSON.stringify(j.Body)}`)
-                        this.emit('data', j.Body)
-
-                        if (j.Body.ReturnCode === undefined) {
-                            // ACK
-                            // CmdWId: echo
-                            // ReturnCode: 0000
-                            this.writeJSON({
-                                Header: { 'x-lgedm-deviceId': this.device.deviceId },
-                                Body: {
-                                    CmdWId: j.Body.CmdWId,
-                                    ReturnCode: '0000',
-                                },
-                            })
-                        }
+                        // don't forward upstream Start & Stop to the actual device
+                        return
                     }
-                } catch (err) {
-                    console.log(err)
+
+                    if (j.Body.CmdOpt === 'Stop') {
+                        this.isLive = false
+                        // don't forward upstream Start & Stop to the actual device
+                        return
+                    }
+
+                    log('bridge', `${this.device.deviceId} <- ${JSON.stringify(j.Body)}`)
+                    this.emit('data', j.Body)
+
+                    if (j.Body.ReturnCode === undefined) {
+                        // ACK
+                        // CmdWId: echo
+                        // ReturnCode: 0000
+                        this.writeJSON({
+                            Header: { 'x-lgedm-deviceId': this.device.deviceId },
+                            Body: {
+                                CmdWId: j.Body.CmdWId,
+                                ReturnCode: '0000',
+                            },
+                        })
+                    }
                 }
-            }),
-        )
+            } catch (err) {
+                console.log(err)
+            }
+        })
+        socket.on('data', (data) => {
+            try {
+                split(data)
+            } catch {
+                this.fail(new Error('ThinQ1 프레임이 올바르지 않습니다.'))
+            }
+        })
+        socket.on('end', () => {
+            try {
+                split.end()
+            } catch {
+                this.fail(new Error('ThinQ1 프레임이 완성되지 않았습니다.'))
+            }
+        })
 
         socket.on('close', () => {
-            if (this.destroyed) return
+            if (this.destroyed || this.closed) return
+            this.closed = true
+            if (this.aliveTimer) clearInterval(this.aliveTimer)
+            this.aliveTimer = undefined
             log('bridge', `${this.device.deviceId} disconnected`)
             this.emit('close')
         })
@@ -196,7 +213,11 @@ export class Connection extends TypedEmitter<ConnectionEvents> {
     }
 
     private fail(error: unknown) {
-        if (this.destroyed) return
+        if (this.destroyed || this.closed) return
+        this.closed = true
+        if (this.aliveTimer) clearInterval(this.aliveTimer)
+        this.aliveTimer = undefined
+        this.socket?.destroy()
         const err = error instanceof Error ? error : new Error(String(error))
         this.emit('error', err)
         // BridgedDevice owns the retry policy and listens for close. Fetch failures have

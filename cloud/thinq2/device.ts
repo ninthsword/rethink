@@ -4,6 +4,7 @@
 import { TypedEmitter } from 'tiny-typed-emitter'
 import log from '@/util/logging'
 import { isSafeDeviceId } from '../device_id'
+import { parseDevicePayload, parseDeviceTopic } from '../mqtt-access'
 import type { Broker, Client, PublishPacket } from '../mqtt-broker'
 import type { Metadata } from '../thinq'
 import type { ClipDeployMessage, ClipMessage } from './clip'
@@ -97,11 +98,6 @@ export class Device extends TypedEmitter<DeviceEvents> {
     }
 }
 
-function trimNull(buf: Buffer) {
-    if (!buf?.length || buf[buf.length - 1]) return buf
-    return buf.subarray(0, buf.length - 1)
-}
-
 const MAX_PROVISIONING_TEXT_LENGTH = 128
 
 function boundedText(value: unknown): value is string {
@@ -121,13 +117,6 @@ function objectRecord(value: unknown): Record<string, unknown> | undefined {
     return value !== null && typeof value === 'object' && !Array.isArray(value)
         ? (value as Record<string, unknown>)
         : undefined
-}
-
-function topicDeviceId(topic: string, kind: 'message' | 'provisioning') {
-    const prefix = `clip/${kind}/devices/`
-    if (!topic.startsWith(prefix)) return undefined
-    const deviceId = topic.slice(prefix.length)
-    return isSafeDeviceId(deviceId) ? deviceId : undefined
 }
 
 function validMessage(payload: unknown, expectedDeviceId: string) {
@@ -171,7 +160,7 @@ export class DeviceAcceptor extends TypedEmitter<DeviceAcceptorEvents> {
             try {
                 if (packet.topic.indexOf('clip/') >= 0) {
                     traceMqtt('device->rethink', packet)
-                    const payload = JSON.parse(trimNull(Buffer.from(packet.payload)).toString('utf-8'))
+                    const payload = parseDevicePayload(packet.payload)
                     this.mqtt(packet.topic, payload, client as ClientWithExtra)
                 }
             } catch (err) {
@@ -183,10 +172,8 @@ export class DeviceAcceptor extends TypedEmitter<DeviceAcceptorEvents> {
     }
 
     mqtt(topic: string, payload: unknown, client: ClientWithExtra) {
-        // experiment: try to support devices which use other topic formats
-        topic = topic.replace(/^.*\/clip/, 'clip')
-
-        const messageDeviceId = topicDeviceId(topic, 'message')
+        const parsedTopic = parseDeviceTopic(topic)
+        const messageDeviceId = parsedTopic?.kind === 'message' ? parsedTopic.deviceId : undefined
         const message = messageDeviceId ? validMessage(payload, messageDeviceId) : undefined
         if (message) {
             if (message.cmd === 'completeProvisioning_ack') {
@@ -211,7 +198,7 @@ export class DeviceAcceptor extends TypedEmitter<DeviceAcceptorEvents> {
             }
         }
 
-        const provisioningDeviceId = topicDeviceId(topic, 'provisioning')
+        const provisioningDeviceId = parsedTopic?.kind === 'provisioning' ? parsedTopic.deviceId : undefined
         if (!provisioningDeviceId) return
         const provisioning = validMessage(payload, provisioningDeviceId)
         if (provisioning) {
@@ -287,7 +274,13 @@ export class DeviceAcceptor extends TypedEmitter<DeviceAcceptorEvents> {
             deviceType: client.deployMsg.data?.appInfo?.DeviceType,
         }
 
-        const dev = new Device(this.broker, `lime/devices/${deviceId}`, deviceId, meta, client.remoteAddress)
+        const dev = new Device(
+            this.broker,
+            `lime/devices/${deviceId}`,
+            deviceId,
+            meta,
+            client.sourceIp ?? client.remoteAddress,
+        )
         dev.deployProfile = client.deployMsg
         client.deviceObj = dev
         this.emit('newDevice', dev)

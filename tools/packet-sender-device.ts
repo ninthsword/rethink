@@ -1,9 +1,9 @@
-import * as mqtt from 'mqtt'
+import { diagnosticCLI } from './mqtt-diagnostic'
 
 if (process.argv.length < 7) {
     console.warn(
-        `Usage:
-	tsx packet-sender-device.ts mqtt-hostname[:port] device-uuid cmd type data
+        `사용법:
+	tsx packet-sender-device.ts TLS호스트[:포트] device-uuid cmd type data
 `,
     )
     process.exit()
@@ -19,9 +19,10 @@ const messagestr = JSON.stringify({
 })
 console.log(messagestr)
 
-const client = mqtt.connect(`mqtt://${mqttHostname}`)
+const client = diagnosticCLI(mqttHostname, deviceId, true)
 
 client.on('connect', () => {
-    client.publish(`lime/devices/${deviceId}`, `${messagestr} `)
-    client.end()
+    client.publish(`lime/devices/${deviceId}`, `${messagestr} `, { qos: 1 }, (error) => {
+        if (!error) client.end()
+    })
 })

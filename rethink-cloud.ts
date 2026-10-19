@@ -15,6 +15,7 @@ import { setEnergyDataDirectory } from './cloud/devices/energy_meter'
 import { DeviceManager } from './cloud/devmgr'
 import HA_bridge from './cloud/ha_bridge'
 import { Connection as HA_connection } from './cloud/homeassistant'
+import { DeviceMQTTAccess } from './cloud/mqtt-access'
 import { Broker } from './cloud/mqtt-broker'
 import { createSNIRouter } from './cloud/sni_router'
 import { DeviceAcceptor as T1Acceptor } from './cloud/thinq1/device'
@@ -23,6 +24,7 @@ import { DeviceAcceptor as T2Acceptor } from './cloud/thinq2/device'
 import { routes as thinq2Routes } from './cloud/thinq2/provisioning'
 import * as Management from './management'
 import { RouterConfigStore } from './router/config-store'
+import { RouterMQTTSourceResolver } from './router/mqtt-source'
 import { type CA, managementHost, normalize as normalizeConfig, type RawConfig } from './util/config'
 import log, { setFilter as setLogFilter } from './util/logging'
 import { collapseRepeats, withoutErrorTag } from './util/repeated_log'
@@ -87,11 +89,10 @@ const tlsServerOptions: tls.TlsOptions = {
     ...ca,
     SNICallback: sniCertificates
         ? (servername, callback) => {
-              try {
-                  callback(null, sniCertificates.forServerName(servername))
-              } catch (err) {
-                  callback(err as Error)
-              }
+              void sniCertificates.forServerName(servername).then(
+                  (context) => callback(null, context),
+                  (error: Error) => callback(error),
+              )
           }
         : undefined,
 }
@@ -171,7 +172,7 @@ function reportTlsErrors<
 }
 
 // Thinq2
-function t2setup(manager: DeviceManager) {
+function t2setup(manager: DeviceManager, routerStore: RouterConfigStore) {
     // Thinq2 HTTPS server
     const app = express()
     app.use(express.json())
@@ -218,13 +219,28 @@ function t2setup(manager: DeviceManager) {
     }).listen(config.https_port.bind)
 
     // internal MQTT broker
-    const broker = new Broker()
+    const resolver = new RouterMQTTSourceResolver(routerStore)
+    const broker = new Broker(
+        new DeviceMQTTAccess(
+            () =>
+                routerStore.devices().map(({ entryId, ip, deviceId, autoLink, platform }) => ({
+                    entryId,
+                    ip,
+                    deviceId,
+                    autoLink,
+                    platform,
+                })),
+            config.mqtt_diagnostics,
+            resolver.resolve,
+        ),
+    )
 
     if (config.mqtt) {
-        reportTlsErrors(tls.createServer(tlsServerOptions, broker.accept.bind(broker)), 'mqtts').listen(
-            config.mqtts_port.bind,
-        )
-        net.createServer({}, broker.accept.bind(broker)).listen(config.mqtt_port.bind)
+        reportTlsErrors(
+            tls.createServer(tlsServerOptions, (socket) => broker.accept(socket, { tls: true })),
+            'mqtts',
+        ).listen(config.mqtts_port.bind)
+        net.createServer({}, (socket) => broker.accept(socket, { tls: false })).listen(config.mqtt_port.bind)
     }
 
     const acceptor = new T2Acceptor(broker)
@@ -234,8 +250,9 @@ function t2setup(manager: DeviceManager) {
     // own timer fires, which left the washer absent for up to twenty minutes after every
     // restart. Cutting the connections on the way out brings them straight back.
     for (const signal of ['SIGTERM', 'SIGINT'] as const)
-        process.once(signal, () => {
+        process.once(signal, async () => {
             broker.shutdown()
+            await sniCertificates?.close()
             // process.exit() drops whatever is still queued on stdout, which in a container
             // is a pipe and therefore written asynchronously. A tick is enough for the
             // shutdown line to survive; the resets themselves already left the kernel.
@@ -271,10 +288,9 @@ const ha = new HA_bridge(haConnection, offlineGraceMs)
 const manager = new DeviceManager()
 manager.on('newDevice', (dev) => ha.newDevice(dev))
 
-t1setup(manager)
-t2setup(manager)
-
 const routerStore = new RouterConfigStore(resolve(configDir, 'router-dnat.json'))
+t1setup(manager)
+t2setup(manager, routerStore)
 const bridgePolicy = new BridgePolicy(routerStore)
 let bridge: Bridge | undefined
 if (config.bridge) {
@@ -289,7 +305,7 @@ if (config.bridge) {
 }
 
 if (config.management_port)
-    Management.app(ha, manager, bridge, resolve(configDir, 'router-dnat.json')).listen(
+    Management.app(ha, manager, bridge, resolve(configDir, 'router-dnat.json'), routerStore).listen(
         config.management_port.bind,
         managementHost(config),
     )

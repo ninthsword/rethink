@@ -10,6 +10,7 @@
  *   'rethink_ip': HTMLInputElement,
  *   'router_error': HTMLSpanElement,
  *   'router_host': HTMLInputElement,
+ *   'router_fingerprint': HTMLInputElement,
  *   'router_password': HTMLInputElement,
  *   'router_port': HTMLInputElement,
  *   'router_status': HTMLSpanElement,
@@ -59,6 +60,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     get('save_router').onclick = () => globalAction(saveRouter)
     get('test_router').onclick = () => globalAction(testRouter)
     get('toggle_router_password').onclick = toggleRouterPassword
+    get('router_host').oninput = get('router_port').oninput = () => {
+        get('router_fingerprint').value = ''
+    }
     get('save_device').onclick = () => globalAction(addDevice)
     await loadConfig()
     await refresh()
@@ -100,10 +104,11 @@ async function api(path, options = {}) {
 async function loadConfig() {
     try {
         const config =
-            /** @type {{host?: string, port?: number, username?: string, passwordSaved: boolean, rethinkIp?: string}} */ (
+            /** @type {{host?: string, port?: number, username?: string, passwordSaved: boolean, rethinkIp?: string, hostKeyFingerprint?: string}} */ (
                 await api('api/router/config')
             )
         get('router_host').value = config.host || ''
+        get('router_fingerprint').value = config.hostKeyFingerprint || ''
         get('router_port').value = String(config.port || 22)
         get('router_username').value = config.username || ''
         UI.bind(
@@ -127,6 +132,7 @@ async function saveRouter() {
                 port: Number(get('router_port').value),
                 username: get('router_username').value,
                 password: get('router_password').value,
+                hostKeyFingerprint: get('router_fingerprint').value,
                 rethinkIp: get('rethink_ip').value,
             },
         })

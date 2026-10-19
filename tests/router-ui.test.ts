@@ -308,3 +308,31 @@ test('polling preserves an unsaved appliance selection and keyboard focus withou
     assert.equal(page.document.activeElement.dataset.focus, 'entry:link')
     assert.deepEqual(mutations, [])
 })
+
+test('router fingerprint loads and saves while a failed save keeps the password and entered pin', async () => {
+    const fingerprint = `SHA256:${Buffer.alloc(32, 2).toString('base64').replace(/=+$/, '')}`
+    const calls: Array<{ path: string; options: Record<string, unknown> }> = []
+    let fail = true
+    const page = await browser('router', async (path, options) => {
+        calls.push({ path, options })
+        if (options.method === 'PUT')
+            return fail ? response('SSH 호스트 키 지문은 SHA256 형식이어야 합니다.', 400) : response({})
+        return response(path.endsWith('status') ? state : { hostKeyFingerprint: fingerprint, passwordSaved: true })
+    })
+    const input = page.document.getElementById('router_fingerprint')
+    assert.equal(input.value, fingerprint)
+    page.evaluate("get('router_host').oninput()")
+    assert.equal(input.value, '', 'an edited endpoint must not reuse a displayed pin')
+    input.value = 'bad'
+    page.document.getElementById('router_password').value = 'unsaved-synthetic'
+    await page.document.getElementById('save_router').click()
+    assert.equal(input.value, 'bad')
+    assert.equal(page.document.getElementById('router_password').value, 'unsaved-synthetic')
+    input.value = fingerprint
+    fail = false
+    await page.document.getElementById('save_router').click()
+    const mutations = calls.filter((call) => call.options.method === 'PUT')
+    const body = JSON.parse(String(mutations[mutations.length - 1]?.options.body))
+    assert.equal(body.hostKeyFingerprint, fingerprint)
+    assert.equal(page.document.getElementById('router_password').value, '')
+})

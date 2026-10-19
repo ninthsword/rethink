@@ -20,6 +20,7 @@ AGENTS.md
 !.env.sample
 config.json
 router-dnat.json
+router-ssh-trust.json
 oauth.json
 oauth2.json
 thinq1-metadata.json
@@ -30,3 +31,6 @@ captures/
 *.cert
 *.csr
 *.crt
+
+# Private verified-TLS MQTT diagnostic settings.
+mqtt-diagnostic.json

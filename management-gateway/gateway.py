@@ -107,9 +107,10 @@ def replace_private(path, data):
 def password_hash(password):
     if shutil.which('htpasswd'):
         result = run(['htpasswd', '-niBC', '12', 'admin'], data=(password + '\n').encode()).decode()
-        if not re.fullmatch(r'admin:\$2[aby]\$12\$[./A-Za-z0-9]{53}\n', result):
+        entry = re.fullmatch(r'(admin:\$2[aby]\$12\$[./A-Za-z0-9]{53})\n{1,2}', result)
+        if not entry:
             raise GatewayError('Unexpected bcrypt output')
-        return result
+        return entry.group(1) + '\n'
     with warnings.catch_warnings():
         warnings.filterwarnings('ignore', category=DeprecationWarning, message="'crypt' is deprecated.*")
         try:
@@ -201,15 +202,16 @@ http {{
         location / {{
             proxy_pass http://{backend};
             proxy_http_version 1.1;
-            proxy_set_header Host "{bind}";
+            proxy_set_header Host "{backend}";
+            proxy_set_header Origin "";
             proxy_set_header Authorization "";
             proxy_set_header Proxy-Authorization "";
             proxy_set_header Forwarded "";
-            proxy_set_header X-Forwarded-For $remote_addr;
-            proxy_set_header X-Real-IP $remote_addr;
-            proxy_set_header X-Forwarded-Host "{bind}";
-            proxy_set_header X-Forwarded-Proto https;
-            proxy_set_header X-Forwarded-Port "{port}";
+            proxy_set_header X-Forwarded-For "";
+            proxy_set_header X-Real-IP "";
+            proxy_set_header X-Forwarded-Host "";
+            proxy_set_header X-Forwarded-Proto "";
+            proxy_set_header X-Forwarded-Port "";
             proxy_set_header Upgrade $http_upgrade;
             proxy_set_header Connection $connection_upgrade;
             proxy_read_timeout 3600s;
@@ -249,11 +251,7 @@ http {{
                        f'    map $http_origin $bad_origin {{ default 1; "" 0; "{origin}" 0; }}\n'
                        f'    map $http_origin $missing_origin {{ default 1; "{origin}" 0; }}\n')
     config = config.replace(original_policy, policy)
-    for header in ('Host', 'X-Forwarded-Host'):
-        config = config.replace(f'proxy_set_header {header} "{bind}";',
-                                f'proxy_set_header {header} $gateway_authority;')
-    return config.replace(f'proxy_set_header X-Forwarded-Port "{port}";',
-                          'proxy_set_header X-Forwarded-Port $gateway_port;')
+    return config
 
 SESSION_BASE = 'node:24.18.1-alpine3.24@sha256:f70403e87646dc51b45295f4b8b70cdad0b63d2297c4c9899119b03f7af7a6b3'
 SESSION_FILES = ('package.json', 'package-lock.json', 'Dockerfile', 'service.mjs',
@@ -262,6 +260,9 @@ SESSION_FILES = ('package.json', 'package-lock.json', 'Dockerfile', 'service.mjs
 
 def session_config(bind, backend, external_hostname=None):
     config = config_text(bind, backend, external_hostname)
+    # Preserve the external perimeter until the Unix service authenticates the session.
+    config = config.replace(f'proxy_set_header Host "{backend}";', 'proxy_set_header Host $http_host;')
+    config = config.replace('proxy_set_header Origin "";', 'proxy_set_header Origin $http_origin;')
     config = config.replace('        auth_basic "Rethink management";\n'
                             '        auth_basic_user_file /gateway/auth;\n', '')
     config = config.replace(f'proxy_pass http://{backend};',

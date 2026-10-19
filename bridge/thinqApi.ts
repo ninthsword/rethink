@@ -35,25 +35,20 @@ export async function apiFetch<T = unknown>(url: string, options: RequestInit): 
             out = (await resp.json()) as { resultCode: string; result: T }
             break
         } catch (err) {
-            if (i >= 3) throw err
+            if (i >= 3) throw new Error('LG API 요청에 실패했습니다.')
             await new Promise((resolve) => setTimeout(resolve, 1000))
         }
     }
 
     if (out.resultCode !== '0000') {
-        console.log(url, options, out)
-        throw new RemoteError(url, out.resultCode, out.result)
+        throw new RemoteError(out.resultCode)
     }
 
     return out.result
 }
 
 export class RemoteError extends Error {
-    constructor(
-        readonly url: string,
-        readonly resultCode: string,
-        readonly result: unknown,
-    ) {
+    constructor(readonly resultCode: string) {
         super(ErrorStrings[resultCode] ?? `Unknown thinq error ${resultCode}`)
     }
 }
@@ -175,11 +170,10 @@ export class Client {
         })
 
         if (profile.status !== 1) {
-            console.log(profile)
             throw new Error("Can't query user information")
         }
 
-        console.log(`Welcome ${profile.account.userID}!`)
+        console.log('LG 계정에 로그인했습니다.')
 
         this.headers['x-user-no'] = profile.account.userNo
         this.headers['x-emp-token'] = accessToken
@@ -405,7 +399,7 @@ export class Thinq2Device implements Device {
             { headers: { accept: 'application/json' } },
         )
 
-        console.log('Trying to generate a certificate with otp', otpResponse.otp)
+        console.log('인증서 발급을 요청합니다.')
 
         const privateKey = await subprocess('openssl', [
             'ecparam',

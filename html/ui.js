@@ -53,6 +53,9 @@ const UI = (() => {
         'Router SSH settings': '공유기 SSH 설정',
         'Router IP': '공유기 IP',
         'SSH Port': 'SSH 포트',
+        'SSH host key fingerprint': 'SSH 호스트 키 지문',
+        'Enter the SHA256 fingerprint verified through a trusted route. Changing the address or port clears the fingerprint. Without it, SSH stays blocked; Local settings are kept.':
+            '신뢰할 수 있는 경로로 확인한 SHA256 지문을 입력하세요. 주소나 포트를 변경하면 지문을 다시 입력해야 합니다. 지문이 없으면 SSH 연결은 차단되며 Local 설정은 유지됩니다.',
         Username: '사용자 이름',
         Password: '비밀번호',
         'Show password': '비밀번호 표시',
@@ -210,6 +213,8 @@ const UI = (() => {
         return text.replace(/\{(\d+)\}/g, (_match, index) => String(parameters[Number(index)] ?? ''))
     }
     const diagnosticMessages = {
+        '공유기 SSH 호스트 키 지문을 확인하고 저장하세요.': '공유기 SSH 호스트 키 지문을 확인하고 저장하세요.',
+        'SSH 호스트 키 지문은 SHA256 형식이어야 합니다.': 'SSH 호스트 키 지문은 SHA256 형식이어야 합니다.',
         'Turn all DNAT entries off before changing router settings.':
             '공유기 설정을 변경하려면 모든 기기의 DNAT를 먼저 끄세요.',
         'Release all existing DNAT rules before changing router settings.':
@@ -238,7 +243,7 @@ const UI = (() => {
         'Rethink device is not connected': 'Rethink 기기가 연결되지 않았습니다. 연결 상태를 확인하세요.',
         'Bridge is not configured': 'LG Bridge가 설정되지 않았습니다. 연동 설정을 확인하세요.',
         'Bridge is not configured for this device': '이 기기의 LG Bridge가 설정되지 않았습니다.',
-        'Router SSH settings are not configured': '공유기 SSH 설정이 없습니다. 공유기 설정을 저장하세요.',
+        'Router SSH settings are not configured': '공유기 SSH 설정과 호스트 키 지문을 확인하고 저장하세요.',
         'Not logged in': 'LG 계정에 로그인한 뒤 다시 시도하세요.',
         'Device type must be specified': 'LG 기기 유형을 입력한 뒤 다시 시도하세요.',
         'Mode approval is stale. Refresh and approve again.':

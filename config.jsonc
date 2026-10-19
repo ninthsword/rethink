@@ -84,6 +84,12 @@
   // useful for local testing & debugging, not used by Thinq2
   "mqtt_port": 1884,
 
+  // Optional diagnostic accounts in private config.json only. Appliance admission uses
+  // the registered router inventory instead of these credentials. Each account needs
+  // username, password (16-256 bytes), explicit device_ids and optional allow_publish.
+  // No accounts are enabled by default; allow_publish defaults to false.
+  "mqtt_diagnostics": [],
+
   // the defaults should not be changed unless you know what you're doing
   "thinq1_https_port": 46030,
   "thinq1_port": 47878,

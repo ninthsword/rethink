@@ -21,6 +21,7 @@
                     </div>
                     <div class="input-field"><input id="rethink_ip" type="text" /><label for="rethink_ip" data-i18n>Rethink IP</label></div>
                 </div>
+                <div class="input-field"><input id="router_fingerprint" type="text" aria-describedby="fingerprint_hint" autocomplete="off" spellcheck="false" /><label for="router_fingerprint" data-i18n>SSH host key fingerprint</label><p id="fingerprint_hint" data-i18n>Enter the SHA256 fingerprint verified through a trusted route. Changing the address or port clears the fingerprint. Without it, SSH stays blocked; Local settings are kept.</p></div>
                 <p data-i18n>Save changes first. This test uses only the saved router settings.</p><button type="button" id="test_router" class="btn waves-effect waves-light" data-i18n>Test saved settings</button>
                 <button type="button" id="save_router" class="btn waves-effect waves-light" data-i18n>Save</button>
             </div>

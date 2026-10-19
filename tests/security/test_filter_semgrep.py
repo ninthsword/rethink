@@ -22,6 +22,8 @@ POLICY = REPOSITORY_ROOT / ".github/security/semgrep-reviewed-exceptions.json"
 MCP_PATH = "tools/mcp-server.ts"
 MATCH_LENGTH = 5
 MATCH_SHA256 = "2edfb372706c7f539289f553822d89cc0747e34c746deadffa3fe22fc5ca00c7"
+# The insecure-websocket rule authenticates its exact five-byte span before any exception matches.
+WEBSOCKET_RULE = "javascript.lang.security.detect-insecure-websocket.detect-insecure-websocket"
 RESULT_FIELDS = {"schema", "status", "finding_count", "exception_ids", "error"}
 EXPECTED_RULE_PATHS = {
     (
@@ -40,6 +42,15 @@ EXPECTED_RULE_PATHS = {
         "python.lang.security.audit.httpsconnection-detected.httpsconnection-detected",
         "management-gateway/tests/integration.py",
     ),
+    (
+        "python.lang.security.insecure-hash-algorithms.insecure-hash-algorithm-sha1",
+        "management-gateway/tests/local-upstream.py",
+    ),
+    (
+        "python.lang.security.audit.httpsconnection-detected.httpsconnection-detected",
+        "management-gateway/tests/local-upstream.py",
+    ),
+    (WEBSOCKET_RULE, "tests/management/index.test.ts"),
 }
 UNSET = object()
 
@@ -214,7 +225,7 @@ class FilterSemgrepTests(unittest.TestCase):
             self.assertEqual(payload["error"], error)
 
     def test_real_source_policy_and_bound_finding_pass(self) -> None:
-        self.assertEqual(len(self.policy["exceptions"]), 4)
+        self.assertEqual(len(self.policy["exceptions"]), 8)
         self.assertEqual(self.entry["path"], MCP_PATH)
         self.assertEqual(self.entry["source_sha256"], sha256(self.source))
         start = self.entry["start"]["offset"]
@@ -274,7 +285,10 @@ class FilterSemgrepTests(unittest.TestCase):
                 wrong_position = copy.deepcopy(report)
                 wrong_position["results"][0]["start"]["col"] += 1
                 wrong_position["results"][0]["start"]["offset"] += 1
-                self.assert_fail(self.run_filter(report=wrong_position), "UNLISTED_FINDING")
+                self.assert_fail(
+                    self.run_filter(report=wrong_position),
+                    "INVALID_SOURCE_SPAN" if entry["rule_id"] == WEBSOCKET_RULE else "UNLISTED_FINDING",
+                )
 
                 duplicate = copy.deepcopy(report)
                 duplicate["results"].append(copy.deepcopy(finding))
