@@ -232,6 +232,13 @@ export default class Device extends AABBDevice {
     private doorStats: DoorStats
     private energyStats: EnergyStats
 
+    stopTimers() {
+        if (this.midnightTimer) clearInterval(this.midnightTimer)
+        if (this.doorWarningTimer) clearTimeout(this.doorWarningTimer)
+        this.midnightTimer = undefined
+        this.doorWarningTimer = undefined
+    }
+
     start() {
         this.send(Buffer.from('F0ED1211010000010400', 'hex'))
     }

@@ -183,3 +183,113 @@ test('ThinQ1 metadata rejects unsafe, coalesced, and oversized device IDs', () =
         rmSync(directory, { recursive: true, force: true })
     }
 })
+
+test('metadata admission preserves an oversized legacy inventory and avoids unchanged writes', async () => {
+    const { statSync } = await import('node:fs')
+    const directory = mkdtempSync(join(tmpdir(), 'rethink-thinq1-quota-'))
+    const filename = join(directory, 'thinq1-metadata.json')
+    const inventory = Object.fromEntries(
+        Array.from({ length: 1025 }, (_, index) => [
+            `device-${index}`,
+            { modelId: 'MODEL', modelName: 'MODEL', deviceType: '403' },
+        ]),
+    )
+    writeFileSync(filename, JSON.stringify(inventory))
+    const original = readFileSync(filename, 'utf8')
+    try {
+        const handle = metadataRoute(directory)
+        assert.equal(readFileSync(filename, 'utf8'), original, 'startup must not rewrite existing metadata')
+        let status = 200
+        const response = {
+            header: () => response,
+            end() {},
+            status(value: number) {
+                status = value
+                return response
+            },
+        }
+        const request = (id: string, modelName: string) =>
+            handle(
+                {
+                    headers: { 'x-lgedm-deviceid': id, 'x-lgedm-devicetype': '403' },
+                    body: { lgedmRoot: { modelName } },
+                },
+                response,
+            )
+        request('new-device', 'MODEL')
+        assert.equal(status, 429)
+        assert.equal(readFileSync(filename, 'utf8'), original)
+        const before = statSync(filename, { bigint: true }).mtimeNs
+        request('device-0', 'MODEL')
+        assert.equal(statSync(filename, { bigint: true }).mtimeNs, before)
+        request('device-0', 'UPDATED')
+        const saved = JSON.parse(readFileSync(filename, 'utf8'))
+        assert.equal(Object.keys(saved).length, 1025)
+        assert.equal(saved['device-0'].modelName, 'UPDATED')
+    } finally {
+        rmSync(directory, { recursive: true, force: true })
+    }
+})
+
+test('the real ThinQ1 HTTP parser rejects malformed and oversized XML and accepts valid XML', async () => {
+    const { default: express } = await import('express')
+    const directory = mkdtempSync(join(tmpdir(), 'rethink-thinq1-parser-'))
+    const application = express()
+    application.use(routes({ bridge: { storage_path: directory } } as Config))
+    const server = application.listen(0, '127.0.0.1')
+    await new Promise<void>((resolve) => server.once('listening', resolve))
+    const address = server.address()
+    assert(address && typeof address === 'object')
+    const url = `http://127.0.0.1:${address.port}/lgehadm/api/Device/TotalDeviceInfoSvc`
+    const headers = { 'x-lgedm-deviceid': 'synthetic', 'x-lgedm-devicetype': '403' }
+    try {
+        for (const body of ['<', '<lgedmRoot><modelName>broken</lgedmRoot>', 'x'.repeat(1_000_001)]) {
+            assert.equal((await fetch(url, { method: 'POST', headers, body })).status, 400)
+            assert.equal(getDeviceMetadata('synthetic'), undefined)
+        }
+        assert.equal(
+            (await fetch(url, { method: 'POST', headers, body: '<lgedmRoot><modelName>MODEL</modelName></lgedmRoot>' }))
+                .status,
+            200,
+        )
+        assert.equal(getDeviceMetadata('synthetic')?.modelName, 'MODEL')
+    } finally {
+        server.closeAllConnections()
+        await new Promise<void>((resolve) => server.close(() => resolve()))
+        rmSync(directory, { recursive: true, force: true })
+    }
+})
+
+test('new ThinQ1 metadata admits exactly 1024 identities and writes nothing for rejected identities', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'rethink-thinq1-new-quota-'))
+    const filename = join(directory, 'thinq1-metadata.json')
+    const handle = metadataRoute(directory)
+    let status = 200
+    const response = {
+        header: () => response,
+        end() {},
+        status(value: number) {
+            status = value
+            return response
+        },
+    }
+    const request = (id: string) =>
+        handle(
+            {
+                headers: { 'x-lgedm-deviceid': id, 'x-lgedm-devicetype': '403' },
+                body: { lgedmRoot: { modelName: 'MODEL' } },
+            },
+            response,
+        )
+    try {
+        for (let index = 0; index < 1024; index++) request(`device-${index}`)
+        assert.equal(Object.keys(JSON.parse(readFileSync(filename, 'utf8'))).length, 1024)
+        const saved = readFileSync(filename, 'utf8')
+        request('one-too-many')
+        assert.equal(status, 429)
+        assert.equal(readFileSync(filename, 'utf8'), saved)
+        assert.equal(getDeviceMetadata('one-too-many'), undefined)
+    } finally {
+        rmSync(directory, { recursive: true, force: true })
+    }
+})

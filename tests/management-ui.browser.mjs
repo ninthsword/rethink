@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdir, readFile, stat } from 'node:fs/promises'
+import { mkdir, readFile, stat, writeFile } from 'node:fs/promises'
 import http from 'node:http'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -33,6 +33,8 @@ export async function exerciseManagementUI() {
     }
     const snapshot = { devices: [device], unassigned: [], configured: true, connected: true }
     const calls = []
+    const fingerprint = `SHA256:${Buffer.alloc(32, 2).toString('base64').replace(/=+$/, '')}`
+    let savedFingerprint = fingerprint
     const ws = new WebSocketServer({ noServer: true })
     const monitors = new Set()
     const server = http.createServer(async (req, res) => {
@@ -46,6 +48,16 @@ export async function exerciseManagementUI() {
                 for await (const chunk of req) chunks.push(chunk)
                 calls.push({ path: req.url, method: req.method, body: Buffer.concat(chunks).toString() })
                 res.setHeader('Content-Type', 'application/json')
+                if (req.url === '/api/router/config' && req.method === 'PUT') {
+                    const body = JSON.parse(Buffer.concat(chunks).toString())
+                    if (body.hostKeyFingerprint && body.hostKeyFingerprint !== fingerprint) {
+                        res.writeHead(400).end('SSH 호스트 키 지문은 SHA256 형식이어야 합니다.')
+                        return
+                    }
+                    savedFingerprint = body.hostKeyFingerprint
+                    res.end('{}')
+                    return
+                }
                 if (req.url === '/api/router/config')
                     res.end(
                         JSON.stringify({
@@ -53,13 +65,18 @@ export async function exerciseManagementUI() {
                             port: 22,
                             username: 'synthetic',
                             passwordSaved: true,
+                            hostKeyFingerprint: savedFingerprint,
                             rethinkIp: '192.0.2.2',
                         }),
                     )
-                else if (req.url === '/api/router/status') res.end(JSON.stringify(snapshot))
-                else if (req.url === '/api/router/test')
-                    res.end(JSON.stringify({ iptables: 'synthetic', conntrack: 'synthetic' }))
-                else if (req.url === '/api/router/devices/fixture-entry' && req.method === 'PUT')
+                else if (req.url === '/api/router/status')
+                    res.end(
+                        JSON.stringify({ ...snapshot, configured: !!savedFingerprint, connected: !!savedFingerprint }),
+                    )
+                else if (req.url === '/api/router/test') {
+                    if (!savedFingerprint) res.writeHead(400).end('Router SSH settings are not configured')
+                    else res.end(JSON.stringify({ iptables: 'synthetic', conntrack: 'synthetic' }))
+                } else if (req.url === '/api/router/devices/fixture-entry' && req.method === 'PUT')
                     res.writeHead(409).end('Turn DNAT off before changing this entry.')
                 else res.end('{}')
                 return
@@ -189,6 +206,11 @@ export async function exerciseManagementUI() {
         assert.equal(await page.locator('#router_error').textContent(), rawStatus)
         assert.equal(await page.locator('#test_router').textContent(), 'Test saved settings')
         await page.locator('#router_host').fill('192.0.2.99')
+        assert.equal(
+            await page.locator('#router_fingerprint').inputValue(),
+            '',
+            'editing an endpoint clears inherited trust',
+        )
         await page.locator('#router_password').fill('unsaved-synthetic-password')
         await page.locator('#router_password').focus()
         await page.evaluate(() => refresh())
@@ -230,6 +252,69 @@ export async function exerciseManagementUI() {
             'Turn DNAT off before changing this entry.',
         )
         await page.evaluate(() => UI.setLocale('ko'))
+        await page.evaluate(() => loadConfig())
+        assert.equal(await page.locator('#router_fingerprint').inputValue(), fingerprint)
+        const accessibilityModule = process.env.UI_ACCESSIBILITY_MODULE
+        assert(accessibilityModule, 'UI_ACCESSIBILITY_MODULE is required')
+        const { scanPage } = await import(pathToFileURL(accessibilityModule).href)
+        async function captureFingerprint(state) {
+            for (const viewport of [
+                { width: 390, height: 844 },
+                { width: 1440, height: 900 },
+            ]) {
+                await page.setViewportSize(viewport)
+                if (viewport.width === 1440)
+                    assert(
+                        await page
+                            .locator('#router_fingerprint')
+                            .evaluate((input) => input.scrollWidth <= input.clientWidth + 1),
+                        'desktop must show the entire trusted fingerprint',
+                    )
+                const scan = await scanPage(page)
+                assert.deepEqual(scan.violations, [], `${state}: ${JSON.stringify(scan.violations)}`)
+                if (process.env.MANAGEMENT_SCREENSHOT_DIR) {
+                    await mkdir(process.env.MANAGEMENT_SCREENSHOT_DIR, { recursive: true, mode: 0o700 })
+                    const stem = path.join(
+                        process.env.MANAGEMENT_SCREENSHOT_DIR,
+                        `router-fingerprint-${state}-${viewport.width}`,
+                    )
+                    await writeFile(stem + '.axe.json', JSON.stringify(scan, null, 2))
+                    await page.screenshot({ path: stem + '.png', fullPage: true })
+                }
+            }
+        }
+        await page.locator('#router_fingerprint').focus()
+        await page.keyboard.press('Tab')
+        assert.equal(await page.evaluate(() => document.activeElement.id), 'test_router')
+        await captureFingerprint('normal')
+        savedFingerprint = ''
+        await page.evaluate(() => loadConfig())
+        await page.locator('#test_router').click()
+        await page.waitForFunction(() =>
+            document.getElementById('router_error').textContent.includes('호스트 키 지문을 확인'),
+        )
+        assert.equal(await page.locator('#router_fingerprint').inputValue(), '')
+        await captureFingerprint('missing')
+        await page.locator('#router_fingerprint').fill('malformed-pin')
+        await page.locator('#router_password').fill('retained-synthetic-password')
+        await page.locator('#save_router').click()
+        await page.waitForFunction(() => document.getElementById('router_error').textContent.includes('SHA256 형식'))
+        assert.equal(await page.locator('#router_password').inputValue(), 'retained-synthetic-password')
+        assert.equal(await page.locator('#router_fingerprint').inputValue(), 'malformed-pin')
+        await captureFingerprint('malformed')
+        await page.locator('#router_fingerprint').fill(fingerprint)
+        await page.locator('#save_router').focus()
+        await page.keyboard.press('Enter')
+        await page.waitForFunction(
+            () => document.getElementById('router_error').textContent === '공유기 설정을 저장했습니다',
+        )
+        assert.equal(await page.locator('#router_password').inputValue(), '')
+        assert.equal(await page.locator('#router_fingerprint').inputValue(), fingerprint)
+        const saved = JSON.parse(
+            calls.filter((call) => call.path === '/api/router/config' && call.method === 'PUT').at(-1).body,
+        )
+        assert.equal(saved.hostKeyFingerprint, fingerprint)
+        await captureFingerprint('saved')
         for (const route of ['/', '/router.html', `/monitor?id=${encodeURIComponent(id)}`]) {
             await page.goto(origin + route)
             await page.waitForFunction(() => !document.querySelector('main').inert)

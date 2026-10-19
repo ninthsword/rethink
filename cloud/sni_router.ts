@@ -18,6 +18,8 @@ import log from '@/util/logging'
 
 /** The largest ClientHello worth waiting for before giving up and handling it locally. */
 const MAX_HELLO_BYTES = 8 * 1024
+export const PREFACE_TIMEOUT_MS = 10_000
+export const MAX_PENDING_PREFACES = 64
 
 /**
  * The server name from a TLS ClientHello, or undefined if this is not one, does not carry a
@@ -100,7 +102,13 @@ export function createSNIRouter({
     upstreamPort,
     handleLocally,
 }: SNIRouterOptions) {
+    let pending = 0
     return net.createServer((socket) => {
+        if (pending >= MAX_PENDING_PREFACES) {
+            socket.destroy()
+            return
+        }
+        pending++
         let buffered = Buffer.alloc(0)
         let settled = false
 
@@ -111,8 +119,17 @@ export function createSNIRouter({
          */
         socket.pause()
 
+        const timer = setTimeout(() => {
+            stopPeeking()
+            socket.destroy()
+        }, PREFACE_TIMEOUT_MS)
+        timer.unref()
         const stopPeeking = () => {
+            if (settled) return
             settled = true
+            pending--
+            clearTimeout(timer)
+            socket.removeListener('close', stopPeeking)
             socket.removeListener('readable', onReadable)
             socket.removeListener('end', onEnd)
             socket.removeListener('error', onEarlyError)
@@ -177,8 +194,12 @@ export function createSNIRouter({
 
         // Whatever it was, it is the local server's to answer or refuse, not ours to drop.
         const onEnd = () => takeLocally()
-        const onEarlyError = () => socket.destroy()
+        const onEarlyError = () => {
+            stopPeeking()
+            socket.destroy()
+        }
 
+        socket.once('close', stopPeeking)
         socket.on('readable', onReadable)
         socket.on('end', onEnd)
         socket.on('error', onEarlyError)

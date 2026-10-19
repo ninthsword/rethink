@@ -41,9 +41,10 @@ function verifyPassword(socketPath, password) {
         request.end()
     })
 }
-function stripHeaders(request) {
+function stripHeaders(request, backend) {
     for (const name of Object.keys(request.headers)) {
         if (
+            name === 'origin' ||
             name === 'authorization' ||
             name === 'proxy-authorization' ||
             name === 'forwarded' ||
@@ -54,6 +55,7 @@ function stripHeaders(request) {
             delete request.headers[name]
         }
     }
+    request.headers.host = new URL(backend).host
     const cookies = (request.headers.cookie ?? '').split(';').filter((item) => item.trim().split('=')[0] !== COOKIE)
     if (cookies.some((item) => item.trim())) request.headers.cookie = cookies.join(';')
     else delete request.headers.cookie
@@ -89,7 +91,7 @@ export function createService({
         const origin = Object.hasOwn(hosts, host) ? hosts[host] : undefined
         if (!origin) return response.status(421).end()
         if (
-            (request.headers.origin && request.headers.origin !== origin) ||
+            (request.headers.origin !== undefined && request.headers.origin !== origin) ||
             (!['GET', 'HEAD'].includes(request.method) && request.headers.origin !== origin) ||
             (request.headers.upgrade && request.headers.origin !== origin)
         )
@@ -174,7 +176,7 @@ export function createService({
             }
             return response.status(401).end()
         }
-        stripHeaders(request)
+        stripHeaders(request, backend)
         proxy.web(request, response, { xfwd: false }).catch(() => {
             if (!response.headersSent) response.status(502).end()
             else response.destroy()
@@ -195,7 +197,7 @@ export function createService({
                 // destroys an upstream which resolves after the client/session has disappeared.
                 if (!authority.attach(request.sessionID, socket)) return
                 response.detachSocket(socket)
-                stripHeaders(request)
+                stripHeaders(request, backend)
                 try {
                     const upstream = await proxyUpgrade(backend, request, socket, head, { xfwd: false })
                     if (socket.destroyed || !authority.attach(request.sessionID, upstream)) upstream.destroy()

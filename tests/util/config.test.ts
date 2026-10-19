@@ -158,3 +158,13 @@ test('configured DNS names preserve spelling through the maximum supported lengt
         assert.equal(normalize({ ...minimal(), hostname }).hostname, hostname)
     }
 })
+
+test('MQTT diagnostics default to disabled and normalize only bounded explicit account grants', () => {
+    assert.deepEqual(normalize(minimal()).mqtt_diagnostics, [])
+    const account = { username: 'diagnostic', password: 'synthetic-secret-unique', device_ids: ['one'] }
+    const normalized = normalize({ ...minimal(), mqtt_diagnostics: [account] })
+    assert.equal(normalized.mqtt_diagnostics[0].allow_publish, false)
+    account.device_ids.push('two')
+    assert.deepEqual(normalized.mqtt_diagnostics[0].device_ids, ['one'])
+    assert.throws(() => normalize({ ...minimal(), mqtt_diagnostics: [{ ...account, password: 'short' }] }), /진단 계정/)
+})

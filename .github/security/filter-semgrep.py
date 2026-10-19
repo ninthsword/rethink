@@ -36,6 +36,15 @@ REVIEWED_RULE_PATHS = frozenset(
             "python.lang.security.audit.httpsconnection-detected.httpsconnection-detected",
             "management-gateway/tests/integration.py",
         ),
+        (
+            "python.lang.security.insecure-hash-algorithms.insecure-hash-algorithm-sha1",
+            "management-gateway/tests/local-upstream.py",
+        ),
+        (
+            "python.lang.security.audit.httpsconnection-detected.httpsconnection-detected",
+            "management-gateway/tests/local-upstream.py",
+        ),
+        (INSECURE_WEBSOCKET_RULE, "tests/management/index.test.ts"),
     }
 )
 REQUIRED_SPAN_LENGTH = 5

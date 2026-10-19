@@ -20,8 +20,9 @@ export class RouterAPI {
         readonly ha: HA_bridge,
         readonly manager: DeviceManager,
         readonly bridge: Bridge | undefined,
+        sharedStore?: RouterConfigStore,
     ) {
-        this.store = bridge?.options?.policy?.store ?? new RouterConfigStore(filename)
+        this.store = sharedStore ?? bridge?.options?.policy?.store ?? new RouterConfigStore(filename)
         if (bridge && !bridge.options.policy) bridge.options.policy = new BridgePolicy(this.store)
         manager.on('newDevice', (device) => {
             void this.store
@@ -60,8 +61,17 @@ export class RouterAPI {
         app.put(
             '/api/router/config',
             this.wrap(async (req, res) => {
+                if (this.store.recoverHostKeyFingerprint(req.body)) return res.json(this.store.publicRouter())
                 if (this.store.devices().some((entry) => entry.dnatDesired))
                     throw new ConflictError('Turn all DNAT entries off before changing router settings.')
+                if (
+                    this.store.hasConnectionSettings() &&
+                    !this.store.configured() &&
+                    this.store.devices().some((entry) => entryMode(entry) === 'dnat')
+                )
+                    throw new ConflictError(
+                        '공유기 설정을 변경하기 전에 저장된 SSH 호스트 키 지문을 복구하고 기존 DNAT 규칙이 해제되었는지 확인하세요.',
+                    )
                 if (this.store.configured()) {
                     const states = await new DNATManager(this.store.router()).status(this.store.devices())
                     if (Object.values(states).some((state) => state !== 'off'))

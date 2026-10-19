@@ -1,16 +1,19 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { type Request, type Response, Router } from 'express'
-import { XMLBuilder, XMLParser } from 'fast-xml-parser'
+import { XMLBuilder, XMLParser, XMLValidator } from 'fast-xml-parser'
 import type { Config } from '@/util/config'
 import { isSafeDeviceId } from '../device_id'
 import type { Metadata } from '../thinq'
 
 const XML_HEADER = '<?xml version="1.0" encoding="utf-8" standalone="yes"?>'
 const MAX_METADATA_TEXT_LENGTH = 128
+const MAX_METADATA_ENTRIES = 1024
+const MAX_BODY_BYTES = 1_000_000
 
 const deviceMeta = new Map<string, Metadata>()
 let metadataFile: string | undefined
+let metadataLimit = MAX_METADATA_ENTRIES
 
 function isBoundedMetadataText(value: unknown): value is string {
     return (
@@ -33,6 +36,7 @@ function configureMetadataStorage(config: Config) {
         ? resolve(config.bridge.storage_path, 'thinq1-metadata.json')
         : undefined
     if (!filename || metadataFile === filename) return
+    deviceMeta.clear()
     metadataFile = filename
     try {
         const saved = JSON.parse(readFileSync(filename, 'utf-8')) as Record<string, Metadata>
@@ -49,6 +53,7 @@ function configureMetadataStorage(config: Config) {
     } catch {
         // The file is optional and is created after the first metadata request.
     }
+    metadataLimit = Math.max(MAX_METADATA_ENTRIES, deviceMeta.size)
 }
 
 function persistMetadata() {
@@ -70,18 +75,26 @@ function xmlParser(req: Request, res: Response, next: () => void) {
 
     req.on('data', (data) => {
         if (!error) {
-            buffers.push(data)
             length += data.length
-            if (length > 1000000) {
+            if (length > MAX_BODY_BYTES) {
                 res.status(400).end()
                 error = true
-            }
+                buffers.length = 0
+            } else buffers.push(data)
         }
     })
 
     req.on('end', () => {
         if (!error) {
-            req.body = new XMLParser().parse(Buffer.concat(buffers))
+            try {
+                const body = Buffer.concat(buffers).toString('utf-8')
+                if (XMLValidator.validate(body) !== true) throw new Error('Invalid XML')
+                req.body = new XMLParser().parse(body)
+            } catch {
+                error = true
+                res.status(400).end()
+                return
+            }
             next()
         }
     })
@@ -105,12 +118,21 @@ export function routes(config: Config) {
         if (!deviceId) return res.status(400).end()
 
         if (isBoundedMetadataText(modelName) && isBoundedMetadataText(deviceType)) {
-            deviceMeta.set(deviceId, {
+            const previous = deviceMeta.get(deviceId)
+            if (!previous && deviceMeta.size >= metadataLimit) return res.status(429).end()
+            const meta = {
                 deviceType,
                 modelId: modelName,
                 modelName,
-            })
-            persistMetadata()
+            }
+            if (
+                previous?.modelId !== meta.modelId ||
+                previous.modelName !== meta.modelName ||
+                previous.deviceType !== meta.deviceType
+            ) {
+                deviceMeta.set(deviceId, meta)
+                persistMetadata()
+            }
         }
 
         if (req.body?.lgedmRoot?.itemList?.item === 'DM_SETTING_INFO_GET_URI') {

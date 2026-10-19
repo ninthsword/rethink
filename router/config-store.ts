@@ -1,5 +1,15 @@
 import { randomUUID } from 'node:crypto'
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import {
+    closeSync,
+    constants,
+    fstatSync,
+    mkdirSync,
+    openSync,
+    readFileSync,
+    readSync,
+    renameSync,
+    writeFileSync,
+} from 'node:fs'
 import { isIP } from 'node:net'
 import path from 'node:path'
 
@@ -9,6 +19,7 @@ export type RouterSSHConfig = {
     username: string
     password: string
     rethinkIp: string
+    hostKeyFingerprint?: string
 }
 
 export type RouterDeviceEntry = {
@@ -42,6 +53,37 @@ function validIPv4(value: string) {
     return isIP(value) === 4
 }
 
+export function isHostKeyFingerprint(value: unknown): value is string {
+    return (
+        typeof value === 'string' &&
+        /^SHA256:[A-Za-z0-9+/]{43}$/.test(value) &&
+        Buffer.from(value.slice(7), 'base64').toString('base64').replace(/=+$/, '') === value.slice(7)
+    )
+}
+
+function companionFingerprint(filename: string, router: RouterSSHConfig) {
+    let descriptor: number | undefined
+    try {
+        descriptor = openSync(
+            path.join(path.dirname(filename), 'router-ssh-trust.json'),
+            constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
+        )
+        const stat = fstatSync(descriptor)
+        if (!stat.isFile() || stat.uid !== process.getuid?.() || (stat.mode & 0o7777) !== 0o600 || stat.size > 4096)
+            return
+        const buffer = Buffer.alloc(4097)
+        const length = readSync(descriptor, buffer, 0, buffer.length, 0)
+        if (length > 4096) return
+        const trust = JSON.parse(buffer.subarray(0, length).toString('utf-8')) as Record<string, unknown>
+        if (trust.host === router.host && trust.port === router.port && isHostKeyFingerprint(trust.hostKeyFingerprint))
+            return trust.hostKeyFingerprint
+    } catch {
+        // Missing or unsafe trust never changes inventory or permits credential use.
+    } finally {
+        if (descriptor !== undefined) closeSync(descriptor)
+    }
+}
+
 export class RouterConfigStore {
     private config: RouterConfig
     private persisted: RouterConfig
@@ -63,8 +105,13 @@ export class RouterConfigStore {
     private load() {
         try {
             const parsed = JSON.parse(readFileSync(this.filename, 'utf-8')) as Partial<RouterConfig>
+            const router = { ...emptyConfig().router, ...parsed.router }
+            if (!Object.prototype.hasOwnProperty.call(parsed.router ?? {}, 'hostKeyFingerprint')) {
+                const fingerprint = companionFingerprint(this.filename, router)
+                if (fingerprint) router.hostKeyFingerprint = fingerprint
+            }
             return {
-                router: { ...emptyConfig().router, ...parsed.router },
+                router,
                 /*
                  * These addresses are interpolated into an iptables command that runs on the
                  * router as root. Everything arriving through the API is checked; the file
@@ -97,9 +144,13 @@ export class RouterConfigStore {
         }
     }
 
-    configured() {
+    hasConnectionSettings() {
         const r = this.config.router
         return validIPv4(r.host) && validIPv4(r.rethinkIp) && !!r.username && !!r.password && r.port > 0
+    }
+
+    configured() {
+        return this.hasConnectionSettings() && isHostKeyFingerprint(this.config.router.hostKeyFingerprint)
     }
 
     router() {
@@ -111,6 +162,41 @@ export class RouterConfigStore {
         return { ...router, passwordSaved: !!password }
     }
 
+    recoverHostKeyFingerprint(input: unknown) {
+        const current = this.config.router
+        if (
+            (current.hostKeyFingerprint !== undefined && current.hostKeyFingerprint !== '') ||
+            !input ||
+            typeof input !== 'object' ||
+            Array.isArray(input)
+        )
+            return false
+        const fields = input as Record<string, unknown>
+        const keys = Object.keys(fields)
+        if (
+            !isHostKeyFingerprint(fields.hostKeyFingerprint) ||
+            keys.some(
+                (key) => !['host', 'port', 'username', 'password', 'rethinkIp', 'hostKeyFingerprint'].includes(key),
+            ) ||
+            ['host', 'port', 'username', 'rethinkIp'].some(
+                (key) => keys.includes(key) && fields[key] !== current[key as keyof RouterSSHConfig],
+            ) ||
+            (fields.password !== undefined && fields.password !== '') ||
+            !validIPv4(current.host) ||
+            !validIPv4(current.rethinkIp) ||
+            !Number.isInteger(current.port) ||
+            current.port < 1 ||
+            current.port > 65535 ||
+            !current.username ||
+            !current.password
+        )
+            return false
+        // Restore only absent trust; preserve the exact saved credentials, inventory and intent.
+        this.config.router = { ...current, hostKeyFingerprint: fields.hostKeyFingerprint }
+        this.save()
+        return true
+    }
+
     updateRouter(input: Partial<RouterSSHConfig>) {
         const current = this.config.router
         const next = {
@@ -119,12 +205,21 @@ export class RouterConfigStore {
             username: `${input.username ?? current.username}`.trim(),
             password: input.password ? `${input.password}` : current.password,
             rethinkIp: `${input.rethinkIp ?? current.rethinkIp}`.trim(),
+            hostKeyFingerprint:
+                input.hostKeyFingerprint !== undefined
+                    ? `${input.hostKeyFingerprint}`.trim()
+                    : `${input.host ?? current.host}`.trim() === current.host &&
+                        Number(input.port ?? current.port) === current.port
+                      ? current.hostKeyFingerprint
+                      : undefined,
         }
         if (!validIPv4(next.host)) throw new Error('Invalid router IPv4 address')
         if (!validIPv4(next.rethinkIp)) throw new Error('Invalid rethink IPv4 address')
         if (!Number.isInteger(next.port) || next.port < 1 || next.port > 65535) throw new Error('Invalid SSH port')
         if (!next.username) throw new Error('SSH username is required')
         if (!next.password) throw new Error('SSH password is required')
+        if (next.hostKeyFingerprint && !isHostKeyFingerprint(next.hostKeyFingerprint))
+            throw new Error('SSH 호스트 키 지문은 SHA256 형식이어야 합니다.')
         if (this.config.devices.some((entry) => entry.ip === next.host || entry.ip === next.rethinkIp))
             throw new Error('Router or rethink server IP is already registered as a device')
         this.config.router = next

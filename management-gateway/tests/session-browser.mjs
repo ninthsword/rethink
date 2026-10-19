@@ -187,7 +187,7 @@ async function exercise(mode) {
             )
         }
         const forwarded = await page.evaluate(async () => (await (await fetch('/api/read')).json()).headers)
-        assert.equal(forwarded.host, new URL(metadata.origin).host)
+        assert.equal(forwarded.host, new URL(metadata.backend).host)
         assert.equal(forwarded.authorization, undefined)
         assert.equal(forwarded.cookie, undefined)
         if (metadata.duration === 600000) {
