@@ -43,7 +43,7 @@
       "id": "session-fixture-websocket-sha1",
       "rule_id": "python.lang.security.insecure-hash-algorithms.insecure-hash-algorithm-sha1",
       "path": "management-gateway/tests/integration.py",
-      "source_sha256": "4c9c1412527d61b9b56881edadbf7bfc2da69c8e2d841f9a44f96df6d17688d9",
+      "source_sha256": "cc350d521546488794f7a47622116d16ca85b35295d638e44949a27efe7a039f",
       "start": {
         "line": 71,
         "col": 39,
@@ -62,7 +62,7 @@
       "id": "session-fixture-trusted-https-client",
       "rule_id": "python.lang.security.audit.httpsconnection-detected.httpsconnection-detected",
       "path": "management-gateway/tests/integration.py",
-      "source_sha256": "4c9c1412527d61b9b56881edadbf7bfc2da69c8e2d841f9a44f96df6d17688d9",
+      "source_sha256": "cc350d521546488794f7a47622116d16ca85b35295d638e44949a27efe7a039f",
       "start": {
         "line": 172,
         "col": 22,
@@ -76,6 +76,82 @@
       "source_line_sha256": "55fc5d39a67d45e290d15a02791390cb51265352640094aa5810fb1bcdecaec4",
       "max_count": 1,
       "rationale": "This HTTPSConnection is confined to a synthetic integration fixture with explicit trusted CA verification and loopback routing; it does not alter production TLS behavior."
+    },
+    {
+      "id": "local-upstream-websocket-sha1",
+      "rule_id": "python.lang.security.insecure-hash-algorithms.insecure-hash-algorithm-sha1",
+      "path": "management-gateway/tests/local-upstream.py",
+      "source_sha256": "0e23bb4cf6dfe24cc3d4f3401dff099b68152b85d5b96ff36adc7b9e559f20d3",
+      "start": {
+        "line": 43,
+        "col": 39,
+        "offset": 1481
+      },
+      "end": {
+        "line": 44,
+        "col": 89,
+        "offset": 1619
+      },
+      "source_line_sha256": "3216267d909187c354f9e781ada20074cdd8ecadc5ea7cca5e9dc6b39b20d1b4",
+      "max_count": 1,
+      "rationale": "This SHA-1 computes the public RFC 6455 WebSocket handshake accept value with usedforsecurity=False in a synthetic local upstream test fixture; it is protocol-mandated and is not used for passwords, authentication, or integrity decisions."
+    },
+    {
+      "id": "local-upstream-trusted-https-client",
+      "rule_id": "python.lang.security.audit.httpsconnection-detected.httpsconnection-detected",
+      "path": "management-gateway/tests/local-upstream.py",
+      "source_sha256": "0e23bb4cf6dfe24cc3d4f3401dff099b68152b85d5b96ff36adc7b9e559f20d3",
+      "start": {
+        "line": 170,
+        "col": 30,
+        "offset": 7815
+      },
+      "end": {
+        "line": 170,
+        "col": 104,
+        "offset": 7889
+      },
+      "source_line_sha256": "8169ec4ea683aba1a43f12593a8f7ee943e03e30d977d316d50a18e1959b3c1d",
+      "max_count": 1,
+      "rationale": "This HTTPSConnection is a loopback test client in a synthetic local upstream fixture whose SSL context verifies the fixture's own generated certificate; it does not alter production TLS behavior."
+    },
+    {
+      "id": "management-monitor-loopback-websocket",
+      "rule_id": "javascript.lang.security.detect-insecure-websocket.detect-insecure-websocket",
+      "path": "tests/management/index.test.ts",
+      "source_sha256": "b2c4c496a2900dc5dcf58a5628711021d2d2d34f89eba9065187dcda5c16d926",
+      "start": {
+        "line": 69,
+        "col": 39,
+        "offset": 2491
+      },
+      "end": {
+        "line": 69,
+        "col": 44,
+        "offset": 2496
+      },
+      "source_line_sha256": "1d3511a15f053f301eb7a416bfd3507303a5687e1f6f4c2b63e4dbb03aaf92aa",
+      "max_count": 1,
+      "rationale": "A test client opens a plain WebSocket URL to the test's own monitor server on its loopback bind host; the connection never leaves the local test process and carries no production traffic."
+    },
+    {
+      "id": "management-origin-check-loopback-websocket",
+      "rule_id": "javascript.lang.security.detect-insecure-websocket.detect-insecure-websocket",
+      "path": "tests/management/index.test.ts",
+      "source_sha256": "b2c4c496a2900dc5dcf58a5628711021d2d2d34f89eba9065187dcda5c16d926",
+      "start": {
+        "line": 314,
+        "col": 43,
+        "offset": 13024
+      },
+      "end": {
+        "line": 314,
+        "col": 48,
+        "offset": 13029
+      },
+      "source_line_sha256": "fa4ad1f90cc1c3ccb2c7cde2ff94115085724023dbb6175236e5bdd5ee63b035",
+      "max_count": 1,
+      "rationale": "A test client opens a plain WebSocket URL to the test server at 127.0.0.1 to check that a foreign Host or Origin is refused; the connection stays on loopback inside the test."
     }
   ]
 }
