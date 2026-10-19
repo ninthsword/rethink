@@ -16,10 +16,12 @@
     "node": ">=22.0.0"
   },
   "devDependencies": {
+    "@axe-core/playwright": "4.13.0",
     "@biomejs/biome": "2.5.10",
     "@types/express": "^5.0.6",
     "@types/node": "^24.10.1",
     "@types/ws": "^8.18.1",
+    "playwright": "1.61.0",
     "pyright": "1.1.413",
     "tsc-alias": "^1.8.16",
     "tsx": "^4.23.12",
@@ -36,6 +38,7 @@
     "check:write": "biome check --write .",
     "postinstall": "node scripts/install-git-hooks.mjs",
     "test": "node scripts/run-tests.mjs",
+    "test:ui-browser": "node scripts/run-ui-browser.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc -p tsconfig.node-tools.json && tsc -p tsconfig.browser-monitor.json && tsc -p tsconfig.browser-panel.json && tsc -p tsconfig.browser-router.json",
     "typecheck:python": "pyright --project pyrightconfig.json",
     "typecheck:cpp": "\"${CXX:-g++}\" -std=c++17 -Wall -Wextra -fsyntax-only tools/appliance-simulator/simulator.cpp"
