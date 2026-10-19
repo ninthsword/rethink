@@ -119,16 +119,16 @@
       "id": "management-monitor-loopback-websocket",
       "rule_id": "javascript.lang.security.detect-insecure-websocket.detect-insecure-websocket",
       "path": "tests/management/index.test.ts",
-      "source_sha256": "b2c4c496a2900dc5dcf58a5628711021d2d2d34f89eba9065187dcda5c16d926",
+      "source_sha256": "012925817d6a1087aaaa7a1751e6f25ae0bb5b8c8d290ad79c2f6ccafb2b0ab6",
       "start": {
-        "line": 69,
+        "line": 70,
         "col": 39,
-        "offset": 2491
+        "offset": 2546
       },
       "end": {
-        "line": 69,
+        "line": 70,
         "col": 44,
-        "offset": 2496
+        "offset": 2551
       },
       "source_line_sha256": "1d3511a15f053f301eb7a416bfd3507303a5687e1f6f4c2b63e4dbb03aaf92aa",
       "max_count": 1,
@@ -138,16 +138,16 @@
       "id": "management-origin-check-loopback-websocket",
       "rule_id": "javascript.lang.security.detect-insecure-websocket.detect-insecure-websocket",
       "path": "tests/management/index.test.ts",
-      "source_sha256": "b2c4c496a2900dc5dcf58a5628711021d2d2d34f89eba9065187dcda5c16d926",
+      "source_sha256": "012925817d6a1087aaaa7a1751e6f25ae0bb5b8c8d290ad79c2f6ccafb2b0ab6",
       "start": {
-        "line": 314,
+        "line": 335,
         "col": 43,
-        "offset": 13024
+        "offset": 14186
       },
       "end": {
-        "line": 314,
+        "line": 335,
         "col": 48,
-        "offset": 13029
+        "offset": 14191
       },
       "source_line_sha256": "fa4ad1f90cc1c3ccb2c7cde2ff94115085724023dbb6175236e5bdd5ee63b035",
       "max_count": 1,

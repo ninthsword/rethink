@@ -43,6 +43,7 @@ async function createMonitorFixture(bindHost = '127.0.0.1') {
     const server = app(fakeHA(), manager, undefined, path.join(directory, 'missing-router-config.json'))
     const sockets = new Set<Socket>()
     const clients = new Set<WebSocket>()
+    const serverSockets = new Map<WebSocket, Socket>()
 
     server.on('connection', (socket) => {
         sockets.add(socket)
@@ -72,6 +73,11 @@ async function createMonitorFixture(bindHost = '127.0.0.1') {
         clients.add(client)
         client.on('close', () => clients.delete(client))
         client.on('error', () => {})
+        const upgraded = new Promise<{ address?: string; port?: number }>((resolve) =>
+            client.once('upgrade', (response) =>
+                resolve({ address: response.socket.localAddress, port: response.socket.localPort }),
+            ),
+        )
 
         await new Promise<void>((resolve, reject) => {
             const onError = (error: Error) => {
@@ -91,14 +97,29 @@ async function createMonitorFixture(bindHost = '127.0.0.1') {
             client.once('error', onError)
             client.once('message', onMessage)
         })
+        // Server cleanup runs on the server side's close, which can come after the client's on some
+        // loopback paths (WSL mirrored networking), so closeClient waits for both.
+        const local = await upgraded
+        const serverSocket = [...sockets].find(
+            (socket) => socket.remotePort === local.port && socket.remoteAddress === local.address,
+        )
+        if (!serverSocket) throw new Error(`No server socket for client ${local.address}:${local.port}`)
+        serverSockets.set(client, serverSocket)
         return client
     }
 
     async function closeClient(client: WebSocket) {
-        if (client.readyState === WebSocket.CLOSED) return
-        const closed = new Promise<void>((resolve) => client.once('close', () => resolve()))
-        client.close()
-        await closed
+        const serverSocket = serverSockets.get(client)
+        const serverClosed =
+            serverSocket && sockets.has(serverSocket)
+                ? new Promise<void>((resolve) => serverSocket.once('close', () => resolve()))
+                : Promise.resolve()
+        if (client.readyState !== WebSocket.CLOSED) {
+            const closed = new Promise<void>((resolve) => client.once('close', () => resolve()))
+            client.close()
+            await closed
+        }
+        await serverClosed
     }
 
     async function cleanup() {
