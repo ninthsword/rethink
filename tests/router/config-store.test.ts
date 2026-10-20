@@ -43,7 +43,7 @@ describe('what the router configuration will accept', () => {
         writeFileSync(
             file,
             JSON.stringify({
-                router: { host: '192.168.1.1', port: 22, username: 'admin', password: 'x', rethinkIp: '192.168.1.2' },
+                router: { host: '192.168.1.254', port: 22, username: 'admin', password: 'x', rethinkIp: '192.168.1.2' },
                 devices: [
                     { entryId: 'a', ip: '192.168.1.5' },
                     { entryId: 'b', ip: '192.168.1.6; reboot' },
@@ -72,14 +72,14 @@ describe('what the router configuration will accept', () => {
     test('the router itself cannot be registered as one of its own devices', () => {
         const store = new RouterConfigStore(file)
         store.updateRouter({
-            host: '192.168.1.1',
+            host: '192.168.1.254',
             port: 22,
             username: 'admin',
             password: 'x',
             rethinkIp: '192.168.1.2',
         })
 
-        assert.throws(() => store.addDevice('192.168.1.1'), /cannot be registered/)
+        assert.throws(() => store.addDevice('192.168.1.254'), /cannot be registered/)
         assert.throws(() => store.addDevice('192.168.1.2'), /cannot be registered/)
     })
 })

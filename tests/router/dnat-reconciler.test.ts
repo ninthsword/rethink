@@ -11,7 +11,7 @@ function makeStore() {
     const dir = mkdtempSync(path.join(tmpdir(), 'rethink-router-'))
     const store = new RouterConfigStore(path.join(dir, 'router-dnat.json'))
     store.updateRouter({
-        host: '192.168.1.1',
+        host: '192.168.1.254',
         port: 22,
         username: 'admin',
         password: 'x',
