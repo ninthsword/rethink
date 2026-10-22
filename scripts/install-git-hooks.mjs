@@ -6,7 +6,7 @@
 
 import { execFileSync } from 'node:child_process'
 import { chmodSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { dirname, join, relative, resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 if (process.env.SKIP_GIT_HOOKS) {
@@ -20,7 +20,7 @@ const hooks = pkg['simple-git-hooks'] ?? {}
 
 let gitDir
 try {
-    gitDir = execFileSync('git', ['rev-parse', '--git-dir'], {
+    gitDir = execFileSync('git', ['rev-parse', '--git-common-dir'], {
         cwd: pkgDir,
         encoding: 'utf8',
     }).trim()
@@ -35,10 +35,11 @@ mkdirSync(hooksDir, { recursive: true })
 
 for (const [name, command] of Object.entries(hooks)) {
     const path = join(hooksDir, name)
-    const rel = relative(hooksDir, pkgDir) || '.'
+    // Hooks live in the common git directory, shared by every worktree: run them in the worktree
+    // that triggered them, not in the directory the hook file sits under.
     const script = `#!/bin/sh
 if [ -n "$SKIP_GIT_HOOKS" ]; then exit 0; fi
-cd "$(dirname "$0")/${rel}" || exit 1
+cd "$(git rev-parse --show-toplevel)" || exit 1
 ${command}\n`
     writeFileSync(path, script)
     chmodSync(path, 0o755)
