@@ -147,6 +147,31 @@ class ReleaseComparisonTests(unittest.TestCase):
             with self.subTest(key=key), self.assertRaises(ValueError):
                 MODULE.registrations(status([registered() | {key: value}]))
 
+    def test_detected_name_is_display_only_but_still_validated(self):
+        before = status([registered(detectedName='old', customName='name')])
+        stopped = dict(dnat='off', forwardingPaused=True)
+        changed = [registered(detectedName='new', customName='name'), registered(customName='name')]
+        for row in changed:
+            with self.subTest(row=row):
+                self.assertTrue(MODULE.released(before, status([row | stopped])))
+                self.assertTrue(MODULE.restored(before, status([row])))
+        for value in (None, 1, [], {}, 'x' * 1025):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                MODULE.registrations(status([registered() | {'detectedName': value}]))
+        self.assertIn('entry-1', MODULE.registrations(status([registered() | {'detectedName': 'x' * 1024}])))
+
+    def test_every_other_compared_field_still_rejects_with_a_new_detected_name(self):
+        before = status([registered(detectedName='old', customName='name')])
+        for key, value in [('entryId', 'other'), ('ip', '192.0.2.2'), ('deviceId', 'other'),
+                           ('autoLink', False), ('customName', 'other'), ('platform', 'thinq1'),
+                           ('mode', 'local'), ('dnatDesired', False), ('bridgeSaved', False),
+                           ('bridgeArchived', True)]:
+            row = registered(detectedName='new', customName='name') | {key: value}
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                MODULE.released(before, status([row | {'dnat': 'off', 'forwardingPaused': True}]))
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                MODULE.restored(before, status([row]))
+
     def test_every_desired_row_and_local_mode_are_preserved(self):
         first = registered()
         second = registered() | {'entryId': 'entry-2', 'ip': '192.0.2.2', 'deviceId': 'device-2'}

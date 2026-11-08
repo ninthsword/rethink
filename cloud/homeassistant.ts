@@ -131,12 +131,17 @@ export class Connection extends TypedEmitter<ConnectionEvents> {
                 const pathelements = topic.substring(this.config.rethink_prefix.length + 1).split('/')
                 // rethink/+/+/set
                 if (pathelements.length === 3 && pathelements[2] === 'set') {
-                    const [id, prop] = pathelements
-                    const mqttValue = message.toString('utf-8')
-                    const originalValue =
-                        this.localizedCommandValues.get(`${id}/${prop}`)?.get(mqttValue) ??
-                        delocalizeValue(mqttValue, this.config.language)
-                    this.emit('setProperty', id, prop, originalValue)
+                    if (packet.retain) {
+                        // The broker's memory of a command, not someone asking for it now.
+                        log('status', `ignoring retained command on ${topic}`)
+                    } else {
+                        const [id, prop] = pathelements
+                        const mqttValue = message.toString('utf-8')
+                        const originalValue =
+                            this.localizedCommandValues.get(`${id}/${prop}`)?.get(mqttValue) ??
+                            delocalizeValue(mqttValue, this.config.language)
+                        this.emit('setProperty', id, prop, originalValue)
+                    }
                 }
 
                 // rethink/+/PROPERTY, during a sweep window: a retained value with no entity
@@ -203,8 +208,8 @@ export class Connection extends TypedEmitter<ConnectionEvents> {
 
     /**
      * Collect the device's own state topics from a discovery payload. Command topics and
-     * the availability topic are left out: the first are never retained, and the second has
-     * its own cleanup on connect.
+     * the availability topic are left out: a retained delivery on the first can exist and
+     * is ignored when received, and the second has its own cleanup on connect.
      */
     private static stateProperties(config: DeviceDiscovery) {
         const found = new Set<string>()
