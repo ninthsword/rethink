@@ -52,7 +52,7 @@ def ready(status: object) -> bool:
     )
 
 
-REGISTRATION_FIELDS = ('entryId', 'ip', 'deviceId', 'autoLink', 'detectedName', 'customName',
+REGISTRATION_FIELDS = ('entryId', 'ip', 'deviceId', 'autoLink', 'customName',
                        'platform', 'mode', 'dnatDesired', 'bridgeSaved', 'bridgeArchived')
 
 

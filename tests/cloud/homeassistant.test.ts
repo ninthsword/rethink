@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { test } from 'node:test'
+import { type TestContext, test } from 'node:test'
 import type { MqttClient } from 'mqtt'
 import { Connection, type DeviceDiscovery } from '@/cloud/homeassistant'
 
@@ -362,7 +362,7 @@ test('availability, commands and empty topics are left alone', (t) => {
     connection.publishConfig('pac-id', config(FILTER_HOURS))
 
     published.length = 0
-    // A command topic is three elements deep and never retained.
+    // A command topic is three elements deep; a retained delivery on one is ignored, not cleared.
     connection.received('rethink/pac-id/filterreset/set', Buffer.from('PRESS'), { retain: true } as never)
     // An already-cleared topic is not holding anything.
     retained(connection, 'rethink/pac-id/filterlife', '')
@@ -376,4 +376,36 @@ test('availability, commands and empty topics are left alone', (t) => {
     assert.deepEqual(published, [
         { topic: 'rethink/pac-id/availability', payload: 'offline', options: { retain: true } },
     ])
+})
+
+function localizedCommand(retain: boolean, t: TestContext) {
+    const { connection, published } = fakeConnection({ language: 'korean' })
+    connection.localizedCommandValues.set('pac-id/operation_mode', new Map([['약', 'LOW']]))
+    const commands: [string, string, string][] = []
+    connection.on('setProperty', (id, key, value) => commands.push([id, key, value]))
+    const logged = t.mock.method(console, 'log', () => undefined)
+
+    connection.received('rethink/pac-id/operation_mode/set', Buffer.from('약'), { retain } as never)
+
+    // log() writes (date, topic, ...args); the date is not part of the line under test.
+    const lines = logged.mock.calls.map((call) => call.arguments.slice(1).join(' '))
+    return { commands, lines, published }
+}
+
+test('a retained command is logged by topic and never reaches the appliance', (t) => {
+    const { commands, lines, published } = localizedCommand(true, t)
+
+    assert.deepEqual(commands, [])
+    assert.deepEqual(published, [])
+    const status = lines.filter((line) => line.startsWith('status '))
+    assert.equal(status.length, 1)
+    assert.ok(status[0].includes('rethink/pac-id/operation_mode/set'))
+    assert.ok(!lines.some((line) => line.includes('약')), 'the payload is never logged')
+})
+
+test('a live command still acts with its localized value', (t) => {
+    const { commands, lines } = localizedCommand(false, t)
+
+    assert.deepEqual(commands, [['pac-id', 'operation_mode', 'LOW']])
+    assert.deepEqual(lines, [])
 })
