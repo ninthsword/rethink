@@ -72,6 +72,13 @@ describe('WIN_056905_WW synthetic protocol coverage', () => {
         assert.equal(dev.query_values_timeout, undefined)
     })
 
+    test('names the appliance on the device, not at the top level Home Assistant rejects', (t) => {
+        const { ha } = readyDevice(t)
+        const config = ha.devices[ID].config
+        assert.equal('name' in (config ?? {}), false)
+        assert.equal(config?.device.name, 'LG Air Conditioner')
+    })
+
     test('publishes climate discovery and half-degree temperatures from synthetic TLV values', (t) => {
         const { ha } = readyDevice(t)
         const climate = ha.devices[ID].config?.components.climate as Record<string, unknown>

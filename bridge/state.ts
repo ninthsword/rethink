@@ -12,6 +12,9 @@ export type BridgeState = {
     setEnabled?(id: string, enabled: boolean): void
     getCredentials(): Credentials | undefined
     setCredentials(credentials: Credentials | undefined): void
+    /** The names the owner gave each appliance in LG's app, as last fetched. */
+    getDeviceNames(): Map<string, string>
+    setDeviceNames(names: Map<string, string>): void
     getDeviceState(id: string): Thinq1DeviceState | Thinq2DeviceState | undefined
     setDeviceState(id: string, state: Thinq1DeviceState | Thinq2DeviceState | undefined): void
     /**
@@ -94,6 +97,30 @@ export class JSONStorage implements BridgeState {
     setCredentials(credentials: Credentials | undefined) {
         if (credentials) this.writeAtomically(this.oauth2Path(), JSON.stringify(credentials))
         else this.removeIfPresent(this.oauth2Path())
+    }
+
+    /** Not device_names.json: devicePath would give an appliance called "names" that path. */
+    deviceNamesPath() {
+        return `${this.basePath}/appliance_names.json`
+    }
+
+    /** What cannot be read or does not hold up reads as no names; it must never stop startup. */
+    getDeviceNames() {
+        const names = new Map<string, string>()
+        try {
+            const stored: unknown = JSON.parse(readFileSync(this.deviceNamesPath(), 'utf-8'))
+            if (!stored || typeof stored !== 'object' || Array.isArray(stored)) return names
+            for (const [id, name] of Object.entries(stored)) {
+                if (isSafeDeviceId(id) && typeof name === 'string' && name) names.set(id, name)
+            }
+        } catch {
+            names.clear()
+        }
+        return names
+    }
+
+    setDeviceNames(names: Map<string, string>) {
+        this.writeAtomically(this.deviceNamesPath(), JSON.stringify(Object.fromEntries(names)))
     }
 
     getDeviceState(id: string) {
