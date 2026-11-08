@@ -347,8 +347,8 @@ export default class Device extends TLVDevice {
          * formats to 0000-00-00. That is not a date, and the sensor carries device_class
          * date, so Home Assistant rejects the message and logs a warning every time the
          * appliance reconnects — forty-four of them on the bedroom unit alone, while the
-         * sensor sat at unknown regardless. Clear the old retained value as well as declining
-         * to replace it, otherwise a value published by an older rethink survives forever.
+         * sensor sat at unknown regardless. An empty payload is rejected the same way, so the
+         * retained value becomes None, the payload Home Assistant reads as no value at all.
          */
         if (this.filterLifeTime > 0) {
             const remaining = Math.max(
@@ -357,8 +357,7 @@ export default class Device extends TLVDevice {
             )
             this.HA.publishProperty(this.id, 'filterremaining', remaining)
         }
-        if (this.filterChangedDate > 0) this.HA.publishProperty(this.id, 'filterchangeddate', changedDate)
-        else this.HA.clearRetainedProperty(this.id, 'filterchangeddate')
+        this.HA.publishProperty(this.id, 'filterchangeddate', this.filterChangedDate > 0 ? changedDate : 'None')
     }
 
     processFilterCmdResp(success: boolean, _data: Buffer) {

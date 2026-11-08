@@ -254,6 +254,9 @@ export class Bridge extends TypedEmitter<BridgeEvents> {
         readonly options: BridgeOptions = {},
     ) {
         super()
+        // Before any device starts: discovery asks for these names as soon as one does, and
+        // LG's device list may be slow or failing.
+        this.deviceNames = this.state.getDeviceNames()
         this.manager.on('newDevice', this.#start.bind(this))
         this.manager.on('dropDevice', this.#stop.bind(this))
         this.manager.allDevices.forEach(this.#start.bind(this))
@@ -304,9 +307,19 @@ export class Bridge extends TypedEmitter<BridgeEvents> {
         return this.deviceNames.get(id)
     }
 
+    /** Memory is what the running bridge answers from, so a failed write must not cost it. */
+    private storeDeviceNames(names: Map<string, string>) {
+        try {
+            this.state.setDeviceNames(names)
+        } catch (err) {
+            console.warn('Unable to store LG ThinQ device names', err)
+        }
+    }
+
     async refreshDeviceNames() {
         const creds = this.state.getCredentials()
         if (!creds) {
+            this.storeDeviceNames(new Map())
             if (this.deviceNames.size) {
                 this.deviceNames.clear()
                 this.emit('deviceNamesChanged')
@@ -322,7 +335,10 @@ export class Bridge extends TypedEmitter<BridgeEvents> {
                     .filter((device) => device.alias)
                     .map((device) => [device.deviceId, device.alias]),
             )
+            // The account changed while LG was answering, so these names are not its names.
+            if (this.state.getCredentials()?.refreshToken !== creds.refreshToken) return
             this.deviceNames = names
+            this.storeDeviceNames(names)
             this.emit('deviceNamesChanged')
         } catch (err) {
             console.warn('Unable to load LG ThinQ device names', err)
@@ -411,6 +427,7 @@ export class Bridge extends TypedEmitter<BridgeEvents> {
     logout() {
         this.state.setCredentials(undefined)
         this.deviceNames.clear()
+        this.storeDeviceNames(new Map())
         this.emit('deviceNamesChanged')
         // Account logout does not erase per-appliance registrations or forwarding intent.
         this.emit('loggedOut')

@@ -21,7 +21,6 @@ export type DeviceInfo = {
 export class MockHAConnection extends EventEmitter {
     devices: Record<string, DeviceInfo> = {}
     publishedConfigs: DeviceDiscovery[] = []
-    clearedProperties: string[] = []
     isConnected = true
     /**
      * The handler configuration a real Connection carries. Left undefined by default, which
@@ -44,11 +43,6 @@ export class MockHAConnection extends EventEmitter {
             assert.equal(typeof value, 'string')
             this.devices[id].availability = value as string
         } else this.devices[id].properties[property] = value
-    }
-
-    clearRetainedProperty(id: string, property: string) {
-        this.clearedProperties.push(`${id}/${property}`)
-        delete this.devices[id]?.properties[property]
     }
 
     lookupDevice(dev: string | DeviceInfo) {

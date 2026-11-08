@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { existsSync, mkdtempSync, rmSync, statSync } from 'node:fs'
+import { existsSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, test } from 'node:test'
@@ -137,4 +137,59 @@ test('Local intent is independent of registration and unsafe identifiers cannot 
     } finally {
         rmSync(dir, { recursive: true, force: true })
     }
+})
+
+describe('stored appliance names', () => {
+    const write = (store: JSONStorage, contents: string) => writeFileSync(store.deviceNamesPath(), contents)
+
+    test('round trip, owner-only and atomic', () => {
+        const { store, dir, cleanup } = makeStore()
+        store.setDeviceNames(new Map([[ID, '건조기']]))
+
+        assert.deepEqual([...new JSONStorage(dir).getDeviceNames()], [[ID, '건조기']])
+        assert.equal(statSync(store.deviceNamesPath()).mode & 0o777, 0o600)
+        assert.equal(existsSync(`${store.deviceNamesPath()}.tmp`), false)
+        cleanup()
+    })
+
+    test('the file cannot collide with an appliance registration', () => {
+        const { store, cleanup } = makeStore()
+        assert.notEqual(store.deviceNamesPath(), store.devicePath('names'))
+        cleanup()
+    })
+
+    test('a missing file reads as no names', () => {
+        const { store, cleanup } = makeStore()
+        assert.equal(store.getDeviceNames().size, 0)
+        cleanup()
+    })
+
+    for (const [label, contents] of [
+        ['malformed JSON', '{not json'],
+        ['an array', '["a"]'],
+        ['null', 'null'],
+        ['a string', '"a"'],
+    ]) {
+        test(`${label} reads as no names`, () => {
+            const { store, cleanup } = makeStore()
+            write(store, contents)
+            assert.equal(store.getDeviceNames().size, 0)
+            cleanup()
+        })
+    }
+
+    test('an unreadable path reads as no names', () => {
+        const { dir, cleanup } = makeStore()
+        // A path below a file fails with ENOTDIR rather than ENOENT.
+        writeFileSync(path.join(dir, 'file'), '')
+        assert.equal(new JSONStorage(path.join(dir, 'file')).getDeviceNames().size, 0)
+        cleanup()
+    })
+
+    test('an unsafe id or a value that is not a non-empty string is ignored', () => {
+        const { store, cleanup } = makeStore()
+        write(store, JSON.stringify({ [ID]: '건조기', '../escape': '밖', 'number-id': 1, 'empty-id': '' }))
+        assert.deepEqual([...store.getDeviceNames()], [[ID, '건조기']])
+        cleanup()
+    })
 })

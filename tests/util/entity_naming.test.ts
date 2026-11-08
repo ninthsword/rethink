@@ -29,8 +29,10 @@ test('every component in a payload is named', () => {
     nameEntities(config)
 
     const components = config.components as unknown as Record<string, Record<string, unknown>>
-    assert.equal(components.energy_current.object_id, 'rethink_안방에어컨_energy_current')
-    assert.equal(components.sleeptimer.object_id, 'rethink_안방에어컨_sleeptimer')
+    assert.equal(components.energy_current.default_entity_id, 'sensor.rethink_안방에어컨_energy_current')
+    assert.equal(components.sleeptimer.default_entity_id, 'number.rethink_안방에어컨_sleeptimer')
+    assert.equal(components.climate.default_entity_id, undefined, 'a one-key component is a retirement notice')
+    assert.equal(components.energy_current.object_id, undefined)
 })
 
 test('a retirement notice is left alone', () => {
@@ -51,11 +53,11 @@ test('a retirement notice is left alone', () => {
 })
 
 test('a name a handler chose for itself is not overwritten', () => {
-    const config = discovery({ power: { platform: 'sensor', object_id: 'something_deliberate' } })
+    const config = discovery({ power: { platform: 'sensor', default_entity_id: 'sensor.something_deliberate' } })
     nameEntities(config)
 
     const components = config.components as unknown as Record<string, Record<string, unknown>>
-    assert.equal(components.power.object_id, 'something_deliberate')
+    assert.equal(components.power.default_entity_id, 'sensor.something_deliberate')
 })
 
 test('an appliance with no name yet is left unnamed rather than called rethink_undefined', () => {
@@ -66,5 +68,6 @@ test('an appliance with no name yet is left unnamed rather than called rethink_u
     nameEntities(config)
 
     const components = config.components as unknown as Record<string, Record<string, unknown>>
+    assert.equal(components.power.default_entity_id, undefined)
     assert.equal(components.power.object_id, undefined)
 })

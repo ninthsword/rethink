@@ -779,7 +779,7 @@ describe(MODEL_ID, () => {
         dev.drop()
     })
 
-    test('a zero filter reset date clears the retained date', (t) => {
+    test('a zero filter reset date publishes the no-value payload', (t) => {
         enableMockTimers(t)
         const ha = new MockHAConnection()
         const thinq = new MockThinq2Device(DEVICE_ID, META)
@@ -788,22 +788,15 @@ describe(MODEL_ID, () => {
         thinq.emit('data', buf(QUERY_RESPONSE_HEX))
         tickMockTimers(t, 6000)
 
-        ha.clearedProperties.length = 0
         dev.filterChangedDate = 20260818
         dev.publishFilterData()
         assert.equal(ha.devices[DEVICE_ID].properties.filterchangeddate, '2026-08-18')
 
-        // Zero formats to 0000-00-00, which the date device class rejects. An empty retained
-        // payload removes the historical value from the broker instead of merely leaving it
-        // there for Home Assistant to reject again after every reconnect.
+        // Zero formats to 0000-00-00 and an empty payload is no better: the date device class
+        // rejects both. None is what Home Assistant reads as no value.
         dev.filterChangedDate = 0
         dev.publishFilterData()
-        assert.equal(
-            ha.devices[DEVICE_ID].properties.filterchangeddate,
-            undefined,
-            'a filter with no reset date must clear the old value',
-        )
-        assert.deepEqual(ha.clearedProperties, [`${DEVICE_ID}/filterchangeddate`])
+        assert.equal(ha.devices[DEVICE_ID].properties.filterchangeddate, 'None')
         dev.drop()
     })
 

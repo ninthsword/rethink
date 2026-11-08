@@ -104,3 +104,40 @@ test('rejects legacy blank main names and incompatible sensor units', () => {
     assert.ok(issues.includes('components.power.state_class is not supported by Home Assistant'))
     assert.ok(issues.includes('components.power.unit_of_measurement is invalid for device_class power'))
 })
+
+test('rejects a top-level key Home Assistant does not accept and names it', () => {
+    const config = { ...discovery({}), name: 'LG Air Conditioner' } as unknown as DeviceDiscovery
+
+    assert.deepEqual(validateDeviceDiscovery(config), ['name is not a device discovery key'])
+})
+
+test('accepts every top-level key Home Assistant accepts', () => {
+    const config = {
+        ...discovery({}),
+        availability_template: '{{ value }}',
+        availability_topic: '$this/availability',
+        payload_available: 'online',
+        payload_not_available: 'offline',
+        child_devices: [],
+        state_topic: '$this/state',
+        command_topic: '$this/set',
+        message_expiry_interval: 60,
+        qos: 1,
+        encoding: 'utf-8',
+    } as unknown as DeviceDiscovery
+
+    assert.deepEqual(validateDeviceDiscovery(config), [])
+})
+
+test('an unknown key inside a component is still left to Home Assistant', () => {
+    const config = discovery({
+        temperature: {
+            platform: 'sensor',
+            unique_id: '$deviceid-temperature',
+            state_topic: '$this/temperature',
+            some_future_option: true,
+        },
+    })
+
+    assert.deepEqual(validateDeviceDiscovery(config), [])
+})

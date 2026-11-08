@@ -171,13 +171,19 @@ export class Connection extends TypedEmitter<ConnectionEvents> {
             $rethink: this.config.rethink_prefix,
             $deviceid: id,
         }
-        const localizedConfig = localizeDiscovery(config, this.config.language)
+        // A private copy: localizeDiscovery hands back the handler's own object outside Korean,
+        // and a name written onto that would still be there at the handler's next publish.
+        const localizedConfig = JSON.parse(
+            JSON.stringify(localizeDiscovery(config, this.config.language)),
+        ) as DeviceDiscovery
         // The cloud alias is the user's authoritative appliance name. Keep it
         // verbatim: it may already contain Korean, room names, or other text
         // that must not be passed through the generic device-type translator.
         const registeredName = this.deviceNameResolver?.(id)
-        if (registeredName) localizedConfig.device.name = registeredName
-        nameEntities(localizedConfig)
+        if (registeredName) {
+            localizedConfig.device.name = registeredName
+            nameEntities(localizedConfig)
+        }
         const validationIssues = validateDeviceDiscovery(localizedConfig)
         if (validationIssues.length > 0) {
             // Nothing is published, so the appliance loses every entity it had. This is the
@@ -292,13 +298,6 @@ export class Connection extends TypedEmitter<ConnectionEvents> {
                 }
             }
         }
-    }
-
-    /** Remove a retained state value that is no longer valid for an entity. */
-    clearRetainedProperty(id: string, property: string) {
-        const topic = `${this.config.rethink_prefix}/${id}/${property}`
-        log('status', `clearing retained ${topic}`)
-        this.client.publish(topic, Buffer.alloc(0), { retain: true })
     }
 
     publishProperty(id: string, property: string, value: string | number, options?: mqtt.IClientPublishOptions) {

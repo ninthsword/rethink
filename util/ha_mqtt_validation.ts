@@ -179,9 +179,29 @@ function validateComponent(id: string, component: Component, issues: string[]) {
     }
 }
 
+/** The top-level keys Home Assistant's DEVICE_DISCOVERY_SCHEMA accepts; it rejects a payload with any other. */
+const DEVICE_DISCOVERY_ROOT_KEYS = new Set([
+    'availability',
+    'availability_mode',
+    'availability_template',
+    'availability_topic',
+    'payload_available',
+    'payload_not_available',
+    'device',
+    'components',
+    'child_devices',
+    'origin',
+    'state_topic',
+    'command_topic',
+    'message_expiry_interval',
+    'qos',
+    'encoding',
+])
+
 /**
  * Validate the subset of Home Assistant's current MQTT device-discovery schema used by rethink.
- * Unknown platform-specific keys are deliberately left to Home Assistant for forward compatibility.
+ * Unknown platform-specific keys inside a component are deliberately left to Home Assistant for
+ * forward compatibility; an unknown top-level key is refused because Home Assistant refuses it.
  */
 export function validateDeviceDiscovery(config: DeviceDiscovery): string[] {
     const issues: string[] = []
@@ -190,6 +210,9 @@ export function validateDeviceDiscovery(config: DeviceDiscovery): string[] {
     const origin = root.origin as Record<string, unknown> | undefined
     const components = root.components as Record<string, Component> | undefined
 
+    for (const key of Object.keys(root)) {
+        if (!DEVICE_DISCOVERY_ROOT_KEYS.has(key)) issues.push(`${key} is not a device discovery key`)
+    }
     if (!device || (!device.identifiers && !device.connections)) {
         issues.push('device must have identifiers or connections')
     }

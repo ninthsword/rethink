@@ -184,12 +184,79 @@ test('korean dishwasher half-load text localizes without changing binary sensor 
     assert.equal(published[2].payload, 'OFF')
 })
 
-test('clearRetainedProperty removes the broker value with an empty retained payload', () => {
+function namedConfig() {
+    return {
+        device: { identifiers: '$deviceid', name: 'LG Air Conditioner' },
+        origin: { name: 'rethink' },
+        components: {
+            power: { platform: 'sensor', unique_id: '$deviceid-power', state_topic: '$this/power' },
+        },
+    } as unknown as DeviceDiscovery
+}
+
+test('a registered name decides default_entity_id', () => {
     const { connection, published } = fakeConnection({})
+    connection.setDeviceNameResolver(() => '안방에어컨')
 
-    connection.clearRetainedProperty('rac-id', 'filterchangeddate')
+    connection.publishConfig('ac-id', namedConfig())
 
-    assert.deepEqual(published, [{ topic: 'rethink/rac-id/filterchangeddate', payload: '', options: { retain: true } }])
+    const { power } = JSON.parse(published[0].payload).components
+    assert.equal(power.default_entity_id, 'sensor.rethink_안방에어컨_power')
+    assert.equal(power.object_id, undefined)
+})
+
+test('a model-default name never decides an id', () => {
+    const { connection, published } = fakeConnection({})
+    connection.setDeviceNameResolver(() => undefined)
+
+    connection.publishConfig('ac-id', namedConfig())
+
+    const { power } = JSON.parse(published[0].payload).components
+    assert.equal(power.default_entity_id, undefined)
+    assert.equal(power.object_id, undefined)
+})
+
+test('a registered name does not outlive the publish that used it', () => {
+    const { connection, published } = fakeConnection({})
+    let registered: string | undefined = '안방에어컨'
+    connection.setDeviceNameResolver(() => registered)
+    const handlerConfig = namedConfig()
+    const modelDefault = handlerConfig.device.name
+
+    connection.publishConfig('ac-id', handlerConfig)
+    registered = undefined
+    connection.publishConfig('ac-id', handlerConfig)
+
+    const second = JSON.parse(published[1].payload)
+    assert.equal(second.components.power.default_entity_id, undefined)
+    assert.equal(second.device.name, modelDefault)
+})
+
+test('a changed registered name builds its id from the new name', () => {
+    const { connection, published } = fakeConnection({})
+    let registered = '안방에어컨'
+    connection.setDeviceNameResolver(() => registered)
+    const handlerConfig = namedConfig()
+
+    connection.publishConfig('ac-id', handlerConfig)
+    registered = '거실에어컨'
+    connection.publishConfig('ac-id', handlerConfig)
+
+    const second = JSON.parse(published[1].payload)
+    assert.equal(second.components.power.default_entity_id, 'sensor.rethink_거실에어컨_power')
+    assert.equal(second.device.name, '거실에어컨')
+})
+
+test('publishing leaves the config object it was given unchanged', () => {
+    const { connection, published } = fakeConnection({})
+    connection.setDeviceNameResolver(() => '안방에어컨')
+    const handlerConfig = namedConfig()
+    const before = structuredClone(handlerConfig)
+
+    connection.publishConfig('ac-id', handlerConfig)
+
+    assert.equal(published.length, 1)
+    assert.deepEqual(handlerConfig, before)
 })
 
 function config(components: Record<string, unknown>) {

@@ -1,14 +1,17 @@
 import assert from 'node:assert/strict'
 import { EventEmitter } from 'node:events'
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import http from 'node:http'
+import https from 'node:https'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { mock, test } from 'node:test'
+import { mock, type TestContext, test } from 'node:test'
+import fetch from 'node-fetch'
 import { Bridge } from '@/bridge'
 import { BridgePolicy } from '@/bridge/policy'
 import { JSONStorage } from '@/bridge/state'
 import { Connection } from '@/bridge/thinq1connection'
-import { Thinq1Device } from '@/bridge/thinqApi'
+import { Thinq1Device, Client as ThinqClient } from '@/bridge/thinqApi'
 import { DeviceManager } from '@/cloud/devmgr'
 import type { Connection as LocalConnection } from '@/cloud/thinq1/connection'
 import { Device } from '@/cloud/thinq1/device'
@@ -229,3 +232,200 @@ for (const desired of [true, false]) {
         }
     })
 }
+
+const NAME_ID = 'synthetic-ac'
+const COUNTRY = 'ZZ'
+const settle = () => new Promise((resolve) => setImmediate(resolve))
+
+/** A bridge's names with LG stubbed out: any real request fails the test. */
+function namesFixture(t: TestContext, stored: string | undefined = '안방', credentials = true) {
+    const requests: unknown[] = []
+    const refuse = (url: unknown) => {
+        requests.push(url)
+        throw new Error('network is not available to this test')
+    }
+    t.mock.method(https, 'request', refuse as never)
+    t.mock.method(http, 'request', refuse as never)
+
+    // The Client constructor fetches LG's gateway unless this is already cached.
+    const previousGateway = ThinqClient.gatewayCache[COUNTRY]
+    ThinqClient.gatewayCache[COUNTRY] = Promise.resolve({}) as never
+
+    const unhandled: unknown[] = []
+    const onUnhandled = (reason: unknown) => unhandled.push(reason)
+    process.on('unhandledRejection', onUnhandled)
+
+    const dir = mkdtempSync(path.join(tmpdir(), 'rethink-names-'))
+    const state = new JSONStorage(dir)
+    if (credentials) state.setCredentials({ refreshToken: 'synthetic-token', env: { countryCode: COUNTRY } })
+    if (stored) state.setDeviceNames(new Map([[NAME_ID, stored]]))
+
+    t.mock.method(ThinqClient.prototype, 'auth', async () => undefined as never)
+    const listDevices = t.mock.method(
+        ThinqClient.prototype,
+        'listDevices',
+        async () => [{ deviceId: NAME_ID, alias: '거실' }] as never,
+    )
+    const warn = t.mock.method(console, 'warn', () => {})
+
+    t.after(async () => {
+        await settle()
+        process.off('unhandledRejection', onUnhandled)
+        if (previousGateway === undefined) delete ThinqClient.gatewayCache[COUNTRY]
+        else ThinqClient.gatewayCache[COUNTRY] = previousGateway
+        rmSync(dir, { recursive: true, force: true })
+        assert.deepEqual(requests, [], 'a test reached for the network')
+        assert.deepEqual(unhandled, [])
+    })
+
+    return { state, manager: new DeviceManager(), listDevices, warn, requests }
+}
+
+function deferredDevices() {
+    let resolve: (devices: never) => void = () => {}
+    const devices = new Promise<never>((done) => {
+        resolve = done
+    })
+    return { devices, finish: () => resolve([{ deviceId: NAME_ID, alias: '거실' }] as never) }
+}
+
+const storedNames = (state: JSONStorage) => [...state.getDeviceNames()]
+
+test('the network guard catches the fetch LG requests are made with', async (t) => {
+    const f = namesFixture(t)
+    await assert.rejects(fetch('https://lg.invalid/'))
+    assert.equal(f.requests.length, 1)
+    f.requests.length = 0
+})
+
+test('stored names answer from construction, before any device starts', async (t) => {
+    const f = namesFixture(t)
+    const order: string[] = []
+    const getDeviceNames = f.state.getDeviceNames.bind(f.state)
+    t.mock.method(f.state, 'getDeviceNames', () => {
+        order.push('names')
+        return getDeviceNames()
+    })
+    t.mock.method(f.state, 'getEnabled', () => {
+        order.push('start')
+        return false
+    })
+    f.manager.allDevices.set('existing', { id: 'existing' } as never)
+
+    const bridge = new Bridge(f.state, f.manager)
+
+    assert.equal(bridge.name(NAME_ID), '안방')
+    assert.deepEqual(order, ['names', 'start'])
+    await settle()
+})
+
+test('a successful refresh replaces the stored names', async (t) => {
+    const f = namesFixture(t)
+    f.state.setDeviceNames(
+        new Map([
+            [NAME_ID, '안방'],
+            ['gone-id', '사라짐'],
+        ]),
+    )
+    const bridge = new Bridge(f.state, f.manager)
+    await settle()
+
+    assert.equal(bridge.name(NAME_ID), '거실')
+    assert.deepEqual(storedNames(f.state), [[NAME_ID, '거실']])
+})
+
+test('a failed refresh leaves memory and storage as they were', async (t) => {
+    const f = namesFixture(t)
+    f.listDevices.mock.mockImplementation(async () => {
+        throw new Error('synthetic LG failure')
+    })
+    const bridge = new Bridge(f.state, f.manager)
+    await settle()
+
+    assert.equal(bridge.name(NAME_ID), '안방')
+    assert.deepEqual(storedNames(f.state), [[NAME_ID, '안방']])
+})
+
+test('logging out clears memory and storage', async (t) => {
+    const f = namesFixture(t)
+    const bridge = new Bridge(f.state, f.manager)
+    await settle()
+
+    bridge.logout()
+
+    assert.equal(bridge.name(NAME_ID), undefined)
+    assert.deepEqual(storedNames(f.state), [])
+})
+
+test('starting with no credentials clears memory and storage', async (t) => {
+    const f = namesFixture(t, '안방', false)
+    const bridge = new Bridge(f.state, f.manager)
+    await settle()
+
+    assert.equal(bridge.name(NAME_ID), undefined)
+    assert.deepEqual(storedNames(f.state), [])
+    assert.equal(f.listDevices.mock.callCount(), 0)
+})
+
+test('a refresh finishing after a logout stores nothing', async (t) => {
+    const f = namesFixture(t)
+    const { devices, finish } = deferredDevices()
+    f.listDevices.mock.mockImplementation(async () => devices)
+    const bridge = new Bridge(f.state, f.manager)
+    await settle()
+
+    bridge.logout()
+    finish()
+    await settle()
+
+    assert.equal(bridge.name(NAME_ID), undefined)
+    assert.deepEqual(storedNames(f.state), [])
+})
+
+test('a refresh finishing after the token changed stores nothing', async (t) => {
+    const f = namesFixture(t)
+    const { devices, finish } = deferredDevices()
+    f.listDevices.mock.mockImplementation(async () => devices)
+    const bridge = new Bridge(f.state, f.manager)
+    await settle()
+
+    f.state.setCredentials({ refreshToken: 'another-token', env: { countryCode: COUNTRY } })
+    finish()
+    await settle()
+
+    assert.equal(bridge.name(NAME_ID), '안방')
+    assert.deepEqual(storedNames(f.state), [[NAME_ID, '안방']])
+})
+
+test('a failed store on refresh keeps the fresh names and does not log them', async (t) => {
+    const f = namesFixture(t)
+    t.mock.method(f.state, 'setDeviceNames', () => {
+        throw new Error('synthetic ENOSPC')
+    })
+    const bridge = new Bridge(f.state, f.manager)
+    let changed = 0
+    bridge.on('deviceNamesChanged', () => changed++)
+    await settle()
+
+    assert.equal(bridge.name(NAME_ID), '거실')
+    assert.equal(changed, 1)
+    assert.equal(f.warn.mock.callCount(), 1)
+    assert.equal(JSON.stringify(f.warn.mock.calls[0].arguments.map(String)).includes('거실'), false)
+})
+
+test('a failed store on logout still clears memory and finishes the logout', async (t) => {
+    const f = namesFixture(t)
+    const bridge = new Bridge(f.state, f.manager)
+    await settle()
+    t.mock.method(f.state, 'setDeviceNames', () => {
+        throw new Error('synthetic ENOSPC')
+    })
+    const events: string[] = []
+    bridge.on('deviceNamesChanged', () => events.push('names'))
+    bridge.on('loggedOut', () => events.push('loggedOut'))
+
+    bridge.logout()
+
+    assert.equal(bridge.name(NAME_ID), undefined)
+    assert.deepEqual(events, ['names', 'loggedOut'])
+})
