@@ -1075,8 +1075,9 @@ export default class Device extends TLVDevice {
             }
         }
 
-        // this value is reported as zero by multi-split units
-        if (this.raw_clip_state[0x2b3]) {
+        // this value is reported as zero by multi-split units, while PAC_910604_WW leaves it
+        // out entirely when off, so its absence during startup says nothing about support
+        if (isPac910604 || this.raw_clip_state[0x2b3]) {
             const energyCurrent = {
                 platform: 'sensor',
                 unique_id: '$deviceid-energy_current',
