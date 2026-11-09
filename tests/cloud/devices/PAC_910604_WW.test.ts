@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
+import { resetOutdoorUnits } from '@/cloud/devices/outdoor_unit'
 import DUT from '@/cloud/devices/PAC_910604_WW'
 import type { Metadata } from '@/cloud/thinq'
 import { MockHAConnection, MockThinq2Device } from '@/tests/helpers/mocks'
@@ -8,23 +9,25 @@ import * as TLV from '@/util/tlv'
 const DEVICE_ID = 'test-id'
 const META: Metadata = { modelId: 'PAC_910604_WW', modelName: 'PAC_910604_WW', swVersion: '640903' }
 
-function makeDevice() {
+function makeDevice(config?: unknown) {
     const ha = new MockHAConnection()
+    ha.config = config
     const thinq = new MockThinq2Device(DEVICE_ID, META)
     const dev = new DUT(ha.asConnection(), thinq, META)
     ha.on('setProperty', (_id: string, prop: string, value: string) => dev.setProperty(prop, value))
     return { ha, thinq, dev }
 }
 
-function configureDevice() {
-    const result = makeDevice()
-    result.dev.raw_clip_state[0x1f7] = 1
+function configureDevice({ offAtStart = false, config }: { offAtStart?: boolean; config?: unknown } = {}) {
+    const result = makeDevice(config)
+    result.dev.raw_clip_state[0x1f7] = offAtStart ? 0 : 1
     result.dev.raw_clip_state[0x1f9] = 0
     result.dev.raw_clip_state[0x1fa] = 0x0606
     result.dev.raw_clip_state[0x1fe] = 53
     result.dev.raw_clip_state[0x2cc] = 0
     result.dev.raw_clip_state[0x2d3] = 5
-    result.dev.raw_clip_state[0x2b3] = 1
+    // The appliance does not report power at all while it is off.
+    if (!offAtStart) result.dev.raw_clip_state[0x2b3] = 1
     result.dev.raw_clip_state[0x333] = 8
     result.dev.raw_clip_state[0x334] = 8
     result.dev.raw_clip_state[0x335] = 10
@@ -193,6 +196,33 @@ describe('PAC_910604_WW', () => {
         dev.processKeyValue(0x2b3, 38)
         assert.equal(ha.devices[DEVICE_ID].properties['energy_current-'], 0)
         dev.drop()
+    })
+
+    test('offers power when the appliance was off as rethink started', (t) => {
+        const { ha, dev } = configureDevice({ offAtStart: true })
+        t.after(() => dev.drop())
+
+        assert.ok(ha.devices[DEVICE_ID].config?.components.energy_current, 'the sensor is offered from the start')
+
+        dev.processKeyValue(0x1f7, 0)
+        assert.equal(ha.devices[DEVICE_ID].properties['energy_current-'], 0)
+
+        dev.processKeyValue(0x1f7, 1)
+        dev.processKeyValue(0x2b3, 550)
+        assert.equal(ha.devices[DEVICE_ID].properties['energy_current-'], 550)
+    })
+
+    test('counts a head that was off as rethink started towards its outdoor unit', (t) => {
+        const config = { outdoor_units: [{ devices: [DEVICE_ID, 'other-id'] }] }
+        const { ha, dev } = configureDevice({ offAtStart: true, config })
+        t.after(() => {
+            dev.drop()
+            resetOutdoorUnits()
+        })
+
+        dev.processKeyValue(0x1f7, 1)
+        dev.processKeyValue(0x2b3, 470)
+        assert.equal(ha.devices[DEVICE_ID].properties.outdoor_power, 470)
     })
 
     test('polls fan-only at the active 28-second interval', () => {
