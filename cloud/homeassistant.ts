@@ -20,6 +20,9 @@ import log from '@/util/logging'
 //	  `rethink` instance starts.
 // 7. To solve this, we subscribe to the availability topics and clean up all the retained "online"
 // 	  messages on startup.
+// 8. The broker can deliver the last will of an older connection after we published "online"
+//    (for example when its keepalive expires after a quick restart). While connected we also
+//    subscribe to the global topic and answer any "offline" there with a retained "online".
 //
 // The same reasoning applies to the state topics themselves. Every value is published with
 // retain=true so Home Assistant sees it whatever order things start in, which also means a
@@ -105,6 +108,8 @@ export class Connection extends TypedEmitter<ConnectionEvents> {
         this.client.subscribe(`${this.config.rethink_prefix}/+/+/set`)
 
         this.client.subscribe(`${this.config.rethink_prefix}/+/availability`)
+        // rethink/availability, so a stale last will can be corrected while we are connected
+        this.client.subscribe(`${this.config.rethink_prefix}/availability`)
         this.client.publish(`${this.config.rethink_prefix}/availability`, Buffer.from('online'), { retain: true })
 
         this.emit('discovery')
@@ -125,6 +130,16 @@ export class Connection extends TypedEmitter<ConnectionEvents> {
             if (topic === `${this.config.discovery_prefix}/status` && message.toString('utf-8') === 'online') {
                 log('status', 'HA online, starting discovery process')
                 this.emit('discovery')
+            }
+
+            // rethink/availability: an "offline" here while we are connected is a stale last will
+            if (
+                topic === `${this.config.rethink_prefix}/availability` &&
+                message.toString('utf-8') === 'offline' &&
+                this.isConnected
+            ) {
+                log('status', `global availability on ${topic} was offline while connected, corrected to online`)
+                this.client.publish(topic, Buffer.from('online'), { retain: true })
             }
 
             if (topic.startsWith(`${this.config.rethink_prefix}/`)) {
