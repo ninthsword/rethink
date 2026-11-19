@@ -12,6 +12,25 @@ import TLVDevice, { type FieldDefinition, marksCapsResponse } from './tlv_device
 
 type PowerModeChangeHook = () => void
 type CheckMode = (arg: number) => boolean
+/** The mode a setpoint belongs to; 'unknown' when it was reported before any mode was. */
+type SetpointOwner = number | 'unknown'
+
+/** One appliance report while its tags are being applied. */
+type ReportContext = {
+    tags: ReadonlySet<number>
+    /** The report's own power and mode where it carries them (last occurrence). */
+    power: number | undefined
+    mode: number | undefined
+    /** Mode-change replays, run once the whole report has been applied. */
+    afterReport: (() => void)[]
+}
+
+/** A tag repeated within one report counts by its last occurrence, as the raw cache does. */
+function lastValue(tlvArray: TLV.TLV[], tag: number): number | undefined {
+    let value: number | undefined
+    for (const { t, v } of tlvArray) if (t === tag) value = v
+    return value
+}
 
 /**
  * Fan and mode encodings, per model.
@@ -64,6 +83,9 @@ const MODEL_ENCODINGS: Readonly<Record<string, ModelEncoding>> = {
 function encodingFor(modelId: string): ModelEncoding {
     return Object.getOwnPropertyDescriptor(MODEL_ENCODINGS, modelId) ? MODEL_ENCODINGS[modelId] : ADVERTISED
 }
+
+/** Offset of the bedroom unit's auto setpoint: in auto, 0x1fe is 34 + 2 x comfort level. */
+const AUTO_COMFORT_ZERO = 34
 
 const VERTICAL_SWING_MODES = [
     'off',
@@ -132,6 +154,20 @@ export default class Device extends TLVDevice {
     modeChangeHooks: PowerModeChangeHook[] = []
     modePrev?: string
     private powerTransitionInFrame = false
+    /*
+     * Setpoint ownership, used by the bedroom unit's encoding only. The appliance keeps a
+     * setpoint per mode, and in auto 0x1fe is a comfort level rather than a temperature, so a
+     * setpoint means something only together with the mode it was reported in. These live
+     * only in the running handler; at discovery the cached state fills whichever of them no
+     * report has set yet.
+     */
+    private reportedMode?: number
+    private reportedSetpoint?: number
+    private reportedOwner?: SetpointOwner
+    private setpointOwner?: SetpointOwner
+    /** Raw power and mode when the climate mode was last computed, after discovery. */
+    private shown?: { power: number | undefined; mode: number | undefined }
+    private report: ReportContext | undefined
     airClean: boolean = false
     jetMode: boolean = false
     energySave: boolean = false
@@ -164,13 +200,104 @@ export default class Device extends TLVDevice {
             if (modeTLV !== undefined) this.raw_clip_state[0x1f9] = modeTLV
         }
 
-        const previousFrameState = this.powerTransitionInFrame
-        this.powerTransitionInFrame = powerTransitionInFrame
-        try {
-            super.processTLV(tlvArray, canSatisfyValuesResponse)
-        } finally {
-            this.powerTransitionInFrame = previousFrameState
+        const tags = new Set(tlvArray.map(({ t }) => t))
+        const report: ReportContext = {
+            tags,
+            power: lastValue(tlvArray, 0x1f7),
+            mode: lastValue(tlvArray, 0x1f9),
+            afterReport: [],
         }
+        const outerReport = this.report
+        this.report = report
+        try {
+            const previousFrameState = this.powerTransitionInFrame
+            this.powerTransitionInFrame = powerTransitionInFrame
+            try {
+                super.processTLV(tlvArray, canSatisfyValuesResponse)
+            } finally {
+                this.powerTransitionInFrame = previousFrameState
+            }
+
+            this.recordReportedSetpoint(tlvArray)
+            if (tags.has(0x1f7) || tags.has(0x1f9) || tags.has(0x1fe)) this.publishSetpointDisplay()
+            for (const replay of report.afterReport) replay()
+        } finally {
+            this.report = outerReport
+        }
+    }
+
+    /** Whether this model's setpoint is read and sent by the mode that owns it. */
+    private setpointFollowsMode() {
+        return encodingFor(this.meta.modelId) === MODEL_ENCODINGS.RAC_056905_WW
+    }
+
+    private recordReportedSetpoint(tlvArray: TLV.TLV[]) {
+        const mode = lastValue(tlvArray, 0x1f9)
+        if (mode !== undefined) this.reportedMode = mode
+        const setpoint = lastValue(tlvArray, 0x1fe)
+        if (setpoint === undefined) return
+        this.reportedSetpoint = setpoint
+        // A report without a mode, such as the remote's up and down in auto, belongs to the
+        // mode the appliance last reported.
+        this.reportedOwner = this.reportedMode ?? 'unknown'
+        this.setpointOwner = this.reportedOwner
+    }
+
+    /**
+     * Show only what the appliance reported, in the branch the climate mode shows. The climate
+     * mode follows raw state, which a Home Assistant command changes before the appliance
+     * confirms it; a setpoint belonging to another mode is shown as no value rather than as
+     * a temperature it is not.
+     */
+    private publishSetpointDisplay() {
+        const shown = this.shown
+        if (!this.setpointFollowsMode() || shown === undefined) return
+        const autoRaw = encodingFor(this.meta.modelId).autoRaw
+        const owner = this.reportedOwner
+        const setpoint = this.reportedSetpoint
+        let temperature: number | 'None' = 'None'
+        let comfort: number | 'None' = 'None'
+        if (typeof owner === 'number' && setpoint !== undefined) {
+            if (shown.power === 0) {
+                if (owner !== autoRaw) temperature = setpoint / 2
+            } else if (shown.mode === autoRaw) {
+                if (owner === autoRaw) comfort = (setpoint - AUTO_COMFORT_ZERO) / 2
+            } else if (owner === shown.mode) temperature = setpoint / 2
+        }
+        this.HA.publishProperty(this.id, 'climate-temperature', temperature)
+        this.HA.publishProperty(this.id, 'auto_comfort', comfort)
+    }
+
+    /**
+     * 0x1fe to attach to a frame for `targetMode`. The bedroom unit keeps its own setpoint
+     * per mode, so a setpoint is never carried across the auto boundary; an omitted one
+     * leaves the appliance's own for the target mode.
+     */
+    private setpointAttach(targetMode: number | undefined): number[] {
+        if (!this.setpointFollowsMode()) return [0x1fe]
+        const owner = this.setpointOwner
+        if (typeof owner !== 'number' || this.raw_clip_state[0x1fe] === undefined) return []
+        const autoRaw = encodingFor(this.meta.modelId).autoRaw
+        return (owner === autoRaw) === (targetMode === autoRaw) ? [0x1fe] : []
+    }
+
+    /** Power and mode a feature tag is judged under: its own report's where it carries them. */
+    private judgedPower() {
+        return this.report?.power ?? this.getPowerTLV()
+    }
+
+    private judgedMode() {
+        return this.report?.mode ?? this.getModeTLV()
+    }
+
+    private reportCarries(tag: number) {
+        return this.report?.tags.has(tag) ?? false
+    }
+
+    /** Run a mode-change replay once the report being applied is complete. */
+    private afterReport(replay: () => void) {
+        if (this.report) this.report.afterReport.push(replay)
+        else replay()
     }
 
     stopTimers() {
@@ -457,6 +584,16 @@ export default class Device extends TLVDevice {
     initMakeSetConfig() {
         const isWinf = this.meta.modelId === 'WINF_056905_WW'
         const encoding = encodingFor(this.meta.modelId)
+        const setpointFollowsMode = this.setpointFollowsMode()
+
+        // Only the four ownership values come from the cache, and only where no report set
+        // them. The shown state comes from climate-mode computations after discovery, so
+        // nothing of the display is published from the cache.
+        const cachedMode = this.raw_clip_state[0x1f9]
+        this.reportedMode ??= cachedMode
+        this.reportedSetpoint ??= this.raw_clip_state[0x1fe]
+        this.reportedOwner ??= cachedMode
+        this.setpointOwner ??= cachedMode
         const config: DeviceDiscovery & { components: { climate: ClimateComponent } } = allowExtendedType({
             ...HADevice.config(this.meta, { name: 'LG Air Conditioner' }),
             components: {
@@ -498,7 +635,7 @@ export default class Device extends TLVDevice {
             readable: false,
             write_xform: (val) => (val === 'ON' ? 1 : 0),
             /*  0x1f7 is not necessary for ON but does not seem to hurt either */
-            write_attach: (raw) => (raw ? [0x1f9, 0x1fa, 0x1fe] : []),
+            write_attach: (raw) => (raw ? [0x1f9, 0x1fa, ...this.setpointAttach(this.getModeTLV())] : []),
             read_xform: (raw) => (raw ? 'ON' : 'OFF'),
             read_callback: (val) => {
                 // update 'mode' instead
@@ -527,6 +664,8 @@ export default class Device extends TLVDevice {
             name: 'mode',
             comp: 'climate',
             read_xform: (raw) => {
+                // A raw mode outside the table is published as nothing but still computed.
+                this.shown = { power: this.getPowerTLV(), mode: raw }
                 if (this.getPowerTLV() === 0) return 'off'
                 return invert(encoding.modeToRaw)[raw]
             },
@@ -571,10 +710,11 @@ export default class Device extends TLVDevice {
              * write_callback, because the callback runs first and would make this test of the
              * old state look like the appliance was already on.
              */
-            write_attach: () => {
-                if (this.getPowerTLV() !== 0) return [0x1fa, 0x1fe]
+            write_attach: (mode) => {
+                const setpoint = this.setpointAttach(mode as number)
+                if (this.getPowerTLV() !== 0) return [0x1fa, ...setpoint]
                 this.raw_clip_state[0x1f7] = 1
-                return [0x1f7, 0x1fa, 0x1fe]
+                return [0x1f7, 0x1fa, ...setpoint]
             },
         })
 
@@ -584,7 +724,7 @@ export default class Device extends TLVDevice {
             comp: 'climate',
             read_xform: (raw) => invert(encoding.fanToRaw)[raw],
             write_xform: (val) => encoding.fanToRaw[val],
-            write_attach: [0x1f9, 0x1fe],
+            write_attach: () => [0x1f9, ...this.setpointAttach(this.getModeTLV())],
             write_callback: () => this.allowAirflowWriteWhilePowered(),
         })
 
@@ -593,9 +733,30 @@ export default class Device extends TLVDevice {
             name: 'temperature',
             comp: 'climate',
             read_xform: (raw) => raw / 2,
+            // The bedroom unit's setpoint is published by publishSetpointDisplay() instead.
+            read_callback: () => !setpointFollowsMode,
             write_xform: (val) => Math.round(Number(val) * 2),
             write_attach: [0x1f9, 0x1fa],
+            write_callback: () => {
+                const mode = this.getModeTLV()
+                if (setpointFollowsMode && mode === encoding.autoRaw) {
+                    // In auto 0x1fe is a comfort level, not a temperature.
+                    log('status', this.id, 'ignoring temperature command in auto')
+                    return false
+                }
+                this.setpointOwner = mode ?? 'unknown'
+                return true
+            },
         })
+
+        if (setpointFollowsMode)
+            config.components.auto_comfort = allowExtendedType({
+                platform: 'sensor',
+                unique_id: '$deviceid-auto_comfort',
+                state_topic: '$this/auto_comfort',
+                name: 'Auto comfort level',
+                icon: 'mdi:thermometer-auto',
+            })
 
         if (this.raw_clip_state[0x2cd] & 4) {
             config.components.climate.swing_modes = VERTICAL_SWING_MODES
@@ -1282,18 +1443,20 @@ export default class Device extends TLVDevice {
                 if (jetHeat && this.getModeTLV() === 4) return 2
                 return 0
             },
+            // Judged under the report's own power and mode, whatever the tag order.
             read_xform: (raw) => {
-                if (jetCool && this.getModeTLV() === 0 && raw === 1) return 'ON'
-                if (jetHeat && this.getModeTLV() === 4 && raw === 2) return 'ON'
+                if (jetCool && this.judgedMode() === 0 && raw === 1) return 'ON'
+                if (jetHeat && this.judgedMode() === 4 && raw === 2) return 'ON'
                 return 'OFF'
             },
             read_callback: (val) => {
                 // Ignore read value if not running
-                const powerTLV = this.getPowerTLV()
+                const powerTLV = this.judgedPower()
                 if (powerTLV === 0 || powerTLV == null) return false
 
                 // Ignore read value if not in the right mode
-                if (!((jetCool && this.getModeTLV() === 0) || (jetHeat && this.getModeTLV() === 4))) return false
+                const modeTLV = this.judgedMode()
+                if (!((jetCool && modeTLV === 0) || (jetHeat && modeTLV === 4))) return false
 
                 this.jetMode = val === 'ON'
                 return true
@@ -1321,9 +1484,12 @@ export default class Device extends TLVDevice {
             if (this.getPowerTLV() === 0 || !this.jetMode) return
             this.setProperty(`${name}-`, 'ON')
         })
-        this.modeChangeHooks.push(() => {
-            this.setProperty(`${name}-`, this.jetMode ? 'ON' : 'OFF')
-        })
+        // Only a feature that is on, and that the report itself does not carry, is re-sent.
+        this.modeChangeHooks.push(() =>
+            this.afterReport(() => {
+                if (this.jetMode && !this.reportCarries(id)) this.setProperty(`${name}-`, 'ON')
+            }),
+        )
     }
 
     addOptionalSensorField(
@@ -1434,12 +1600,12 @@ export default class Device extends TLVDevice {
             write_xform: (val) => (val === 'ON' ? 1 : 0),
             read_xform: (raw) => (raw ? 'ON' : 'OFF'),
             read_callback: (val) => {
-                // Ignore read value if not running
-                const powerTLV = this.getPowerTLV()
+                // Ignore read value if not running; judged under the report's own power and mode
+                const powerTLV = this.judgedPower()
                 if (powerTLV === 0 || powerTLV == null) return false
 
                 // Ignore read value if not in the right mode
-                if (check_mode && !check_mode(this.getModeTLV())) return false
+                if (check_mode && !check_mode(this.judgedMode())) return false
 
                 this[field_name] = val === 'ON'
                 return true
@@ -1462,9 +1628,12 @@ export default class Device extends TLVDevice {
         })
 
         if (check_mode) {
-            this.modeChangeHooks.push(() => {
-                this.setProperty(`${name}-`, this[field_name] ? 'ON' : 'OFF')
-            })
+            // Only a feature that is on, and that the report itself does not carry, is re-sent.
+            this.modeChangeHooks.push(() =>
+                this.afterReport(() => {
+                    if (this[field_name] && !this.reportCarries(id)) this.setProperty(`${name}-`, 'ON')
+                }),
+            )
         }
     }
 }

@@ -183,6 +183,7 @@ const KOREAN_NAMES: Record<string, string> = {
     'Filter usage last reset': '필터 초기화 날짜',
     'Air purify': '공기청정',
     'Energy saving': '절전',
+    'Auto comfort level': '자동 모드 쾌적 단계',
     'Auto dry': '자동건조',
     'AI dry strength': 'AI건조 바람 세기',
     'Auto dry progress': '자동건조 진행률',

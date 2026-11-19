@@ -176,6 +176,15 @@ describe('korean appliance value localization', () => {
         assert.deepEqual(localized.options, ['약풍', '중풍', '강풍'])
     })
 
+    test('names the bedroom air conditioner auto comfort level sensor', () => {
+        const config = {
+            device: { name: 'LG Air Conditioner' },
+            components: { auto_comfort: { platform: 'sensor', name: 'Auto comfort level' } },
+        } as unknown as DeviceDiscovery
+
+        assert.equal(localizeDiscovery(config, 'korean').components.auto_comfort.name, '자동 모드 쾌적 단계')
+    })
+
     test('keeps the air purifier sleep timer distinct from the washer dry level', () => {
         // Both would render as "30분" if the dry level were not disambiguated, which
         // would make the reverse map send a dry-level token to the sleep timer select.
