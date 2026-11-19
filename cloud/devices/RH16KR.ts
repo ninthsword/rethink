@@ -66,11 +66,10 @@ const DOWNLOADED_COURSE: Record<number, string> = {
  * ERROR_AE of its own that means a clutch fault rather than a compressor one, and
  * util/ha_locale.ts holds a single Korean name per value.
  *
- * The byte is rec[22]. That position is inferred rather than seen in a fault: this handler
- * does not otherwise read it, and it was zero in healthy non-download captures. The healthy
- * active-download compound instead carries the matching download code there. Hd0C_F and Pd0F_F
- * — the two siblings whose records have this same length and discriminator — both read their
- * error there. Worth confirming against the ThinQ app the first time this dryer actually faults.
+ * The byte is rec[8]. That position comes from two upstream decodings of this record, and
+ * from the course-slot evidence: rec[22] carries the active download code while a downloaded
+ * course runs, so it cannot be the error. rec[8] was zero in every recorded sample, so a real
+ * fault is still needed to confirm it against the ThinQ app.
  */
 const ERROR: Record<number, string> = {
     0: 'NO_ERROR',
@@ -90,18 +89,16 @@ const ERROR: Record<number, string> = {
     42: 'ERROR_DE2',
 }
 
+// rec[11] carries the zero-based processState of the model diagnostic.
 const PROCESS: Record<number, string> = {
-    // The AABB wire record is one-based. The ThinQ model diagnostic uses
-    // zero-based indices for the same ordered processState values.
-    0: 'NONE',
-    1: 'DETECTING',
-    2: 'STEAM',
-    3: 'DRY_LV1',
-    4: 'DRY_LV2',
-    5: 'DRY_LV3',
-    6: 'COOL',
-    7: 'ANTI_CREASE',
-    8: 'END',
+    0: 'DETECTING',
+    1: 'STEAM',
+    2: 'DRY_LV1',
+    3: 'DRY_LV2',
+    4: 'DRY_LV3',
+    5: 'COOL',
+    6: 'ANTI_CREASE',
+    7: 'END',
 }
 
 function sensor(name: string, icon: string, extra: object = {}) {
@@ -195,6 +192,19 @@ export default class Device extends AABBDevice {
                         name: 'Control lock',
                         icon: 'mdi:lock-outline',
                     },
+                    remote_start: {
+                        platform: 'binary_sensor',
+                        unique_id: '$deviceid-remote_start',
+                        state_topic: '$this/remote_start',
+                        name: 'Remote start',
+                        icon: 'mdi:remote',
+                    },
+                    cycle_energy: sensor('cycle_energy', 'mdi:lightning-bolt', {
+                        name: 'Cycle energy',
+                        device_class: 'energy',
+                        unit_of_measurement: 'Wh',
+                        state_class: 'total_increasing',
+                    }),
                 },
             }),
         )
@@ -204,12 +214,12 @@ export default class Device extends AABBDevice {
         if (rec.length !== 27 || rec[1] !== 0x19) return
 
         const state = rec[2]
-        const isOff = state === 0
+        const idle = state === 0 || state === 1
         this.publishProperty('power', state === 0 ? 'OFF' : 'ON')
         this.publishProperty('status', mapped(STATUS, state))
-        this.publishProperty('run_completed', state === 4 || rec[21] === 8 ? 'ON' : 'OFF')
-        // The live power-off record retains the last process byte (observed as DRY_LV2).
-        this.publishProperty('process_status', isOff ? 'NONE' : mapped(PROCESS, rec[21]))
+        this.publishProperty('run_completed', state === 4 ? 'ON' : 'OFF')
+        // rec[11] keeps the last phase while off or idle, so those states show no phase.
+        this.publishProperty('process_status', idle ? 'NONE' : mapped(PROCESS, rec[11]))
         this.publishProperty('remaining_time', rec[3] * 60 + rec[4])
         this.publishProperty('initial_time', rec[5] * 60 + rec[6])
         const downloadedActive = rec[7] === 4 && rec[22] !== 0 && rec[22] === rec[25]
@@ -224,7 +234,10 @@ export default class Device extends AABBDevice {
         this.publishProperty('anti_crease', (rec[16] & 0x02) !== 0 ? 'ON' : 'OFF')
         this.publishProperty('smart_care', (rec[17] & 0x20) !== 0 ? 'ON' : 'OFF')
         this.publishProperty('control_lock', (rec[16] & 0x10) !== 0 ? 'ON' : 'OFF')
-        const error = downloadedActive ? 0 : rec[22]
+        this.publishProperty('remote_start', (rec[17] & 0x01) !== 0 ? 'ON' : 'OFF')
+        // Held after power-off and reset to 0 at the next power-on.
+        this.publishProperty('cycle_energy', rec[19] * 256 + rec[20])
+        const error = rec[8]
         this.publishProperty('error', error === 0 ? 'OFF' : 'ON')
         this.publishProperty('error_message', mapped(ERROR, error))
     }
