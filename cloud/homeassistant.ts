@@ -74,6 +74,8 @@ export class Connection extends TypedEmitter<ConnectionEvents> {
     /** Property names the current discovery payload refers to, per device. */
     private readonly liveProperties = new Map<string, Set<string>>()
     private readonly sweepTimers = new Map<string, ReturnType<typeof setTimeout>>()
+    /** Components rethink adds to a device's own discovery payload, per device. */
+    private readonly registeredComponents = new Map<string, Record<string, ComponentInfo>>()
 
     constructor(readonly config: HAConfig) {
         super()
@@ -183,7 +185,19 @@ export class Connection extends TypedEmitter<ConnectionEvents> {
         }
     }
 
-    publishConfig(id: string, config: DeviceDiscovery) {
+    /** Set the components merged into every discovery payload for this id; undefined clears them. */
+    registerComponents(id: string, components: Record<string, ComponentInfo> | undefined) {
+        if (components) this.registeredComponents.set(id, components)
+        else this.registeredComponents.delete(id)
+    }
+
+    publishConfig(id: string, handlerConfig: DeviceDiscovery) {
+        // The handler's own entries come last, so a removal entry it passes for a key wins
+        // over a registered component; the handler's object itself is left untouched.
+        const registered = this.registeredComponents.get(id)
+        const config = registered
+            ? { ...handlerConfig, components: { ...registered, ...handlerConfig.components } }
+            : handlerConfig
         const discoveryTopic = `${this.config.discovery_prefix}/device/rethink/${id}`
         const deviceTopic = `${this.config.rethink_prefix}/${id}`
         const replacements = {

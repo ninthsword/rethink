@@ -69,6 +69,19 @@ export class Device extends TypedEmitter<DeviceEvents> {
         for (const listener of this.bridgeMessageListeners) listener(payload)
     }
 
+    // The rssi event is ThinQ2-only, so it stays out of DeviceEvents, which the ThinQ1 Device
+    // shares with this one through AnyDevice.
+    private rssiListeners = new Set<(rssi: unknown) => void>()
+
+    /** Called with the rssi field, unvalidated, of each envelope the appliance sends about itself. */
+    onRssi(listener: (rssi: unknown) => void) {
+        this.rssiListeners.add(listener)
+    }
+
+    emitRssi(rssi: unknown) {
+        for (const listener of this.rssiListeners) listener(rssi)
+    }
+
     send(cmd: string, type: number, data: string | object) {
         const messagestr = JSON.stringify({ did: this.id, mid: Date.now(), cmd: cmd, type: type, data: data })
         const packet = { topic: this.topic, retain: false, qos: 0 as const, dup: false, payload: messagestr }
@@ -173,6 +186,19 @@ export class DeviceAcceptor extends TypedEmitter<DeviceAcceptorEvents> {
 
     mqtt(topic: string, payload: unknown, client: ClientWithExtra) {
         const parsedTopic = parseDeviceTopic(topic)
+
+        // Any envelope a registered appliance sends about itself may carry its Wi-Fi signal
+        // strength. A first completeProvisioning_ack has no Device yet, so it emits nothing.
+        const registered = client.deviceObj
+        if (
+            registered &&
+            (parsedTopic?.kind === 'message' || parsedTopic?.kind === 'provisioning') &&
+            parsedTopic.deviceId === registered.id
+        ) {
+            const envelope = validMessage(payload, registered.id)
+            if (envelope && 'rssi' in envelope) registered.emitRssi(envelope.rssi)
+        }
+
         const messageDeviceId = parsedTopic?.kind === 'message' ? parsedTopic.deviceId : undefined
         const message = messageDeviceId ? validMessage(payload, messageDeviceId) : undefined
         if (message) {

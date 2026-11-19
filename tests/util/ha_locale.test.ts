@@ -184,3 +184,18 @@ describe('korean appliance value localization', () => {
         assert.equal(delocalizeValue('30분 건조', 'korean'), '30_MIN')
     })
 })
+
+describe('Wi-Fi signal sensor name', () => {
+    test('is translated in korean and left as is in english', () => {
+        const config = {
+            device: { identifiers: 'id', name: 'LG Washer' },
+            origin: { name: 'rethink' },
+            components: {
+                wifirssi: { platform: 'sensor', unique_id: 'id-wifirssi', name: 'Wi-Fi signal' },
+            },
+        } as unknown as DeviceDiscovery
+
+        assert.equal(localizeDiscovery(config, 'korean').components.wifirssi.name, 'Wi-Fi 신호 세기')
+        assert.equal(localizeDiscovery(config, 'english').components.wifirssi.name, 'Wi-Fi signal')
+    })
+})
