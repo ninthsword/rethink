@@ -156,9 +156,9 @@ jobs:
                       --cap-drop ALL --security-opt no-new-privileges --tmpfs /tmp \
                       --entrypoint sh "$IMAGE" -ec '
                           printf "%s\n" SMOKE_NODE
-                          test "$(node --version)" = v24.22.1
+                          test "$(node --version)" = v24.22.3
                           printf "%s\n" SMOKE_OPENSSL_PACKAGE
-                          test "$(apk list --installed openssl | awk "{print \$1}")" = openssl-3.5.9-r0
+                          test "$(apk list --installed openssl | awk "{print \$1}")" = openssl-3.5.9-r1
                           printf "%s\n" SMOKE_CONFIG_IMPORT
                           node --input-type=module -e "await import(\"./dist/util/config.js\")"
                           printf "%s\n" SMOKE_CERTIFICATE
