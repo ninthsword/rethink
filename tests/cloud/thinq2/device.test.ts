@@ -109,3 +109,89 @@ describe('ThinQ2 device message forwarding', () => {
         assert.equal(acceptor.clientsById.has('toString'), true)
     })
 })
+
+describe('ThinQ2 rssi event', () => {
+    const DEPLOY = {
+        did: 'washer',
+        kind: 'Hd0C_F',
+        cmd: 'deploy',
+        rssi: -61,
+        data: { appInfo: { modelName: 'Hd0C_F' } },
+    }
+
+    function registeredAppliance() {
+        const acceptor = new DeviceAcceptor(new Broker())
+        const client: Record<string, unknown> = { deviceObj: undefined, deployMsg: undefined }
+        const devices: Device[] = []
+        acceptor.on('newDevice', (dev) => devices.push(dev))
+        acceptor.mqtt('clip/provisioning/devices/washer', DEPLOY, client as never)
+        acceptor.mqtt(
+            'clip/message/devices/washer',
+            { did: 'washer', cmd: 'completeProvisioning_ack', rssi: -62 },
+            client as never,
+        )
+        assert.equal(devices.length, 1)
+        const readings: unknown[] = []
+        devices[0].onRssi((rssi) => readings.push(rssi))
+        return { acceptor, client, device: devices[0], readings }
+    }
+
+    it('is emitted for every envelope a registered appliance sends about itself', () => {
+        const { acceptor, client, readings } = registeredAppliance()
+
+        acceptor.mqtt(
+            'clip/message/devices/washer',
+            { did: 'washer', cmd: 'device_packet', data: '00', rssi: -50 },
+            client as never,
+        )
+        acceptor.mqtt('clip/message/devices/washer', { did: 'washer', cmd: 'req_timesync', rssi: -51 }, client as never)
+        // A repeat acknowledgement on an already registered connection.
+        acceptor.mqtt(
+            'clip/message/devices/washer',
+            { did: 'washer', cmd: 'completeProvisioning_ack', rssi: -52 },
+            client as never,
+        )
+        acceptor.mqtt('clip/provisioning/devices/washer', { ...DEPLOY, rssi: -53 }, client as never)
+
+        assert.deepEqual(readings, [-50, -51, -52, -53])
+    })
+
+    it('is not emitted for another did, an envelope without rssi or an unregistered connection', () => {
+        const { acceptor, client, readings } = registeredAppliance()
+
+        acceptor.mqtt('clip/message/devices/other', { did: 'other', cmd: 'device_packet', rssi: -50 }, client as never)
+        acceptor.mqtt('clip/message/devices/washer', { did: 'other', cmd: 'device_packet', rssi: -50 }, client as never)
+        acceptor.mqtt(
+            'clip/message/devices/washer',
+            { did: 'washer', cmd: 'device_packet', data: '00' },
+            client as never,
+        )
+        assert.deepEqual(readings, [])
+
+        const stranger: Record<string, unknown> = { deviceObj: undefined, deployMsg: undefined }
+        assert.doesNotThrow(() =>
+            acceptor.mqtt(
+                'clip/message/devices/washer',
+                { did: 'washer', cmd: 'device_packet', rssi: -50 },
+                stranger as never,
+            ),
+        )
+        assert.deepEqual(readings, [])
+    })
+
+    it('is emitted before the envelope reaches its data and bridge-message listeners', () => {
+        const { acceptor, client, device } = registeredAppliance()
+        const order: string[] = []
+        device.on('data', () => order.push('data'))
+        device.onBridgeMessage(() => order.push('bridge'))
+        device.onRssi(() => order.push('rssi'))
+
+        acceptor.mqtt(
+            'clip/message/devices/washer',
+            { did: 'washer', cmd: 'device_packet', data: '00', rssi: -50 },
+            client as never,
+        )
+
+        assert.deepEqual(order, ['rssi', 'data', 'bridge'])
+    })
+})

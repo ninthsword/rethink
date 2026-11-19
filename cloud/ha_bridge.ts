@@ -32,7 +32,7 @@ import WTDN3 from './devices/WTDN3'
 import Y_V8_F___W_B_2QEUK from './devices/Y_V8_F___W.B_2QEUK'
 import Y_V8_Y___W_B32QEUK from './devices/Y_V8_Y___W.B32QEUK'
 import type { AnyDevice } from './devmgr'
-import type { Connection } from './homeassistant'
+import type { ComponentInfo, Connection } from './homeassistant'
 import type { Metadata } from './thinq'
 import type { Device as T1Device } from './thinq1/device'
 import type { Device as T2Device } from './thinq2/device'
@@ -84,9 +84,25 @@ const t2deviceTypes: Record<string, T2Factory> = {
     D121111: D121111, // Korean dishwasher
 }
 
+/** Diagnostic sensor every ThinQ2 appliance gets, fed from the rssi its envelopes carry. */
+const WIFI_RSSI_COMPONENT = {
+    platform: 'sensor',
+    unique_id: '$deviceid-wifirssi',
+    state_topic: '$this/wifirssi',
+    device_class: 'signal_strength',
+    unit_of_measurement: 'dBm',
+    state_class: 'measurement',
+    entity_category: 'diagnostic',
+    name: 'Wi-Fi signal',
+} as ComponentInfo
+
+const RSSI_INTERVAL_MS = 60_000
+
 class Bridge {
     haDevices = new Map<string, HADevice>()
     pendingDrops = new Map<string, { device: HADevice; timer: ReturnType<typeof setTimeout> }>()
+    /** Date.now() of the last wifirssi publication that did not throw, per appliance id. */
+    private readonly rssiPublishedAt = new Map<string, number>()
 
     constructor(
         readonly HA: Connection,
@@ -126,12 +142,19 @@ class Bridge {
                 ? table[meta.modelName]
                 : undefined)
 
+        // Registered before construction, since a handler may publish discovery in its constructor.
         if (thinqdev.platform === 'thinq1') {
             const devclass = handlerFor(t1deviceTypes) as T1Factory | undefined
-            if (devclass) hadevice = new devclass(this.HA, thinqdev, meta)
+            if (devclass) {
+                this.HA.registerComponents(thinqdev.id, undefined)
+                hadevice = new devclass(this.HA, thinqdev, meta)
+            }
         } else if (thinqdev.platform === 'thinq2') {
             const devclass = handlerFor(t2deviceTypes) as T2Factory | undefined
-            if (devclass) hadevice = new devclass(this.HA, thinqdev, meta)
+            if (devclass) {
+                this.HA.registerComponents(thinqdev.id, { wifirssi: WIFI_RSSI_COMPONENT })
+                hadevice = new devclass(this.HA, thinqdev, meta)
+            }
         }
 
         if (!hadevice) {
@@ -178,9 +201,28 @@ class Bridge {
         // replacement offline after this map entry is updated.
         this.haDevices.set(thinqdev.id, hadevice)
         thinqdev.on('close', () => this.dropDevice(hadevice))
+        if (thinqdev.platform === 'thinq2') thinqdev.onRssi((rssi) => this.publishRssi(hadevice, rssi))
 
         // hadevice.publishConfig() not needed anymore, will usually happen in the devclass constructor - or later
         hadevice.start()
+    }
+
+    /**
+     * Publish an appliance's Wi-Fi signal strength at most once a minute per id. Errors stay
+     * here, so the envelope that carried the reading is still handled as before.
+     */
+    private publishRssi(ha: HADevice, rssi: unknown) {
+        try {
+            if (this.haDevices.get(ha.id) !== ha) return
+            if (typeof rssi !== 'number' || !Number.isInteger(rssi) || rssi < -127 || rssi > 0) return
+            const now = Date.now()
+            const last = this.rssiPublishedAt.get(ha.id)
+            if (last !== undefined && now - last < RSSI_INTERVAL_MS) return
+            this.HA.publishProperty(ha.id, 'wifirssi', rssi)
+            this.rssiPublishedAt.set(ha.id, now)
+        } catch (err) {
+            log('status', `could not publish the Wi-Fi signal of ${ha.id}: ${err}`)
+        }
     }
 
     dropDevice(ha: HADevice) {

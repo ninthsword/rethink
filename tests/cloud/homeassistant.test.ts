@@ -24,6 +24,7 @@ function fakeConnection(config: Record<string, unknown>) {
         localizedStateValues: new Map(),
         liveProperties: new Map(),
         sweepTimers: new Map(),
+        registeredComponents: new Map(),
     })
     return { connection, published, subscribed, unsubscribed }
 }
@@ -484,4 +485,103 @@ test('only the exact global topic is corrected, never a per-device offline', (t)
     assert.deepEqual(published, [
         { topic: 'rethink/pac-id/availability', payload: 'offline', options: { retain: true } },
     ])
+})
+
+const WIFI_RSSI = {
+    platform: 'sensor',
+    unique_id: '$deviceid-wifirssi',
+    state_topic: '$this/wifirssi',
+    device_class: 'signal_strength',
+    unit_of_measurement: 'dBm',
+    state_class: 'measurement',
+    entity_category: 'diagnostic',
+    name: 'Wi-Fi signal',
+}
+
+function washerConfig() {
+    return {
+        device: { identifiers: '$deviceid', name: 'LG Washer' },
+        origin: { name: 'rethink' },
+        components: {
+            status: { platform: 'sensor', unique_id: '$deviceid-status', state_topic: '$this/status', name: 'Status' },
+        },
+    } as unknown as DeviceDiscovery
+}
+
+test('publishConfig merges a registered component into the localized discovery payload', () => {
+    const { connection, published } = fakeConnection({ language: 'korean' })
+    connection.registerComponents('washer-id', { wifirssi: WIFI_RSSI })
+    const config = washerConfig()
+    const before = JSON.stringify(config)
+
+    connection.publishConfig('washer-id', config)
+
+    assert.equal(published.length, 1)
+    const payload = JSON.parse(published[0].payload)
+    assert.deepEqual(payload.components.wifirssi, {
+        platform: 'sensor',
+        unique_id: 'washer-id-wifirssi',
+        state_topic: 'rethink/washer-id/wifirssi',
+        device_class: 'signal_strength',
+        unit_of_measurement: 'dBm',
+        state_class: 'measurement',
+        entity_category: 'diagnostic',
+        name: 'Wi-Fi 신호 세기',
+    })
+    assert.equal(payload.components.status.name, '상태')
+    assert.equal(JSON.stringify(config), before, "the handler's own config must not change")
+})
+
+test('publishConfig merges a registered component into a payload that carries removed components', () => {
+    const { connection, published } = fakeConnection({ language: 'korean' })
+    connection.registerComponents('washer-id', { wifirssi: WIFI_RSSI })
+    const config = washerConfig()
+
+    connection.publishConfig('washer-id', {
+        ...config,
+        components: { ...config.components, oldsensor: { platform: 'sensor' } },
+    } as unknown as DeviceDiscovery)
+
+    const payload = JSON.parse(published[0].payload)
+    assert.deepEqual(payload.components.oldsensor, { platform: 'sensor' })
+    assert.equal(payload.components.wifirssi.name, 'Wi-Fi 신호 세기')
+    assert.equal(payload.components.wifirssi.device_class, 'signal_strength')
+})
+
+test('a removal entry the handler passes wins over a registered component with the same key', () => {
+    const { connection, published } = fakeConnection({})
+    connection.registerComponents('washer-id', { wifirssi: WIFI_RSSI })
+    const config = washerConfig()
+
+    connection.publishConfig('washer-id', {
+        ...config,
+        components: { ...config.components, wifirssi: { platform: 'sensor' } },
+    } as unknown as DeviceDiscovery)
+
+    assert.deepEqual(JSON.parse(published[0].payload).components.wifirssi, { platform: 'sensor' })
+})
+
+test('publishConfig publishes an id with nothing registered as before, and a cleared registration too', () => {
+    const { connection, published } = fakeConnection({})
+    connection.registerComponents('other-id', { wifirssi: WIFI_RSSI })
+    connection.registerComponents('cleared-id', { wifirssi: WIFI_RSSI })
+    connection.registerComponents('cleared-id', undefined)
+
+    connection.publishConfig('washer-id', washerConfig())
+    connection.publishConfig('cleared-id', washerConfig())
+
+    for (const [index, id] of ['washer-id', 'cleared-id'].entries())
+        assert.deepEqual(Object.keys(JSON.parse(published[index].payload).components), ['status'], id)
+})
+
+test('a registered component state topic survives the retained-state sweep', (t: TestContext) => {
+    t.mock.timers.enable({ apis: ['setTimeout'] })
+    const { connection, published } = fakeConnection({})
+    connection.registerComponents('washer-id', { wifirssi: WIFI_RSSI })
+    connection.publishConfig('washer-id', washerConfig())
+    published.length = 0
+
+    connection.received('rethink/washer-id/wifirssi', Buffer.from('-55'), { retain: true } as never)
+
+    assert.deepEqual(published, [])
 })

@@ -91,7 +91,9 @@ function fromTheLog() {
         if (line.includes('re-trying initial values')) entry.stillStarting = true
         if (line.includes('received initial values key')) entry.stillStarting = false
         if (line.includes('sending periodic refresh query')) entry.periodicRefreshSeen = true
-        if (/ publish [0-9a-f-]+ /.test(line)) {
+        // The Wi-Fi signal reading arrives with every envelope, even from an appliance whose
+        // state has stopped, so it says nothing about whether the state is fresh.
+        if (/ publish [0-9a-f-]+ /.test(line) && !/ publish [0-9a-f-]+ wifirssi /.test(line)) {
             const at = new Date(line.slice(0, 24))
             if (!Number.isNaN(at.valueOf())) entry.lastPublish = at
         }

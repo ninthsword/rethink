@@ -37,6 +37,7 @@ const KOREAN_NAMES: Record<string, string> = {
     'LG Mini Washer': 'LG 미니워시',
     'LG Washer': 'LG 세탁기',
     Power: '전원',
+    'Wi-Fi signal': 'Wi-Fi 신호 세기',
     Status: '상태',
     status: '상태',
     'Previous status': '이전 상태',

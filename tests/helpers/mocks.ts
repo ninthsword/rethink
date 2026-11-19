@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { EventEmitter } from 'node:events'
-import type { Connection, DeviceDiscovery } from '@/cloud/homeassistant'
+import type { ComponentInfo, Connection, DeviceDiscovery } from '@/cloud/homeassistant'
 import type { Broker } from '@/cloud/mqtt-broker'
 import type { Metadata } from '@/cloud/thinq'
 import type { Connection as Thinq1Connection } from '@/cloud/thinq1/connection'
@@ -28,6 +28,13 @@ export class MockHAConnection extends EventEmitter {
      * appliance belonging to a declared shared outdoor unit.
      */
     config: unknown
+    /** What the Bridge registered per id; the real Connection merges these into discovery. */
+    registeredComponents = new Map<string, Record<string, ComponentInfo>>()
+
+    registerComponents(id: string, components: Record<string, ComponentInfo> | undefined) {
+        if (components) this.registeredComponents.set(id, components)
+        else this.registeredComponents.delete(id)
+    }
 
     publishConfig(id: string, config: DeviceDiscovery) {
         assert.deepEqual(validateDeviceDiscovery(config), [], `invalid Home Assistant MQTT discovery for ${id}`)

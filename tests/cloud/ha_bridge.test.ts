@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
 import Bridge from '@/cloud/ha_bridge'
+import type { ComponentInfo, DeviceDiscovery } from '@/cloud/homeassistant'
+import { Broker } from '@/cloud/mqtt-broker'
 import type { Metadata } from '@/cloud/thinq'
+import { DeviceAcceptor, type Device as Thinq2Device } from '@/cloud/thinq2/device'
 import { MockHAConnection, MockThinq1Device, MockThinq2Device } from '@/tests/helpers/mocks'
 import { enableMockTimers, tickMockTimers } from '@/tests/helpers/timers'
 import { normalize, type RawConfig } from '@/util/config'
@@ -263,4 +266,196 @@ test('refrigerator replacement and real drop retire period and door warning time
     tickMockTimers(t, 1)
     assert.equal(replacement.midnightTimer, undefined)
     assert.equal(replacement.doorWarningTimer, undefined)
+})
+
+describe('Wi-Fi signal sensor', () => {
+    const WIFI_RSSI = {
+        platform: 'sensor',
+        unique_id: '$deviceid-wifirssi',
+        state_topic: '$this/wifirssi',
+        device_class: 'signal_strength',
+        unit_of_measurement: 'dBm',
+        state_class: 'measurement',
+        entity_category: 'diagnostic',
+        name: 'Wi-Fi signal',
+    }
+
+    class RecordingHA extends MockHAConnection {
+        events: string[] = []
+        rssi: Array<[string, string | number]> = []
+        failRssi = false
+
+        override registerComponents(id: string, components: Record<string, ComponentInfo> | undefined) {
+            super.registerComponents(id, components)
+            this.events.push(components ? `register ${id}` : `clear ${id}`)
+        }
+
+        override publishConfig(id: string, config: DeviceDiscovery) {
+            super.publishConfig(id, config)
+            this.events.push(`config ${id}`)
+        }
+
+        override publishProperty(id: string, property: string, value: string | number) {
+            if (property === 'wifirssi') {
+                if (this.failRssi) throw new Error('broker gone')
+                this.rssi.push([id, value])
+            }
+            super.publishProperty(id, property, value)
+        }
+    }
+
+    function setup(t: import('node:test').TestContext) {
+        t.mock.timers.enable({ apis: ['setTimeout', 'setInterval', 'Date'], now: 0 })
+        const ha = new RecordingHA()
+        const bridge = new Bridge(ha.asConnection(), 1000)
+        return { ha, bridge }
+    }
+
+    test('is registered before a ThinQ2 handler publishes discovery in its constructor', (t) => {
+        const { ha, bridge } = setup(t)
+
+        bridge.newDevice(new MockThinq2Device('washer-id', META))
+
+        assert.deepEqual(ha.events.slice(0, 2), ['register washer-id', 'config washer-id'])
+        assert.deepEqual(ha.registeredComponents.get('washer-id'), { wifirssi: WIFI_RSSI })
+    })
+
+    test('is cleared when a ThinQ1 handler takes over the id', (t) => {
+        const { ha, bridge } = setup(t)
+        bridge.newDevice(new MockThinq2Device('shared-id', META))
+        ha.events = []
+
+        bridge.newDevice(new MockThinq1Device('shared-id', { modelId: 'WTDN3', modelName: 'WTDN3', swVersion: '1.0' }))
+
+        assert.equal(ha.events[0], 'clear shared-id')
+        assert.equal(ha.registeredComponents.has('shared-id'), false)
+    })
+
+    test('publishes the first reading of each id at once, then at most once a minute', (t) => {
+        const { ha, bridge } = setup(t)
+        const a = new MockThinq2Device('a', META)
+        const b = new MockThinq2Device('b', META)
+        bridge.newDevice(a)
+        bridge.newDevice(b)
+
+        a.emitRssi(-50)
+        t.mock.timers.setTime(1000)
+        b.emitRssi(-60)
+        a.emitRssi(-51)
+        assert.deepEqual(ha.rssi, [
+            ['a', -50],
+            ['b', -60],
+        ])
+
+        t.mock.timers.setTime(59_999)
+        a.emitRssi(-52)
+        assert.equal(ha.rssi.length, 2)
+        t.mock.timers.setTime(60_000)
+        a.emitRssi(-53)
+        assert.deepEqual(ha.rssi[ha.rssi.length - 1], ['a', -53])
+        assert.equal(ha.devices.a.properties.wifirssi, -53)
+    })
+
+    test('keeps the per-id window across a replacement connection', (t) => {
+        const { ha, bridge } = setup(t)
+        const first = new MockThinq2Device('washer-id', META)
+        bridge.newDevice(first)
+        first.emitRssi(-50)
+
+        const second = new MockThinq2Device('washer-id', META)
+        bridge.newDevice(second)
+        t.mock.timers.setTime(30_000)
+        second.emitRssi(-40)
+
+        assert.deepEqual(ha.rssi, [['washer-id', -50]])
+        t.mock.timers.setTime(60_000)
+        second.emitRssi(-41)
+        assert.deepEqual(ha.rssi[ha.rssi.length - 1], ['washer-id', -41])
+    })
+
+    test('a publish that throws does not move the window and does not escape', (t) => {
+        const { ha, bridge } = setup(t)
+        const thinq = new MockThinq2Device('washer-id', META)
+        bridge.newDevice(thinq)
+
+        ha.failRssi = true
+        assert.doesNotThrow(() => thinq.emitRssi(-50))
+        ha.failRssi = false
+        t.mock.timers.setTime(1000)
+        thinq.emitRssi(-51)
+
+        assert.deepEqual(ha.rssi, [['washer-id', -51]])
+    })
+
+    test('publishes only integers from -127 to 0', (t) => {
+        const { ha, bridge } = setup(t)
+        const values: unknown[] = [-127, 0, -128, 1, -50.5, '-50', Number.NaN, undefined]
+        values.forEach((value, index) => {
+            const thinq = new MockThinq2Device(`id-${index}`, META)
+            bridge.newDevice(thinq)
+            thinq.emitRssi(value)
+        })
+
+        assert.deepEqual(ha.rssi, [
+            ['id-0', -127],
+            ['id-1', 0],
+        ])
+    })
+
+    test('a superseded or dropped handler publishes nothing', (t) => {
+        const { ha, bridge } = setup(t)
+        const first = new MockThinq2Device('washer-id', META)
+        bridge.newDevice(first)
+        const second = new MockThinq2Device('washer-id', META)
+        bridge.newDevice(second)
+
+        // The id's first reading, so only the handler check can hold it back.
+        first.emitRssi(-50)
+        assert.deepEqual(ha.rssi, [])
+
+        second.emitRssi(-51)
+        t.mock.timers.setTime(60_000)
+        first.emitRssi(-52)
+        assert.deepEqual(ha.rssi, [['washer-id', -51]])
+
+        const other = new MockThinq2Device('other-id', META)
+        bridge.newDevice(other)
+        other.emit('close')
+        t.mock.timers.tick(1000)
+        assert.equal(bridge.haDevices.has('other-id'), false)
+        other.emitRssi(-50)
+        assert.deepEqual(ha.rssi, [['washer-id', -51]])
+    })
+
+    test('a failing publish leaves the envelope to its data and bridge-message listeners', (t) => {
+        const { ha, bridge } = setup(t)
+        ha.failRssi = true
+        const acceptor = new DeviceAcceptor(new Broker())
+        acceptor.on('newDevice', (dev) => bridge.newDevice(dev))
+        const client: Record<string, unknown> = { deviceObj: undefined, deployMsg: undefined }
+        acceptor.mqtt(
+            'clip/provisioning/devices/washer-id',
+            { did: 'washer-id', kind: 'Hd0C_F', cmd: 'deploy', data: { appInfo: { modelName: 'Hd0C_F' } } },
+            client as never,
+        )
+        acceptor.mqtt(
+            'clip/message/devices/washer-id',
+            { did: 'washer-id', cmd: 'completeProvisioning_ack' },
+            client as never,
+        )
+        const device = client.deviceObj as Thinq2Device
+        assert.ok(bridge.haDevices.get('washer-id'))
+        const data: Buffer[] = []
+        const messages: unknown[] = []
+        device.on('data', (buf) => data.push(buf))
+        device.onBridgeMessage((message) => messages.push(message))
+
+        const envelope = { did: 'washer-id', cmd: 'device_packet', data: '00', rssi: -50 }
+        acceptor.mqtt('clip/message/devices/washer-id', envelope, client as never)
+
+        assert.deepEqual(data, [Buffer.from('00', 'hex')])
+        assert.deepEqual(messages, [envelope])
+        assert.deepEqual(ha.rssi, [])
+        acceptor.disconnected(client as never)
+    })
 })
