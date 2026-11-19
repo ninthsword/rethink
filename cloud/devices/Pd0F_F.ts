@@ -26,6 +26,11 @@ const PREVIOUS_STATUS: Record<number, string> = STATUS
  * pair them. The gaps are real: the model skips 6, 7, 13-15 and everything between 17 and 26.
  * 0 keeps the NO_ERROR it has always published rather than the model's ERROR_NO, because that
  * value is already on screen and already translated.
+ *
+ * The byte is rec[8]. The evidence for this mini washer's rec[8] is two upstream decodings
+ * of this record. The course-slot observation that rec[22] is the active download course slot
+ * rather than an error comes from the dryer's capture. rec[8] was zero in every recorded
+ * sample, so a real fault is still needed to confirm it.
  */
 const ERROR: Record<number, string> = {
     0: 'NO_ERROR',
@@ -115,7 +120,7 @@ export default class Device extends AABBDevice {
 
         const state = rec[2]
         const isOff = state === 0
-        const error = rec[22]
+        const error = rec[8]
         this.publishProperty('power', isOff ? 'OFF' : 'ON')
         this.publishProperty('status', STATUS[state] ?? `RAW_${state}`)
         this.publishProperty('run_completed', state === 8 ? 'ON' : 'OFF')

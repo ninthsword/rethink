@@ -156,6 +156,7 @@ const KOREAN_NAMES: Record<string, string> = {
     'Child lock': '버튼 잠금',
     'Remote start': '원격 시작',
     'Remote start enabled': '원격 시작 허용',
+    'Cycle energy': '회차 전력 사용량',
     Start: '시작',
     Pause: '일시정지',
     'Power off': '전원 끄기',
