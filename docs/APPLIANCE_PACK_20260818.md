@@ -9,7 +9,7 @@ confirm field meanings; Home Assistant state comes from the local appliance pack
 | Appliance           | modelId          | Local state exposed to Home Assistant                                                                                                                       |
 | ------------------- | ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Front-load washer   | `F21VDT_AKOR`    | power, current/previous state, completion, remaining/initial/reserved time, course fields, soil, spin, water temperature, rinse, dry level, tub-clean count |
-| Dryer               | `RH16KR`, `RH16_N_KR` | power, state/full process table/completion, remaining/initial/reserved time, course/downloaded course, dry level, Eco Hybrid, anti-crease, Smart Care, control lock, reservation active |
+| Dryer               | `RH16KR`, `RH16_N_KR` | power, state/full process table/completion, remaining/initial/reserved time, course/downloaded course, dry level, Eco Hybrid, anti-crease, Smart Care, control lock, reservation active, remote start, cycle energy |
 | Kimchi refrigerator | `2REK1G03VI1902` | top/middle/bottom room temperatures, door, display lock, one-touch filter, monitor status                                                                   |
 | Mini washer         | `Pd0F_F`         | power, current/previous state, completion, remaining/initial/reserved time, error and door lock                                                             |
 | Dishwasher          | `D121111`        | power, state/process/completion, remaining/initial/reserved time, course/stored download course, tub-clean count, confirmed read-only settings               |
@@ -23,8 +23,9 @@ For the installed `RH16_N_KR` dryer, a labelled panel capture confirms
 `BEDDING_BRUSH=15`, `ALLERGYCARE=16`, `CONDENSERCARE=18`, `SELFCLEANING=19`,
 `PADDINGREFRESH=20`, `TIMEDRY=21`, and `WATERREPELLENT=22`. Raw `4` is a downloaded course
 only when `rec[22]` is nonzero and equals stored-download `rec[25]`; otherwise it
-remains Bedding. The stored download is always decoded from `rec[25]`. That
-compound state suppresses only its false error indication. Anti-crease is
+remains Bedding. The stored download is always decoded from `rec[25]`. The error is
+read from `rec[8]`, so the compound state no longer suppresses anything: a downloaded
+course and an error are reported together. Anti-crease is
 `rec[16] & 0x02`, Smart Care is `rec[17] & 0x20`, control lock is `rec[16] & 0x10`,
 and reservation active is
 `rec[16] & 0x01`. While active, a valid `rec[12]` hour (3--19) and `rec[13]`
@@ -56,8 +57,8 @@ toggled ON→OFF observed device event `0x72 c9/c8` aligned with `rec[17]` bit `
 OFF→ON→OFF. `rec[17]` bit `0x10` lagged as the panel-lock consequence and is
 distinct from manual `control_lock` (`rec[16] & 0x10`). Earlier no-response occurred
 with the door open, consistent with the official LG guidance to power on, wait for
-Wi-Fi, close the door, and hold for three seconds. This records diagnosis only and
-adds no remote entity, command, or device write.
+Wi-Fi, close the door, and hold for three seconds. `rec[17]` bit `0` is now exposed
+as the read-only `remote_start` sensor; this still adds no command or device write.
 
 ## Deferred controls and fields
 

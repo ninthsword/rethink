@@ -87,7 +87,7 @@ test('RH16KR reports the errors its model defines', () => {
     const report = (code: number) => {
         const rec = Buffer.alloc(27)
         rec[1] = 0x19
-        rec[22] = code
+        rec[8] = code
         thinq.emit('data', Buffer.concat([Buffer.from([0xaa, 0x21, 0x30, 0xeb]), rec, Buffer.from([0, 0xbb])]))
         return ha.devices['dryer-id'].properties
     }
@@ -109,20 +109,119 @@ test('RH16KR reports the errors its model defines', () => {
     }
 })
 
+test('RH16KR ignores a non-zero rec[22] when rec[8] reports no error', () => {
+    const ha = new MockHAConnection()
+    const thinq = new MockThinq2Device('dryer-id', META)
+    new DUT(ha.asConnection(), thinq, META)
+
+    const rec = Buffer.alloc(27)
+    rec[1] = 0x19
+    rec[2] = 2
+    rec[22] = 15
+    thinq.emit('data', Buffer.concat([Buffer.from([0xaa, 0x21, 0x30, 0xeb]), rec, Buffer.from([0, 0xbb])]))
+
+    const p = ha.devices['dryer-id'].properties
+    assert.equal(p.error, 'OFF')
+    assert.equal(p.error_message, 'NO_ERROR')
+})
+
 test('RH16KR exposes the complete model process table', () => {
     const ha = new MockHAConnection()
     const thinq = new MockThinq2Device('dryer-id', META)
     new DUT(ha.asConnection(), thinq, META)
 
-    // Build a 27-byte record with one-based AABB processState=COOL (6).
-    const rec = Buffer.alloc(27)
-    rec[1] = 0x19
-    rec[2] = 2
-    rec[21] = 6
-    const packet = Buffer.concat([Buffer.from([0xaa, 0x21, 0x30, 0xeb]), rec, Buffer.from([0, 0xbb])])
-    thinq.emit('data', packet)
+    const report = (state: number, phase: number, legacy = 0) => {
+        const rec = Buffer.alloc(27)
+        rec[1] = 0x19
+        rec[2] = state
+        rec[11] = phase
+        rec[21] = legacy
+        thinq.emit('data', Buffer.concat([Buffer.from([0xaa, 0x21, 0x30, 0xeb]), rec, Buffer.from([0, 0xbb])]))
+        return ha.devices['dryer-id'].properties
+    }
 
-    assert.equal(ha.devices['dryer-id'].properties.process_status, 'COOL')
+    // rec[11] carries the zero-based processState of the model diagnostic.
+    for (const [phase, name] of [
+        [0, 'DETECTING'],
+        [1, 'STEAM'],
+        [2, 'DRY_LV1'],
+        [3, 'DRY_LV2'],
+        [4, 'DRY_LV3'],
+        [5, 'COOL'],
+        [6, 'ANTI_CREASE'],
+        [7, 'END'],
+        [8, 'RAW_8'],
+    ] as const)
+        assert.equal(report(2, phase).process_status, name, `phase ${phase}`)
+
+    // A contradicting rec[21] no longer decides the phase.
+    assert.equal(report(2, 3, 6).process_status, 'DRY_LV2')
+    assert.equal(report(2, 5, 1).process_status, 'COOL')
+
+    // PAUSE and END show whatever phase rec[11] carries.
+    assert.equal(report(3, 4).process_status, 'DRY_LV3')
+    assert.equal(report(4, 7).process_status, 'END')
+    assert.equal(report(4, 5).process_status, 'COOL')
+
+    // POWEROFF and INITIAL show no phase, whatever rec[11] retains.
+    assert.equal(report(0, 3).process_status, 'NONE')
+    assert.equal(report(1, 5).process_status, 'NONE')
+})
+
+test('RH16KR reports run completed only in the END state', () => {
+    const ha = new MockHAConnection()
+    const thinq = new MockThinq2Device('dryer-id', META)
+    new DUT(ha.asConnection(), thinq, META)
+
+    const report = (state: number, phase: number, legacy: number) => {
+        const rec = Buffer.alloc(27)
+        rec[1] = 0x19
+        rec[2] = state
+        rec[11] = phase
+        rec[21] = legacy
+        thinq.emit('data', Buffer.concat([Buffer.from([0xaa, 0x21, 0x30, 0xeb]), rec, Buffer.from([0, 0xbb])]))
+        return ha.devices['dryer-id'].properties
+    }
+
+    // END with a non-END phase is complete; RUNNING with the END phase and the old
+    // rec[21] completion value is not, so rec[2] alone decides.
+    assert.equal(report(4, 5, 0).run_completed, 'ON')
+    assert.equal(report(2, 7, 8).run_completed, 'OFF')
+    assert.equal(report(4, 7, 0).run_completed, 'ON')
+    assert.equal(report(3, 7, 8).run_completed, 'OFF')
+})
+
+test('RH16KR publishes the cycle energy of every decoded record', () => {
+    const ha = new MockHAConnection()
+    const thinq = new MockThinq2Device('dryer-id', META)
+    new DUT(ha.asConnection(), thinq, META)
+
+    const component = ha.devices['dryer-id'].config?.components.cycle_energy as Record<string, unknown>
+    assert.deepEqual(component, {
+        platform: 'sensor',
+        unique_id: '$deviceid-cycle_energy',
+        state_topic: '$this/cycle_energy',
+        name: 'Cycle energy',
+        icon: 'mdi:lightning-bolt',
+        device_class: 'energy',
+        unit_of_measurement: 'Wh',
+        state_class: 'total_increasing',
+    })
+
+    const report = (state: number, high: number, low: number) => {
+        const rec = Buffer.alloc(27)
+        rec[1] = 0x19
+        rec[2] = state
+        rec[19] = high
+        rec[20] = low
+        thinq.emit('data', Buffer.concat([Buffer.from([0xaa, 0x21, 0x30, 0xeb]), rec, Buffer.from([0, 0xbb])]))
+        return ha.devices['dryer-id'].properties
+    }
+
+    // The first decoded record is a power-off record that still holds the last cycle's value.
+    assert.equal(report(0, 0x05, 0xb1).cycle_energy, 1457)
+    assert.equal(report(1, 0, 0).cycle_energy, 0)
+    assert.equal(report(2, 0x05, 0xa8).cycle_energy, 1448)
 })
 
 test('RH16KR handles the model id the dryer reports after a fresh registration', () => {
@@ -321,15 +420,16 @@ test('RH16KR preserves live COOLAIR and WARMAIR time transitions', () => {
     }
 })
 
-test('RH16KR treats only the confirmed compound as a downloaded course and false error', () => {
+test('RH16KR treats only the confirmed compound as a downloaded course and reports errors beside it', () => {
     const ha = new MockHAConnection()
     const thinq = new MockThinq2Device('dryer-id', META)
     new DUT(ha.asConnection(), thinq, META)
 
-    const report = (course: number, current: number, stored: number) => {
+    const report = (course: number, current: number, stored: number, error = 0) => {
         const rec = Buffer.alloc(27)
         rec[1] = 0x19
         rec[7] = course
+        rec[8] = error
         rec[22] = current
         rec[25] = stored
         thinq.emit('data', Buffer.concat([Buffer.from([0xaa, 0x21, 0x30, 0xeb]), rec, Buffer.from([0, 0xbb])]))
@@ -347,10 +447,21 @@ test('RH16KR treats only the confirmed compound as a downloaded course and false
     assert.equal(bedding.downloaded_course, 'BIGSIZEITEM')
     assert.equal(bedding.error, 'OFF')
 
-    const fault = report(4, 15, 113)
+    // Distinct non-zero slots are not the compound, with or without a fault.
+    const unequal = report(4, 15, 113)
+    assert.equal(unequal.course, 'BULKYITEM')
+    assert.equal(unequal.error, 'OFF')
+
+    const fault = report(4, 15, 113, 15)
     assert.equal(fault.course, 'BULKYITEM')
     assert.equal(fault.error, 'ON')
     assert.equal(fault.error_message, 'ERROR_DOOR')
+
+    const downloadedFault = report(4, 113, 113, 15)
+    assert.equal(downloadedFault.course, 'DOWNLOADED')
+    assert.equal(downloadedFault.downloaded_course, 'BIGSIZEITEM')
+    assert.equal(downloadedFault.error, 'ON')
+    assert.equal(downloadedFault.error_message, 'ERROR_DOOR')
 })
 
 test('RH16KR decodes labelled option bits and validates active reservation time', () => {
@@ -360,7 +471,16 @@ test('RH16KR decodes labelled option bits and validates active reservation time'
     const components = ha.devices['dryer-id'].config?.components as Record<string, Record<string, unknown>>
     for (const component of Object.values(components)) assert.equal(component.command_topic, undefined)
     assert.equal(components.remote_control, undefined)
-    assert.equal(components.remote_start, undefined)
+    assert.deepEqual(components.remote_start, {
+        platform: 'binary_sensor',
+        unique_id: '$deviceid-remote_start',
+        state_topic: '$this/remote_start',
+        name: 'Remote start',
+        icon: 'mdi:remote',
+    })
+    const config = ha.devices['dryer-id'].config
+    assert.ok(config)
+    assert.equal(localizeDiscovery(config, 'korean').components.remote_start.name, '원격 시작')
 
     for (const name of ['smart_care', 'reservation_active', 'control_lock'] as const) {
         assert.equal(components[name].platform, 'binary_sensor')
@@ -402,6 +522,17 @@ test('RH16KR decodes labelled option bits and validates active reservation time'
 
     p = report(0x08, 0, 3, 0)
     assert.equal(p.control_lock, 'OFF')
+
+    p = report(0, 0x01, 3, 0)
+    assert.equal(p.remote_start, 'ON')
+    assert.equal(p.smart_care, 'OFF')
+    p = report(0, 0x20, 3, 0)
+    assert.equal(p.remote_start, 'OFF')
+    assert.equal(p.smart_care, 'ON')
+    p = report(0, 0x21, 3, 0)
+    assert.equal(p.remote_start, 'ON')
+    p = report(0, 0, 3, 0)
+    assert.equal(p.remote_start, 'OFF')
 
     assert.equal(report(0x01, 0, 2, 0).reserve_time, 0)
     assert.equal(report(0x01, 0, 20, 0).reserve_time, 0)

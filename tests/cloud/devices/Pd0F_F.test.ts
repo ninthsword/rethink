@@ -19,7 +19,7 @@ test('Pd0F_F names the states and errors its model defines', () => {
         const rec = Buffer.alloc(27)
         rec[1] = 0x19
         rec[2] = state
-        rec[22] = error
+        rec[8] = error
         thinq.emit('data', Buffer.concat([Buffer.from([0xaa, 0x21, 0x20, 0xeb]), rec, Buffer.from([0, 0xbb])]))
         return ha.devices['mini-id'].properties
     }
@@ -46,6 +46,24 @@ test('Pd0F_F names the states and errors its model defines', () => {
         assert.equal(p.error_message, name)
         assert.equal(p.error, 'ON')
     }
+})
+
+test('Pd0F_F ignores a non-zero rec[22] when rec[8] reports no error', () => {
+    const ha = new MockHAConnection()
+    const thinq = new MockThinq2Device('mini-id', META)
+    new DUT(ha.asConnection(), thinq, META)
+
+    const rec = Buffer.alloc(27)
+    rec[1] = 0x19
+    rec[2] = 5
+    rec[22] = 8
+    thinq.emit('data', Buffer.concat([Buffer.from([0xaa, 0x21, 0x20, 0xeb]), rec, Buffer.from([0, 0xbb])]))
+
+    const device = ha.devices['mini-id']
+    assert.equal(device.properties.error, 'OFF')
+    assert.equal(device.properties.error_message, 'NO_ERROR')
+    assert.equal(device.properties.cycle_energy, undefined)
+    assert.equal(device.config?.components.cycle_energy, undefined)
 })
 
 test('Pd0F_F decodes the live mini-washer snapshot without unsafe controls', () => {

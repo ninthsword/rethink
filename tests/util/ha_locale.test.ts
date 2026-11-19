@@ -114,12 +114,13 @@ describe('korean appliance value localization', () => {
                 anti_crease: { platform: 'binary_sensor', name: 'Anti crease' },
                 smart_care: { platform: 'binary_sensor', name: 'Smart Care' },
                 reservation: { platform: 'binary_sensor', name: 'Reservation active' },
+                cycle_energy: { platform: 'sensor', name: 'Cycle energy' },
             },
         } as unknown as DeviceDiscovery
         const localized = localizeDiscovery(config, 'korean').components as Record<string, Record<string, unknown>>
         assert.deepEqual(
             Object.values(localized).map((component) => component.name),
-            ['절약건조', '에코 하이브리드', '구김 방지', '스마트케어', '예약 활성'],
+            ['절약건조', '에코 하이브리드', '구김 방지', '스마트케어', '예약 활성', '회차 전력 사용량'],
         )
     })
 
