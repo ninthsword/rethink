@@ -1115,8 +1115,739 @@ describe('RAC_056905_WW writes nothing just because rethink restarted', () => {
                 dev.processTLV(frame(powerFirst))
                 assertHooks(modeCounts, 1, 'each mode hook runs once')
                 assertHooks(powerCounts, 0, 'each power hook stays unused')
-                assert.deepEqual(writeTLVs(thinq.outbox), [[{ t: 0x323, l: 0, v: 0 }], [{ t: 0x20d, l: 0, v: 0 }]])
+                // Jet and energy saving are off, so a mode change re-sends neither.
+                assert.deepEqual(writeTLVs(thinq.outbox), [])
             }
+        } finally {
+            dev.drop()
+        }
+    })
+})
+
+/** Writes (header 0x02 0x01) as [tag, value] pairs, queries left out. */
+const sentWrites = (packets: Buffer[]) =>
+    packets
+        .filter((packet) => packet[7] === 2 && packet[8] === 1)
+        .map((packet) => TLV.parse(packet.subarray(11, packet.length - 2)).map(({ t, v }) => [t, v]))
+/** One appliance report, its tags applied in the order given. */
+const report = (dev: DUT, ...tags: [number, number][]) => dev.processTLV(tags.map(([t, v]) => ({ t, v })))
+const shownTemperature = (ha: MockHAConnection) => ha.devices[DEVICE_ID].properties['climate-temperature']
+const shownComfort = (ha: MockHAConnection) => ha.devices[DEVICE_ID].properties.auto_comfort
+/** The values response with some tags left out, so they come from nothing the appliance reported. */
+const queryResponseWithout = (...tags: number[]) =>
+    TLV.parse(buf(QUERY_RESPONSE_HEX).subarray(11, buf(QUERY_RESPONSE_HEX).length - 2)).filter(
+        ({ t }) => !tags.includes(t),
+    )
+const steadyAuto = (dev: DUT) => report(dev, [0x1f7, 1], [0x1f9, 3], [0x1fa, 2], [0x1fe, 34])
+const steadyCool = (dev: DUT) => report(dev, [0x1f7, 1], [0x1f9, 0], [0x1fa, 2], [0x1fe, 52])
+
+describe('RAC_056905_WW shows a setpoint only in the mode that owns it', () => {
+    for (const setpointFirst of [false, true]) {
+        test(`a report carrying auto and its setpoint shows the comfort level (${setpointFirst ? 'setpoint' : 'mode'} first)`, (t) => {
+            const { ha, dev } = buildReadyDevice(t)
+            try {
+                report(dev, [0x1f7, 1])
+                if (setpointFirst) report(dev, [0x1fe, 34], [0x1f9, 3])
+                else report(dev, [0x1f9, 3], [0x1fe, 34])
+                assert.equal(ha.getProperty(DEVICE_ID, 'climate', 'mode_state'), 'auto')
+                assert.equal(shownTemperature(ha), 'None')
+                assert.equal(shownComfort(ha), 0)
+
+                // The remote's up and down in auto report the setpoint alone.
+                report(dev, [0x1fe, 36])
+                assert.equal(shownComfort(ha), 1)
+                assert.equal(shownTemperature(ha), 'None')
+
+                report(dev, [0x1f9, 0], [0x1fe, 52])
+                assert.equal(shownTemperature(ha), 26)
+                assert.equal(shownComfort(ha), 'None')
+            } finally {
+                dev.drop()
+            }
+        })
+    }
+
+    test('a mode-only report shows no value until that mode reports its setpoint', (t) => {
+        const { ha, dev } = buildReadyDevice(t)
+        try {
+            steadyCool(dev)
+            report(dev, [0x1f9, 3])
+            assert.equal(shownTemperature(ha), 'None')
+            assert.equal(shownComfort(ha), 'None')
+            report(dev, [0x1fe, 34])
+            assert.equal(shownComfort(ha), 0)
+
+            report(dev, [0x1f9, 1])
+            assert.equal(shownTemperature(ha), 'None')
+            assert.equal(shownComfort(ha), 'None')
+            report(dev, [0x1fe, 46])
+            assert.equal(shownTemperature(ha), 23)
+        } finally {
+            dev.drop()
+        }
+    })
+
+    test('while off only a setpoint reported outside auto is shown', (t) => {
+        const { ha, dev } = buildReadyDevice(t)
+        try {
+            steadyAuto(dev)
+            assert.equal(shownComfort(ha), 0)
+            // A power-only shutdown from auto clears the comfort level.
+            report(dev, [0x1f7, 0])
+            assert.equal(ha.getProperty(DEVICE_ID, 'climate', 'mode_state'), 'off')
+            assert.equal(shownComfort(ha), 'None')
+            assert.equal(shownTemperature(ha), 'None')
+
+            report(dev, [0x1f9, 0], [0x1fe, 52])
+            assert.equal(shownTemperature(ha), 26)
+            assert.equal(shownComfort(ha), 'None')
+
+            report(dev, [0x1f9, 3], [0x1fe, 34])
+            assert.equal(shownTemperature(ha), 'None')
+            assert.equal(shownComfort(ha), 'None')
+        } finally {
+            dev.drop()
+        }
+    })
+
+    for (const powerFirst of [true, false]) {
+        test(`a power-on report into auto sets both values (${powerFirst ? 'power' : 'mode'} first)`, (t) => {
+            const { ha, dev } = buildReadyDevice(t)
+            try {
+                report(dev, [0x1f7, 0], [0x1f9, 0], [0x1fe, 52])
+                if (powerFirst) report(dev, [0x1f7, 1], [0x1f9, 3], [0x1fe, 34])
+                else report(dev, [0x1f9, 3], [0x1f7, 1], [0x1fe, 34])
+                assert.equal(ha.getProperty(DEVICE_ID, 'climate', 'mode_state'), 'auto')
+                assert.equal(shownTemperature(ha), 'None')
+                assert.equal(shownComfort(ha), 0)
+            } finally {
+                dev.drop()
+            }
+        })
+    }
+
+    test('a raw mode outside the table is shown in the not-auto branch', (t) => {
+        const { ha, dev } = buildReadyDevice(t)
+        try {
+            steadyAuto(dev)
+            assert.equal(shownComfort(ha), 0)
+            // The base publisher drops raw 4, so the climate mode still reads auto.
+            report(dev, [0x1f9, 4], [0x1fe, 38])
+            assert.equal(ha.getProperty(DEVICE_ID, 'climate', 'mode_state'), 'auto')
+            assert.equal(shownTemperature(ha), 19)
+            assert.equal(shownComfort(ha), 'None')
+        } finally {
+            dev.drop()
+        }
+    })
+
+    test('a report carrying none of power, mode or setpoint publishes neither value', (t) => {
+        const { ha, dev } = buildReadyDevice(t)
+        try {
+            steadyCool(dev)
+            delete ha.devices[DEVICE_ID].properties['climate-temperature']
+            delete ha.devices[DEVICE_ID].properties.auto_comfort
+            report(dev, [0x1fd, 50])
+            assert.equal(ha.getProperty(DEVICE_ID, 'climate', 'current_temperature'), 25)
+            assert.equal(shownTemperature(ha), undefined)
+            assert.equal(shownComfort(ha), undefined)
+        } finally {
+            dev.drop()
+        }
+    })
+
+    test('the climate entity keeps its temperature topics and gains a comfort level sensor', (t) => {
+        const { ha, dev } = buildReadyDevice(t)
+        try {
+            const components = ha.devices[DEVICE_ID].config?.components as Record<string, Record<string, unknown>>
+            assert.equal(components.climate.temperature_state_topic, '$this/climate-temperature')
+            assert.equal(components.climate.temperature_command_topic, '$this/climate-temperature/set')
+            assert.deepEqual(components.auto_comfort, {
+                platform: 'sensor',
+                unique_id: '$deviceid-auto_comfort',
+                state_topic: '$this/auto_comfort',
+                name: 'Auto comfort level',
+                icon: 'mdi:thermometer-auto',
+            })
+        } finally {
+            dev.drop()
+        }
+    })
+})
+
+describe('RAC_056905_WW display at discovery', () => {
+    test('discovery publishes neither value; the first values report publishes both with the mode', (t) => {
+        enableMockTimers(t)
+        const { ha, thinq, dev } = makeDevice()
+        try {
+            thinq.emit('data', buf(CAPS_RESPONSE_HEX))
+            thinq.emit('data', buf(QUERY_RESPONSE_HEX))
+            tickMockTimers(t, 6000)
+            assert.ok(ha.devices[DEVICE_ID]?.config)
+            assert.equal(shownTemperature(ha), undefined)
+            assert.equal(shownComfort(ha), undefined)
+
+            report(dev, [0x1f9, 3], [0x1f7, 1], [0x1fe, 36])
+            assert.equal(ha.getProperty(DEVICE_ID, 'climate', 'mode_state'), 'auto')
+            assert.equal(shownTemperature(ha), 'None')
+            assert.equal(shownComfort(ha), 1)
+        } finally {
+            dev.drop()
+        }
+    })
+
+    test('ownership filled from the cached state decides the first partial report', (t) => {
+        enableMockTimers(t)
+        const { ha, thinq, dev } = makeDevice()
+        try {
+            thinq.emit('data', buf(CAPS_RESPONSE_HEX))
+            dev.processTLV(queryResponseWithout(0x1f9, 0x1fe))
+            dev.raw_clip_state[0x1f9] = 3
+            dev.raw_clip_state[0x1fe] = 34
+            tickMockTimers(t, 6000)
+            assert.ok(ha.devices[DEVICE_ID]?.config)
+            assert.equal(shownTemperature(ha), undefined)
+            assert.equal(shownComfort(ha), undefined)
+
+            // The cached setpoint belongs to auto, so cool shows no value yet.
+            report(dev, [0x1f7, 1], [0x1f9, 0])
+            assert.equal(ha.getProperty(DEVICE_ID, 'climate', 'mode_state'), 'cool')
+            assert.equal(shownTemperature(ha), 'None')
+            assert.equal(shownComfort(ha), 'None')
+        } finally {
+            dev.drop()
+        }
+    })
+
+    test('reports received before discovery is built are kept', (t) => {
+        enableMockTimers(t)
+        const { ha, thinq, dev } = makeDevice()
+        try {
+            thinq.emit('data', buf(CAPS_RESPONSE_HEX))
+            thinq.emit('data', buf(QUERY_RESPONSE_HEX))
+            report(dev, [0x1f9, 0], [0x1fe, 52])
+            // The cache moves on without a report: it must not replace what was reported.
+            dev.raw_clip_state[0x1f9] = 3
+            dev.raw_clip_state[0x1fe] = 34
+            tickMockTimers(t, 6000)
+            assert.ok(ha.devices[DEVICE_ID]?.config)
+
+            report(dev, [0x1f7, 1])
+            assert.equal(ha.getProperty(DEVICE_ID, 'climate', 'mode_state'), 'auto')
+            assert.equal(shownComfort(ha), 'None')
+            report(dev, [0x1f9, 0])
+            assert.equal(shownTemperature(ha), 26)
+        } finally {
+            dev.drop()
+        }
+    })
+
+    test('a setpoint reported before any mode leaves its owner unknown', (t) => {
+        enableMockTimers(t)
+        const { ha, thinq, dev } = makeDevice()
+        try {
+            thinq.emit('data', buf(CAPS_RESPONSE_HEX))
+            report(dev, [0x1fe, 52])
+            report(dev, [0x1f9, 0])
+            dev.processTLV(queryResponseWithout(0x1f9, 0x1fe))
+            tickMockTimers(t, 6000)
+            assert.ok(ha.devices[DEVICE_ID]?.config)
+
+            report(dev, [0x1f7, 1], [0x1f9, 0])
+            assert.equal(ha.getProperty(DEVICE_ID, 'climate', 'mode_state'), 'cool')
+            assert.equal(shownTemperature(ha), 'None')
+            assert.equal(shownComfort(ha), 'None')
+
+            thinq.resetRecorder()
+            ha.setProperty(DEVICE_ID, 'climate', 'fan_mode_command', 'level_2')
+            assert.deepEqual(sentWrites(thinq.outbox), [
+                [
+                    [0x1fa, 4],
+                    [0x1f9, 0],
+                ],
+            ])
+        } finally {
+            dev.drop()
+        }
+    })
+})
+
+describe('RAC_056905_WW display while a Home Assistant command is unconfirmed', () => {
+    test('after cool to auto, a power-only report shows auto with no values until confirmed', (t) => {
+        const { ha, dev } = buildReadyDevice(t)
+        try {
+            steadyCool(dev)
+            ha.setProperty(DEVICE_ID, 'climate', 'mode_command', 'auto')
+            report(dev, [0x1f7, 1])
+            assert.equal(ha.getProperty(DEVICE_ID, 'climate', 'mode_state'), 'auto')
+            assert.equal(shownTemperature(ha), 'None')
+            assert.equal(shownComfort(ha), 'None')
+            report(dev, [0x1f9, 3], [0x1fe, 34])
+            assert.equal(shownComfort(ha), 0)
+        } finally {
+            dev.drop()
+        }
+    })
+
+    test('after auto to cool, a power-only report shows no temperature', (t) => {
+        const { ha, dev } = buildReadyDevice(t)
+        try {
+            steadyAuto(dev)
+            ha.setProperty(DEVICE_ID, 'climate', 'mode_command', 'cool')
+            report(dev, [0x1f7, 1])
+            assert.equal(ha.getProperty(DEVICE_ID, 'climate', 'mode_state'), 'cool')
+            assert.equal(shownTemperature(ha), 'None')
+            assert.equal(shownComfort(ha), 'None')
+        } finally {
+            dev.drop()
+        }
+    })
+
+    test('after auto to dry, a setpoint-only report still belongs to auto', (t) => {
+        const { ha, dev } = buildReadyDevice(t)
+        try {
+            steadyAuto(dev)
+            ha.setProperty(DEVICE_ID, 'climate', 'mode_command', 'dry')
+            report(dev, [0x1fe, 36])
+            assert.equal(ha.getProperty(DEVICE_ID, 'climate', 'mode_state'), 'auto')
+            assert.equal(shownComfort(ha), 1)
+            assert.equal(shownTemperature(ha), 'None')
+        } finally {
+            dev.drop()
+        }
+    })
+
+    test('a temperature written from Home Assistant is shown only once reported', (t) => {
+        const { ha, dev } = buildReadyDevice(t)
+        try {
+            steadyCool(dev)
+            ha.setProperty(DEVICE_ID, 'climate', 'temperature_command', '24')
+            report(dev, [0x1f7, 1])
+            assert.equal(shownTemperature(ha), 26)
+            report(dev, [0x1fe, 48])
+            assert.equal(shownTemperature(ha), 24)
+        } finally {
+            dev.drop()
+        }
+    })
+
+    test('after a power off command, a setpoint-only report keeps the shown branch', (t) => {
+        const { ha, dev } = buildReadyDevice(t)
+        try {
+            steadyCool(dev)
+            ha.setProperty(DEVICE_ID, 'climate', 'mode_command', 'off')
+            report(dev, [0x1fe, 50])
+            assert.equal(ha.getProperty(DEVICE_ID, 'climate', 'mode_state'), 'cool')
+            assert.equal(shownTemperature(ha), 25)
+            assert.equal(shownComfort(ha), 'None')
+        } finally {
+            dev.drop()
+        }
+    })
+})
+
+describe('RAC_056905_WW never carries a setpoint across the auto boundary', () => {
+    test('mode writes into and out of auto omit the setpoint', (t) => {
+        const { ha, thinq, dev } = buildReadyDevice(t)
+        try {
+            steadyAuto(dev)
+            thinq.resetRecorder()
+            ha.setProperty(DEVICE_ID, 'climate', 'mode_command', 'cool')
+            assert.deepEqual(sentWrites(thinq.outbox), [
+                [
+                    [0x1f9, 0],
+                    [0x1fa, 2],
+                ],
+            ])
+
+            steadyCool(dev)
+            thinq.resetRecorder()
+            ha.setProperty(DEVICE_ID, 'climate', 'mode_command', 'auto')
+            assert.deepEqual(sentWrites(thinq.outbox), [
+                [
+                    [0x1f9, 3],
+                    [0x1fa, 2],
+                ],
+            ])
+        } finally {
+            dev.drop()
+        }
+    })
+
+    test('cool, a temperature and back to auto before any report send no temperature into auto', (t) => {
+        const { ha, thinq, dev } = buildReadyDevice(t)
+        try {
+            steadyAuto(dev)
+            thinq.resetRecorder()
+            ha.setProperty(DEVICE_ID, 'climate', 'mode_command', 'cool')
+            ha.setProperty(DEVICE_ID, 'climate', 'temperature_command', '24')
+            ha.setProperty(DEVICE_ID, 'climate', 'mode_command', 'auto')
+            assert.deepEqual(sentWrites(thinq.outbox), [
+                [
+                    [0x1f9, 0],
+                    [0x1fa, 2],
+                ],
+                [
+                    [0x1fe, 48],
+                    [0x1f9, 0],
+                    [0x1fa, 2],
+                ],
+                [
+                    [0x1f9, 3],
+                    [0x1fa, 2],
+                ],
+            ])
+        } finally {
+            dev.drop()
+        }
+    })
+
+    for (const coolSelected of [false, true]) {
+        test(`a direct power-on ${coolSelected ? 'with cool selected after auto omits' : 'in auto carries'} the setpoint`, (t) => {
+            const { ha, thinq, dev } = buildReadyDevice(t)
+            try {
+                report(dev, [0x1f7, 0], [0x1f9, 3], [0x1fa, 2], [0x1fe, 34])
+                if (coolSelected) report(dev, [0x1f9, 0])
+                thinq.resetRecorder()
+                ha.setProperty(DEVICE_ID, 'climate', 'power_command', 'ON')
+                assert.deepEqual(
+                    sentWrites(thinq.outbox),
+                    coolSelected
+                        ? [
+                              [
+                                  [0x1f7, 1],
+                                  [0x1f9, 0],
+                                  [0x1fa, 2],
+                              ],
+                          ]
+                        : [
+                              [
+                                  [0x1f7, 1],
+                                  [0x1f9, 3],
+                                  [0x1fa, 2],
+                                  [0x1fe, 34],
+                              ],
+                          ],
+                )
+            } finally {
+                dev.drop()
+            }
+        })
+    }
+
+    test('a setpoint reported before its mode in one report belongs to that mode', (t) => {
+        const { ha, thinq, dev } = buildReadyDevice(t)
+        try {
+            steadyCool(dev)
+            report(dev, [0x1fe, 34], [0x1f9, 3])
+            thinq.resetRecorder()
+            ha.setProperty(DEVICE_ID, 'climate', 'fan_mode_command', 'level_2')
+            assert.deepEqual(sentWrites(thinq.outbox), [
+                [
+                    [0x1fa, 4],
+                    [0x1f9, 3],
+                    [0x1fe, 34],
+                ],
+            ])
+        } finally {
+            dev.drop()
+        }
+    })
+
+    for (const [from, setpoint, to, toRaw] of [
+        [0, 52, 'auto', 3],
+        [3, 34, 'cool', 0],
+    ] as const) {
+        test(`a mode chosen while off omits the setpoint when it crosses into ${to}`, (t) => {
+            const { ha, thinq, dev } = buildReadyDevice(t)
+            try {
+                report(dev, [0x1f7, 0], [0x1f9, from], [0x1fa, 2], [0x1fe, setpoint])
+                thinq.resetRecorder()
+                ha.setProperty(DEVICE_ID, 'climate', 'mode_command', to)
+                assert.deepEqual(sentWrites(thinq.outbox), [
+                    [
+                        [0x1f9, toRaw],
+                        [0x1f7, 1],
+                        [0x1fa, 2],
+                    ],
+                ])
+            } finally {
+                dev.drop()
+            }
+        })
+    }
+
+    test('a fan speed follows the setpoint owner', (t) => {
+        const { ha, thinq, dev } = buildReadyDevice(t)
+        try {
+            steadyAuto(dev)
+            thinq.resetRecorder()
+            ha.setProperty(DEVICE_ID, 'climate', 'fan_mode_command', 'level_3')
+            assert.deepEqual(sentWrites(thinq.outbox), [
+                [
+                    [0x1fa, 6],
+                    [0x1f9, 3],
+                    [0x1fe, 34],
+                ],
+            ])
+
+            // Right after auto to cool the setpoint still belongs to auto.
+            thinq.resetRecorder()
+            ha.setProperty(DEVICE_ID, 'climate', 'mode_command', 'cool')
+            ha.setProperty(DEVICE_ID, 'climate', 'fan_mode_command', 'level_2')
+            assert.deepEqual(sentWrites(thinq.outbox)[1], [
+                [0x1fa, 4],
+                [0x1f9, 0],
+            ])
+        } finally {
+            dev.drop()
+        }
+    })
+
+    test('a written temperature is carried by the next fan speed', (t) => {
+        const { ha, thinq, dev } = buildReadyDevice(t)
+        try {
+            steadyCool(dev)
+            thinq.resetRecorder()
+            ha.setProperty(DEVICE_ID, 'climate', 'temperature_command', '24')
+            ha.setProperty(DEVICE_ID, 'climate', 'fan_mode_command', 'level_3')
+            assert.deepEqual(sentWrites(thinq.outbox), [
+                [
+                    [0x1fe, 48],
+                    [0x1f9, 0],
+                    [0x1fa, 2],
+                ],
+                [
+                    [0x1fa, 6],
+                    [0x1f9, 0],
+                    [0x1fe, 48],
+                ],
+            ])
+        } finally {
+            dev.drop()
+        }
+    })
+
+    test('a temperature in auto is not written, on or off', (t) => {
+        const { ha, thinq, dev } = buildReadyDevice(t)
+        try {
+            steadyAuto(dev)
+            thinq.resetRecorder()
+            ha.setProperty(DEVICE_ID, 'climate', 'temperature_command', '24')
+            assert.deepEqual(sentWrites(thinq.outbox), [])
+            assert.equal(dev.raw_clip_state[0x1fe], 34)
+
+            report(dev, [0x1f7, 0])
+            ha.setProperty(DEVICE_ID, 'climate', 'temperature_command', '24')
+            assert.deepEqual(sentWrites(thinq.outbox), [])
+            assert.equal(dev.raw_clip_state[0x1fe], 34)
+
+            steadyCool(dev)
+            thinq.resetRecorder()
+            ha.setProperty(DEVICE_ID, 'climate', 'temperature_command', '24')
+            assert.deepEqual(sentWrites(thinq.outbox), [
+                [
+                    [0x1fe, 48],
+                    [0x1f9, 0],
+                    [0x1fa, 2],
+                ],
+            ])
+        } finally {
+            dev.drop()
+        }
+    })
+
+    test('a mode write omits a setpoint the cached state lacks', (t) => {
+        enableMockTimers(t)
+        const { ha, thinq, dev } = makeDevice()
+        try {
+            thinq.emit('data', buf(CAPS_RESPONSE_HEX))
+            dev.processTLV(queryResponseWithout(0x1fe))
+            tickMockTimers(t, 6000)
+            assert.ok(ha.devices[DEVICE_ID]?.config)
+            thinq.resetRecorder()
+            ha.setProperty(DEVICE_ID, 'climate', 'mode_command', 'cool')
+            assert.deepEqual(sentWrites(thinq.outbox), [
+                [
+                    [0x1f9, 0],
+                    [0x1fa, 3],
+                ],
+            ])
+        } finally {
+            dev.drop()
+        }
+    })
+})
+
+describe('RAC_056905_WW mode changes re-send only features that are on', () => {
+    const countModeHooks = (dev: DUT) => {
+        const counts = dev.modeChangeHooks.map(() => 0)
+        dev.modeChangeHooks = dev.modeChangeHooks.map((hook, i) => () => {
+            counts[i]++
+            hook()
+        })
+        return counts
+    }
+    const rememberFeaturesInCool = (dev: DUT) => {
+        steadyCool(dev)
+        report(dev, [0x323, 1], [0x20d, 1])
+        assert.equal(dev.jetMode, true)
+        assert.equal(dev.energySave, true)
+    }
+
+    test('a change to cool with both features off writes nothing through the refresh delay', (t) => {
+        const { thinq, dev } = buildReadyDevice(t)
+        try {
+            report(dev, [0x1f7, 1], [0x1f9, 1])
+            thinq.resetRecorder()
+            report(dev, [0x1f9, 0])
+            tickMockTimers(t, 2000)
+            assert.deepEqual(sentWrites(thinq.outbox), [])
+        } finally {
+            dev.drop()
+        }
+    })
+
+    test('features on and absent from the report are re-sent as ON', (t) => {
+        const { thinq, dev } = buildReadyDevice(t)
+        try {
+            rememberFeaturesInCool(dev)
+            report(dev, [0x1f9, 1])
+            thinq.resetRecorder()
+            report(dev, [0x1f9, 0])
+            assert.deepEqual(sentWrites(thinq.outbox), [[[0x323, 1]], [[0x20d, 1]]])
+        } finally {
+            dev.drop()
+        }
+    })
+
+    for (const featureFirst of [true, false]) {
+        test(`a feature the same report turns off is not re-sent (${featureFirst ? 'feature' : 'mode'} first)`, (t) => {
+            const { thinq, dev } = buildReadyDevice(t)
+            try {
+                rememberFeaturesInCool(dev)
+                report(dev, [0x1f9, 1])
+                thinq.resetRecorder()
+                if (featureFirst) report(dev, [0x323, 0], [0x20d, 0], [0x1f9, 0])
+                else report(dev, [0x1f9, 0], [0x323, 0], [0x20d, 0])
+                assert.deepEqual(sentWrites(thinq.outbox), [])
+                assert.equal(dev.jetMode, false)
+                assert.equal(dev.energySave, false)
+
+                report(dev, [0x1f9, 1])
+                report(dev, [0x1f9, 0])
+                assert.deepEqual(sentWrites(thinq.outbox), [])
+            } finally {
+                dev.drop()
+            }
+        })
+    }
+
+    test('jet reported on before the mode that supports it is recorded', (t) => {
+        const { dev } = buildReadyDevice(t)
+        try {
+            report(dev, [0x1f7, 1], [0x1f9, 1])
+            report(dev, [0x323, 1], [0x1f9, 0])
+            assert.equal(dev.jetMode, true)
+        } finally {
+            dev.drop()
+        }
+    })
+
+    test('an OFF read in a mode without jet keeps jet remembered for the next cool', (t) => {
+        const { thinq, dev } = buildReadyDevice(t)
+        try {
+            steadyCool(dev)
+            report(dev, [0x323, 1])
+            thinq.resetRecorder()
+            report(dev, [0x1f9, 3], [0x323, 0])
+            assert.equal(dev.jetMode, true)
+            assert.deepEqual(sentWrites(thinq.outbox), [])
+
+            report(dev, [0x1f9, 0])
+            assert.deepEqual(sentWrites(thinq.outbox), [[[0x323, 1]]])
+        } finally {
+            dev.drop()
+        }
+    })
+
+    test('after an auto to cool command the mode hooks run once and write nothing', (t) => {
+        const { ha, thinq, dev } = buildReadyDevice(t)
+        try {
+            steadyAuto(dev)
+            const counts = countModeHooks(dev)
+            ha.setProperty(DEVICE_ID, 'climate', 'mode_command', 'cool')
+            thinq.resetRecorder()
+
+            report(dev, [0x1f7, 1])
+            assert.ok(counts.length)
+            assert.deepEqual(
+                counts,
+                counts.map(() => 1),
+                'each mode hook runs on the power-only report that shows cool',
+            )
+            report(dev, [0x1f9, 0], [0x1fe, 52])
+            assert.deepEqual(
+                counts,
+                counts.map(() => 1),
+                'the confirming report runs none again',
+            )
+            tickMockTimers(t, 2000)
+            assert.deepEqual(sentWrites(thinq.outbox), [])
+        } finally {
+            dev.drop()
+        }
+    })
+
+    test('after a power off command, a feature tag is judged by its own report', (t) => {
+        const { ha, thinq, dev } = buildReadyDevice(t)
+        try {
+            steadyCool(dev)
+            report(dev, [0x323, 1])
+
+            // A report carrying jet alone is judged under the raw power the command set.
+            ha.setProperty(DEVICE_ID, 'climate', 'power_command', 'OFF')
+            report(dev, [0x323, 0])
+            assert.equal(dev.jetMode, true)
+
+            // One carrying its own power and mode records jet off.
+            report(dev, [0x323, 0], [0x1f7, 1], [0x1f9, 0])
+            assert.equal(dev.jetMode, false)
+
+            thinq.resetRecorder()
+            report(dev, [0x1f9, 1])
+            report(dev, [0x1f9, 0])
+            assert.deepEqual(sentWrites(thinq.outbox), [])
+        } finally {
+            dev.drop()
+        }
+    })
+})
+
+describe('RAC_056905_WW setpoint ownership is the bedroom encoding only', () => {
+    test('the advertised encoding keeps its setpoint on an auto mode write and has no comfort sensor', (t) => {
+        enableMockTimers(t)
+        const ha = new MockHAConnection()
+        const meta: Metadata = { ...META, modelId: 'RAC_0B0001_WW' }
+        const thinq = new MockThinq2Device(DEVICE_ID, meta)
+        const dev = new DUT(ha.asConnection(), thinq, meta)
+        ha.on('setProperty', (_id: string, prop: string, value: string) => dev.setProperty(prop, value))
+        try {
+            thinq.emit('data', buf(CAPS_RESPONSE_HEX))
+            thinq.emit('data', buf(QUERY_RESPONSE_HEX))
+            tickMockTimers(t, 6000)
+            const components = ha.devices[DEVICE_ID].config?.components as Record<string, unknown>
+            assert.equal(components.auto_comfort, undefined)
+
+            thinq.resetRecorder()
+            ha.setProperty(DEVICE_ID, 'climate', 'mode_command', 'auto')
+            assert.deepEqual(sentWrites(thinq.outbox), [
+                [
+                    [0x1f9, 6],
+                    [0x1fa, 3],
+                    [0x1fe, 38],
+                ],
+            ])
         } finally {
             dev.drop()
         }
