@@ -409,3 +409,79 @@ test('a live command still acts with its localized value', (t) => {
     assert.deepEqual(commands, [['pac-id', 'operation_mode', 'LOW']])
     assert.deepEqual(lines, [])
 })
+
+function globalAvailability(t: TestContext, isConnected: boolean) {
+    const fake = fakeConnection({})
+    fake.connection.isConnected = isConnected
+    const logged = t.mock.method(console, 'log', () => undefined)
+    const status = () =>
+        logged.mock.calls.map((call) => call.arguments.slice(1).join(' ')).filter((line) => line.startsWith('status '))
+    return { ...fake, status }
+}
+
+test('connecting subscribes to the global availability topic before announcing online', (t) => {
+    const { connection, published, subscribed } = globalAvailability(t, false)
+    const order: string[] = []
+    const client = connection.client as unknown as Record<string, (...args: unknown[]) => unknown>
+    for (const method of ['subscribe', 'publish']) {
+        const original = client[method]
+        client[method] = (topic: unknown, ...rest: unknown[]) => {
+            order.push(`${method} ${String(topic)}`)
+            return original(topic, ...rest)
+        }
+    }
+
+    connection.connected()
+
+    assert.ok(subscribed.includes('rethink/availability'))
+    assert.ok(subscribed.includes('rethink/+/availability'), 'the per-device subscription stays')
+    assert.deepEqual(published, [{ topic: 'rethink/availability', payload: 'online', options: { retain: true } }])
+    assert.ok(
+        order.indexOf('subscribe rethink/availability') < order.indexOf('publish rethink/availability'),
+        'a last will arriving right after the announcement must already be seen',
+    )
+})
+
+for (const retain of [true, false]) {
+    test(`a global offline while connected is corrected to a retained online (retain ${retain})`, (t) => {
+        const { connection, published, status } = globalAvailability(t, true)
+
+        connection.received('rethink/availability', Buffer.from('offline'), { retain } as never)
+
+        assert.deepEqual(published, [{ topic: 'rethink/availability', payload: 'online', options: { retain: true } }])
+        assert.equal(status().length, 1)
+        assert.ok(status()[0].includes('rethink/availability'))
+    })
+}
+
+test('a global online, or an offline while disconnected, publishes nothing', (t) => {
+    const connected = globalAvailability(t, true)
+    // Includes the echo of rethink's own announcement, so there is no publish loop.
+    connected.connection.received('rethink/availability', Buffer.from('online'), { retain: true } as never)
+    connected.connection.received('rethink/availability', Buffer.from('online'), { retain: false } as never)
+    assert.deepEqual(connected.published, [])
+
+    const disconnected = globalAvailability(t, false)
+    disconnected.connection.received('rethink/availability', Buffer.from('offline'), { retain: true } as never)
+    disconnected.connection.received('rethink/availability', Buffer.from('offline'), { retain: false } as never)
+    assert.deepEqual(disconnected.published, [])
+})
+
+test('only the exact global topic is corrected, never a per-device offline', (t) => {
+    const { connection, published, status } = globalAvailability(t, true)
+
+    // A device that dropped, retained or live, keeps its offline.
+    connection.received('rethink/pac-id/availability', Buffer.from('offline'), { retain: true } as never)
+    connection.received('rethink/pac-id/availability', Buffer.from('offline'), { retain: false } as never)
+    // A topic that merely ends in /availability under another prefix is not ours.
+    connection.received('other/availability', Buffer.from('offline'), { retain: false } as never)
+    connection.received('rethinkx/availability', Buffer.from('offline'), { retain: false } as never)
+    assert.deepEqual(published, [])
+    assert.deepEqual(status(), [])
+
+    // The per-device cleanup of a stale retained online is the only thing that still publishes.
+    connection.received('rethink/pac-id/availability', Buffer.from('online'), { retain: true } as never)
+    assert.deepEqual(published, [
+        { topic: 'rethink/pac-id/availability', payload: 'offline', options: { retain: true } },
+    ])
+})
