@@ -15,7 +15,11 @@ confirm field meanings; Home Assistant state comes from the local appliance pack
 | Dishwasher          | `D121111`        | power, state/process/completion, remaining/initial/reserved time, course/stored download course, tub-clean count, confirmed read-only settings               |
 
 Every field above was checked against at least one packet from the exact installed
-model. Unknown enum values are retained as `RAW_<number>` instead of being guessed.
+model, with one exception: the error byte of the dryer and the mini washer. Both now
+read it from `rec[8]`, which two independent upstream decodings name as the error and
+which stayed zero in every recorded packet, but no fault has been captured yet, so a
+real fault is still needed to confirm it. Unknown enum values are retained as
+`RAW_<number>` instead of being guessed.
 
 For the installed `RH16_N_KR` dryer, a labelled panel capture confirms
 `TOWELS=2`, `BULKYITEM=4`, `EASYCARE=5`, `COTTONNORMAL=7`, `SPORTWEAR=8`,
