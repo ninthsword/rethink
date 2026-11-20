@@ -87,6 +87,9 @@ function encodingFor(modelId: string): ModelEncoding {
 /** Offset of the bedroom unit's auto setpoint: in auto, 0x1fe is 34 + 2 x comfort level. */
 const AUTO_COMFORT_ZERO = 34
 
+/** The bedroom unit's setpoint for a non-auto mode rethink knows none for: 26 C. */
+const DEFAULT_SETPOINT = 52
+
 const VERTICAL_SWING_MODES = [
     'off',
     'swing',
@@ -165,6 +168,11 @@ export default class Device extends TLVDevice {
     private reportedSetpoint?: number
     private reportedOwner?: SetpointOwner
     private setpointOwner?: SetpointOwner
+    /**
+     * Per non-auto raw mode, the setpoint last reported for it or written to it from Home
+     * Assistant, whichever came later. A frame into that mode carries it.
+     */
+    private readonly modeSetpoints = new Map<number, number>()
     /** Raw power and mode when the climate mode was last computed, after discovery. */
     private shown?: { power: number | undefined; mode: number | undefined }
     private report: ReportContext | undefined
@@ -241,6 +249,14 @@ export default class Device extends TLVDevice {
         // mode the appliance last reported.
         this.reportedOwner = this.reportedMode ?? 'unknown'
         this.setpointOwner = this.reportedOwner
+        this.rememberSetpoint(this.reportedOwner, setpoint)
+    }
+
+    /** Hold `setpoint` as the setpoint of `mode` when that is a known non-auto mode. */
+    private rememberSetpoint(mode: SetpointOwner | undefined, setpoint: number) {
+        if (!this.setpointFollowsMode() || typeof mode !== 'number') return
+        if (mode === encodingFor(this.meta.modelId).autoRaw) return
+        this.modeSetpoints.set(mode, setpoint)
     }
 
     /**
@@ -269,16 +285,28 @@ export default class Device extends TLVDevice {
     }
 
     /**
-     * 0x1fe to attach to a frame for `targetMode`. The bedroom unit keeps its own setpoint
-     * per mode, so a setpoint is never carried across the auto boundary; an omitted one
-     * leaves the appliance's own for the target mode.
+     * 0x1fe to attach to a frame for `targetMode`. The bedroom unit ignores a mode frame
+     * without it, so every frame carries one. Into auto the appliance uses its own value
+     * whatever it receives, so the current one is sent. Into any other mode, or with no mode
+     * known, the target's own setpoint is sent, never another mode's: the one held for it,
+     * else 26 C. The value is put into raw state, as the frame is built from there.
      */
     private setpointAttach(targetMode: number | undefined): number[] {
         if (!this.setpointFollowsMode()) return [0x1fe]
-        const owner = this.setpointOwner
-        if (typeof owner !== 'number' || this.raw_clip_state[0x1fe] === undefined) return []
-        const autoRaw = encodingFor(this.meta.modelId).autoRaw
-        return (owner === autoRaw) === (targetMode === autoRaw) ? [0x1fe] : []
+        if (targetMode === encodingFor(this.meta.modelId).autoRaw) {
+            if (this.raw_clip_state[0x1fe] === undefined) {
+                this.raw_clip_state[0x1fe] = AUTO_COMFORT_ZERO
+                this.setpointOwner = targetMode
+            }
+            return [0x1fe]
+        }
+        if (typeof targetMode !== 'number') {
+            this.raw_clip_state[0x1fe] = DEFAULT_SETPOINT
+            return [0x1fe]
+        }
+        this.raw_clip_state[0x1fe] = this.modeSetpoints.get(targetMode) ?? DEFAULT_SETPOINT
+        this.setpointOwner = targetMode
+        return [0x1fe]
     }
 
     /** Power and mode a feature tag is judged under: its own report's where it carries them. */
@@ -594,6 +622,11 @@ export default class Device extends TLVDevice {
         this.reportedSetpoint ??= this.raw_clip_state[0x1fe]
         this.reportedOwner ??= cachedMode
         this.setpointOwner ??= cachedMode
+        // A cache filled other than through reports, which already hold their setpoints.
+        const owner = this.reportedOwner
+        const setpoint = this.reportedSetpoint
+        if (typeof owner === 'number' && setpoint !== undefined && !this.modeSetpoints.has(owner))
+            this.rememberSetpoint(owner, setpoint)
         const config: DeviceDiscovery & { components: { climate: ClimateComponent } } = allowExtendedType({
             ...HADevice.config(this.meta, { name: 'LG Air Conditioner' }),
             components: {
@@ -737,7 +770,7 @@ export default class Device extends TLVDevice {
             read_callback: () => !setpointFollowsMode,
             write_xform: (val) => Math.round(Number(val) * 2),
             write_attach: [0x1f9, 0x1fa],
-            write_callback: () => {
+            write_callback: (value) => {
                 const mode = this.getModeTLV()
                 if (setpointFollowsMode && mode === encoding.autoRaw) {
                     // In auto 0x1fe is a comfort level, not a temperature.
@@ -745,6 +778,7 @@ export default class Device extends TLVDevice {
                     return false
                 }
                 this.setpointOwner = mode ?? 'unknown'
+                this.rememberSetpoint(mode, value)
                 return true
             },
         })

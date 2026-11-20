@@ -183,9 +183,14 @@ describe(MODEL_ID, () => {
 
     test('HA write climate-mode=fan_only emits expected bytes', (t) => {
         const { thinq, dev, ha } = buildReadyDevice(t)
-        // Pre-state observed in the capture at the moment of this write.
+        // Pre-state observed in the capture at the moment of this write. The setpoint it
+        // carried is fan_only's own, as a report of that mode leaves it.
+        dev.processTLV([
+            { t: 0x1f9, l: 0, v: 2 },
+            { t: 0x1fe, l: 1, v: 0 },
+        ])
         dev.raw_clip_state[0x1fa] = 3
-        dev.raw_clip_state[0x1fe] = 0
+        thinq.resetRecorder()
 
         ha.setProperty(DEVICE_ID, 'climate', 'mode_command', 'fan_only')
 
@@ -203,10 +208,11 @@ describe(MODEL_ID, () => {
 
         ha.setProperty(DEVICE_ID, 'climate', 'mode_command', 'fan_only')
 
+        // No setpoint is held for fan_only, so it gets 26 C rather than the raw 21 C.
         assert.deepEqual(TLV.parse(thinq.outbox[0].subarray(11, thinq.outbox[0].length - 2)), [
             { t: 0x1f9, l: 0, v: 2 },
             { t: 0x1fa, l: 0, v: 2 },
-            { t: 0x1fe, l: 1, v: 42 },
+            { t: 0x1fe, l: 1, v: 52 },
         ])
 
         dev.drop()
@@ -223,12 +229,13 @@ describe(MODEL_ID, () => {
 
         ha.setProperty(DEVICE_ID, 'climate', 'mode_command', 'cool')
 
+        // No setpoint is held for cool, so it gets 26 C rather than the raw 21 C.
         const sent = TLV.parse(thinq.outbox[0].subarray(11, thinq.outbox[0].length - 2))
         assert.deepEqual(sent, [
             { t: 0x1f9, l: 0, v: 0 },
             { t: 0x1f7, l: 0, v: 1 },
             { t: 0x1fa, l: 0, v: 2 },
-            { t: 0x1fe, l: 1, v: 42 },
+            { t: 0x1fe, l: 1, v: 52 },
         ])
 
         dev.drop()
@@ -973,7 +980,11 @@ describe('RAC_056905_WW writes nothing just because rethink restarted', () => {
         )
     }
     const establishOff = (dev: DUT, remembered = false, oldDry = false) => {
-        dev.processKeyValue(0x1f9, 0)
+        // A report of cool with its setpoint, so cool's own setpoint is 21 C.
+        dev.processTLV([
+            { t: 0x1f9, l: 0, v: 0 },
+            { t: 0x1fe, l: 1, v: 42 },
+        ])
         if (remembered) {
             dev.processKeyValue(0x323, 1)
             dev.processKeyValue(0x20d, 1)
@@ -981,7 +992,6 @@ describe('RAC_056905_WW writes nothing just because rethink restarted', () => {
         if (oldDry) dev.processKeyValue(0x1f9, 1)
         dev.processKeyValue(0x1f7, 0)
         dev.raw_clip_state[0x1fa] = 2
-        dev.raw_clip_state[0x1fe] = 42
     }
 
     test('coming up against a running appliance sends it nothing', (t) => {
@@ -1347,7 +1357,7 @@ describe('RAC_056905_WW display at discovery', () => {
         const { ha, thinq, dev } = makeDevice()
         try {
             thinq.emit('data', buf(CAPS_RESPONSE_HEX))
-            report(dev, [0x1fe, 52])
+            report(dev, [0x1fe, 34])
             report(dev, [0x1f9, 0])
             dev.processTLV(queryResponseWithout(0x1f9, 0x1fe))
             tickMockTimers(t, 6000)
@@ -1360,10 +1370,12 @@ describe('RAC_056905_WW display at discovery', () => {
 
             thinq.resetRecorder()
             ha.setProperty(DEVICE_ID, 'climate', 'fan_mode_command', 'level_2')
+            // The 34 has no known owner, so cool gets 26 C rather than it.
             assert.deepEqual(sentWrites(thinq.outbox), [
                 [
                     [0x1fa, 4],
                     [0x1f9, 0],
+                    [0x1fe, 52],
                 ],
             ])
         } finally {
@@ -1446,27 +1458,48 @@ describe('RAC_056905_WW display while a Home Assistant command is unconfirmed', 
     })
 })
 
-describe('RAC_056905_WW never carries a setpoint across the auto boundary', () => {
-    test('mode writes into and out of auto omit the setpoint', (t) => {
+describe('RAC_056905_WW sends every mode its own setpoint', () => {
+    /** A write carries the target's setpoint in 0x1fe after the fan. */
+    const modeWrite = (mode: number, setpoint: number, fan = 2) => [
+        [0x1f9, mode],
+        [0x1fa, fan],
+        [0x1fe, setpoint],
+    ]
+
+    test('a mode write into auto carries the current setpoint, out of auto with none held 26 C', (t) => {
         const { ha, thinq, dev } = buildReadyDevice(t)
         try {
             steadyAuto(dev)
             thinq.resetRecorder()
             ha.setProperty(DEVICE_ID, 'climate', 'mode_command', 'cool')
-            assert.deepEqual(sentWrites(thinq.outbox), [
-                [
-                    [0x1f9, 0],
-                    [0x1fa, 2],
-                ],
-            ])
+            assert.deepEqual(sentWrites(thinq.outbox), [modeWrite(0, 52)])
 
             steadyCool(dev)
+            report(dev, [0x1fe, 50])
             thinq.resetRecorder()
             ha.setProperty(DEVICE_ID, 'climate', 'mode_command', 'auto')
+            assert.deepEqual(sentWrites(thinq.outbox), [modeWrite(3, 50)])
+        } finally {
+            dev.drop()
+        }
+    })
+
+    test('leaving auto carries the setpoint cool last reported, and so does the next fan speed', (t) => {
+        const { ha, thinq, dev } = buildReadyDevice(t)
+        try {
+            steadyCool(dev)
+            report(dev, [0x1fe, 50])
+            // The auto comfort value does not replace cool's own.
+            report(dev, [0x1f9, 3], [0x1fe, 36])
+            thinq.resetRecorder()
+            ha.setProperty(DEVICE_ID, 'climate', 'mode_command', 'cool')
+            ha.setProperty(DEVICE_ID, 'climate', 'fan_mode_command', 'level_2')
             assert.deepEqual(sentWrites(thinq.outbox), [
+                modeWrite(0, 50),
                 [
-                    [0x1f9, 3],
-                    [0x1fa, 2],
+                    [0x1fa, 4],
+                    [0x1f9, 0],
+                    [0x1fe, 50],
                 ],
             ])
         } finally {
@@ -1474,7 +1507,72 @@ describe('RAC_056905_WW never carries a setpoint across the auto boundary', () =
         }
     })
 
-    test('cool, a temperature and back to auto before any report send no temperature into auto', (t) => {
+    test('each mode written after a mode-only auto report gets its own last setpoint', (t) => {
+        const { ha, thinq, dev } = buildReadyDevice(t)
+        try {
+            report(dev, [0x1f7, 1], [0x1f9, 0], [0x1fa, 2], [0x1fe, 50])
+            report(dev, [0x1f9, 1], [0x1fe, 46])
+            report(dev, [0x1f9, 3])
+            thinq.resetRecorder()
+            ha.setProperty(DEVICE_ID, 'climate', 'mode_command', 'dry')
+            ha.setProperty(DEVICE_ID, 'climate', 'mode_command', 'cool')
+            assert.deepEqual(sentWrites(thinq.outbox), [modeWrite(1, 46), modeWrite(0, 50)])
+        } finally {
+            dev.drop()
+        }
+    })
+
+    test('the later of two cool reports is the one leaving auto carries', (t) => {
+        const { ha, thinq, dev } = buildReadyDevice(t)
+        try {
+            report(dev, [0x1f7, 1], [0x1f9, 0], [0x1fa, 2], [0x1fe, 50])
+            report(dev, [0x1fe, 48])
+            report(dev, [0x1f9, 3], [0x1fe, 34])
+            thinq.resetRecorder()
+            ha.setProperty(DEVICE_ID, 'climate', 'mode_command', 'cool')
+            assert.deepEqual(sentWrites(thinq.outbox), [modeWrite(0, 48)])
+        } finally {
+            dev.drop()
+        }
+    })
+
+    for (const dryHeld of [false, true]) {
+        test(`cool to dry carries ${dryHeld ? 'the setpoint held for dry' : '26 C when none is held for dry'}`, (t) => {
+            const { ha, thinq, dev } = buildReadyDevice(t)
+            try {
+                if (dryHeld) report(dev, [0x1f7, 1], [0x1f9, 1], [0x1fa, 2], [0x1fe, 46])
+                report(dev, [0x1f7, 1], [0x1f9, 0], [0x1fa, 2], [0x1fe, 50])
+                thinq.resetRecorder()
+                ha.setProperty(DEVICE_ID, 'climate', 'mode_command', 'dry')
+                assert.deepEqual(sentWrites(thinq.outbox), [modeWrite(1, dryHeld ? 46 : 52)])
+            } finally {
+                dev.drop()
+            }
+        })
+    }
+
+    test('after auto to dry, a fan speed carries dry its own setpoint, not the auto value reported since', (t) => {
+        const { ha, thinq, dev } = buildReadyDevice(t)
+        try {
+            report(dev, [0x1f7, 1], [0x1f9, 1], [0x1fa, 2], [0x1fe, 46])
+            steadyAuto(dev)
+            ha.setProperty(DEVICE_ID, 'climate', 'mode_command', 'dry')
+            report(dev, [0x1fe, 36])
+            thinq.resetRecorder()
+            ha.setProperty(DEVICE_ID, 'climate', 'fan_mode_command', 'level_2')
+            assert.deepEqual(sentWrites(thinq.outbox), [
+                [
+                    [0x1fa, 4],
+                    [0x1f9, 1],
+                    [0x1fe, 46],
+                ],
+            ])
+        } finally {
+            dev.drop()
+        }
+    })
+
+    test('auto to cool, a temperature and back to auto before any report keep the temperature for cool', (t) => {
         const { ha, thinq, dev } = buildReadyDevice(t)
         try {
             steadyAuto(dev)
@@ -1483,52 +1581,41 @@ describe('RAC_056905_WW never carries a setpoint across the auto boundary', () =
             ha.setProperty(DEVICE_ID, 'climate', 'temperature_command', '24')
             ha.setProperty(DEVICE_ID, 'climate', 'mode_command', 'auto')
             assert.deepEqual(sentWrites(thinq.outbox), [
-                [
-                    [0x1f9, 0],
-                    [0x1fa, 2],
-                ],
+                modeWrite(0, 52),
                 [
                     [0x1fe, 48],
                     [0x1f9, 0],
                     [0x1fa, 2],
                 ],
-                [
-                    [0x1f9, 3],
-                    [0x1fa, 2],
-                ],
+                modeWrite(3, 48),
             ])
+
+            report(dev, [0x1f9, 3], [0x1fe, 34])
+            thinq.resetRecorder()
+            ha.setProperty(DEVICE_ID, 'climate', 'mode_command', 'cool')
+            assert.deepEqual(sentWrites(thinq.outbox), [modeWrite(0, 48)])
         } finally {
             dev.drop()
         }
     })
 
     for (const coolSelected of [false, true]) {
-        test(`a direct power-on ${coolSelected ? 'with cool selected after auto omits' : 'in auto carries'} the setpoint`, (t) => {
+        test(`a direct power-on ${coolSelected ? "with cool selected after auto carries cool's own" : 'in auto carries the current'} setpoint`, (t) => {
             const { ha, thinq, dev } = buildReadyDevice(t)
             try {
-                report(dev, [0x1f7, 0], [0x1f9, 3], [0x1fa, 2], [0x1fe, 34])
+                report(dev, [0x1f7, 0], [0x1f9, 0], [0x1fa, 2], [0x1fe, 50])
+                report(dev, [0x1f9, 3], [0x1fe, 34])
                 if (coolSelected) report(dev, [0x1f9, 0])
                 thinq.resetRecorder()
                 ha.setProperty(DEVICE_ID, 'climate', 'power_command', 'ON')
-                assert.deepEqual(
-                    sentWrites(thinq.outbox),
-                    coolSelected
-                        ? [
-                              [
-                                  [0x1f7, 1],
-                                  [0x1f9, 0],
-                                  [0x1fa, 2],
-                              ],
-                          ]
-                        : [
-                              [
-                                  [0x1f7, 1],
-                                  [0x1f9, 3],
-                                  [0x1fa, 2],
-                                  [0x1fe, 34],
-                              ],
-                          ],
-                )
+                assert.deepEqual(sentWrites(thinq.outbox), [
+                    [
+                        [0x1f7, 1],
+                        [0x1f9, coolSelected ? 0 : 3],
+                        [0x1fa, 2],
+                        [0x1fe, coolSelected ? 50 : 34],
+                    ],
+                ])
             } finally {
                 dev.drop()
             }
@@ -1554,14 +1641,15 @@ describe('RAC_056905_WW never carries a setpoint across the auto boundary', () =
         }
     })
 
-    for (const [from, setpoint, to, toRaw] of [
-        [0, 52, 'auto', 3],
-        [3, 34, 'cool', 0],
+    for (const [to, toRaw] of [
+        ['auto', 3],
+        ['cool', 0],
     ] as const) {
-        test(`a mode chosen while off omits the setpoint when it crosses into ${to}`, (t) => {
+        test(`a mode chosen while off into ${to} carries ${to === 'auto' ? 'the current' : "cool's own"} setpoint`, (t) => {
             const { ha, thinq, dev } = buildReadyDevice(t)
             try {
-                report(dev, [0x1f7, 0], [0x1f9, from], [0x1fa, 2], [0x1fe, setpoint])
+                report(dev, [0x1f7, 0], [0x1f9, 0], [0x1fa, 2], [0x1fe, 50])
+                if (to === 'cool') report(dev, [0x1f9, 3], [0x1fe, 34])
                 thinq.resetRecorder()
                 ha.setProperty(DEVICE_ID, 'climate', 'mode_command', to)
                 assert.deepEqual(sentWrites(thinq.outbox), [
@@ -1569,6 +1657,7 @@ describe('RAC_056905_WW never carries a setpoint across the auto boundary', () =
                         [0x1f9, toRaw],
                         [0x1f7, 1],
                         [0x1fa, 2],
+                        [0x1fe, 50],
                     ],
                 ])
             } finally {
@@ -1577,7 +1666,7 @@ describe('RAC_056905_WW never carries a setpoint across the auto boundary', () =
         })
     }
 
-    test('a fan speed follows the setpoint owner', (t) => {
+    test("a fan speed carries the setpoint of raw state's mode", (t) => {
         const { ha, thinq, dev } = buildReadyDevice(t)
         try {
             steadyAuto(dev)
@@ -1591,13 +1680,14 @@ describe('RAC_056905_WW never carries a setpoint across the auto boundary', () =
                 ],
             ])
 
-            // Right after auto to cool the setpoint still belongs to auto.
+            // Right after auto to cool, with no setpoint held for cool.
             thinq.resetRecorder()
             ha.setProperty(DEVICE_ID, 'climate', 'mode_command', 'cool')
             ha.setProperty(DEVICE_ID, 'climate', 'fan_mode_command', 'level_2')
             assert.deepEqual(sentWrites(thinq.outbox)[1], [
                 [0x1fa, 4],
                 [0x1f9, 0],
+                [0x1fe, 52],
             ])
         } finally {
             dev.drop()
@@ -1657,20 +1747,114 @@ describe('RAC_056905_WW never carries a setpoint across the auto boundary', () =
         }
     })
 
-    test('a mode write omits a setpoint the cached state lacks', (t) => {
+    for (const [to, toRaw, setpoint] of [
+        ['cool', 0, 52],
+        ['auto', 3, 34],
+    ] as const) {
+        test(`a mode write into ${to} with no cached setpoint carries ${setpoint}`, (t) => {
+            enableMockTimers(t)
+            const { ha, thinq, dev } = makeDevice()
+            try {
+                thinq.emit('data', buf(CAPS_RESPONSE_HEX))
+                dev.processTLV(queryResponseWithout(0x1fe))
+                tickMockTimers(t, 6000)
+                assert.ok(ha.devices[DEVICE_ID]?.config)
+                thinq.resetRecorder()
+                ha.setProperty(DEVICE_ID, 'climate', 'mode_command', to)
+                assert.deepEqual(sentWrites(thinq.outbox), [modeWrite(toRaw, setpoint, 3)])
+            } finally {
+                dev.drop()
+            }
+        })
+    }
+
+    /** Complete discovery with a values response that carries neither mode nor setpoint. */
+    const discoverWithoutModeOrSetpoint = (t: import('node:test').TestContext, ha: MockHAConnection, dev: DUT) => {
+        dev.processTLV(queryResponseWithout(0x1f9, 0x1fe))
+        tickMockTimers(t, 6000)
+        assert.ok(ha.devices[DEVICE_ID]?.config)
+    }
+
+    test('a cool report received before discovery is kept through a later auto report', (t) => {
         enableMockTimers(t)
         const { ha, thinq, dev } = makeDevice()
         try {
             thinq.emit('data', buf(CAPS_RESPONSE_HEX))
-            dev.processTLV(queryResponseWithout(0x1fe))
+            report(dev, [0x1f9, 0], [0x1fe, 50])
+            report(dev, [0x1f9, 3], [0x1fe, 34])
+            discoverWithoutModeOrSetpoint(t, ha, dev)
+            thinq.resetRecorder()
+            ha.setProperty(DEVICE_ID, 'climate', 'mode_command', 'cool')
+            assert.deepEqual(sentWrites(thinq.outbox), [modeWrite(0, 50, 3)])
+        } finally {
+            dev.drop()
+        }
+    })
+
+    test('an auto setpoint reported before discovery is never carried into cool', (t) => {
+        enableMockTimers(t)
+        const { ha, thinq, dev } = makeDevice()
+        try {
+            thinq.emit('data', buf(CAPS_RESPONSE_HEX))
+            report(dev, [0x1f9, 3], [0x1fe, 34])
+            report(dev, [0x1f9, 0])
+            discoverWithoutModeOrSetpoint(t, ha, dev)
+            thinq.resetRecorder()
+            ha.setProperty(DEVICE_ID, 'climate', 'fan_mode_command', 'level_2')
+            assert.deepEqual(sentWrites(thinq.outbox), [
+                [
+                    [0x1fa, 4],
+                    [0x1f9, 0],
+                    [0x1fe, 52],
+                ],
+            ])
+        } finally {
+            dev.drop()
+        }
+    })
+
+    test('discovery from a cached cool state holds its setpoint for cool', (t) => {
+        enableMockTimers(t)
+        const { ha, thinq, dev } = makeDevice()
+        try {
+            thinq.emit('data', buf(CAPS_RESPONSE_HEX))
+            dev.processTLV(queryResponseWithout(0x1f9, 0x1fe))
+            // Set directly: in production reports fill the cache and already hold the
+            // setpoint, so the seed at discovery covers a cache filled any other way.
+            dev.raw_clip_state[0x1f9] = 0
+            dev.raw_clip_state[0x1fe] = 48
+            tickMockTimers(t, 6000)
+            assert.ok(ha.devices[DEVICE_ID]?.config)
+
+            report(dev, [0x1f9, 3], [0x1fe, 34])
+            thinq.resetRecorder()
+            ha.setProperty(DEVICE_ID, 'climate', 'mode_command', 'cool')
+            assert.deepEqual(sentWrites(thinq.outbox), [modeWrite(0, 48, 3)])
+        } finally {
+            dev.drop()
+        }
+    })
+
+    test('a temperature written while no mode is known holds no setpoint for a mode', (t) => {
+        enableMockTimers(t)
+        const { ha, thinq, dev } = makeDevice()
+        try {
+            thinq.emit('data', buf(CAPS_RESPONSE_HEX))
+            dev.processTLV(queryResponseWithout(0x1f9))
             tickMockTimers(t, 6000)
             assert.ok(ha.devices[DEVICE_ID]?.config)
             thinq.resetRecorder()
-            ha.setProperty(DEVICE_ID, 'climate', 'mode_command', 'cool')
+            ha.setProperty(DEVICE_ID, 'climate', 'temperature_command', '24')
+            assert.equal(sentWrites(thinq.outbox).length, 1, 'the write is still sent')
+
+            report(dev, [0x1f9, 0])
+            thinq.resetRecorder()
+            ha.setProperty(DEVICE_ID, 'climate', 'fan_mode_command', 'level_2')
             assert.deepEqual(sentWrites(thinq.outbox), [
                 [
+                    [0x1fa, 4],
                     [0x1f9, 0],
-                    [0x1fa, 3],
+                    [0x1fe, 52],
                 ],
             ])
         } finally {
