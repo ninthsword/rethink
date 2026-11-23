@@ -7,6 +7,22 @@ import { buf, MockHAConnection, MockThinq2Device } from '@/tests/helpers/mocks'
 const META: Metadata = { modelId: 'Pd0F_F', modelName: 'Pd0F_F', swVersion: '1.0' }
 const LIVE_POWER_OFF = buf('AA2120EB00190000010001000000010000000000020002000001000000690035BB')
 
+test('Pd0F_F publishes the washes since the last tub clean from its 20 d8 update', () => {
+    // Captured from the appliance on 2026-11-20; the ThinQ app showed 12 on 2026-11-23.
+    const ha = new MockHAConnection()
+    const thinq = new MockThinq2Device('mini-id', META)
+    const dev = new DUT(ha.asConnection(), thinq, META)
+
+    const components = ha.devices['mini-id'].config?.components as Record<string, unknown>
+    const component = components.tub_clean_count as Record<string, unknown>
+    assert.equal(component.state_topic, '$this/tub_clean_count')
+    assert.equal(component.state_class, 'total')
+
+    thinq.emit('data', buf('AA0720D80CE0BB'))
+    assert.equal(ha.devices['mini-id'].properties.tub_clean_count, 12)
+    dev.drop()
+})
+
 test('Pd0F_F names the states and errors its model defines', () => {
     // Taken from the MonitoringValue tables in LG's model JSON for Pd0F_F, whose keys are the
     // numbers the appliance puts on the wire, so no capture was needed to pair them. The
