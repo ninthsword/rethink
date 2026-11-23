@@ -102,6 +102,20 @@ test('F21VDT_AKOR names every download course the app offered', () => {
     }
 })
 
+test('F21VDT_AKOR names the tub-clean course off the dial', () => {
+    // 통살균 is not one of the dial's fourteen positions; its run reported course 15.
+    const ha = new MockHAConnection()
+    const thinq = new MockThinq2Device('washer-id', META)
+    const dev = new DUT(ha.asConnection(), thinq, META)
+    const rec = Buffer.alloc(28)
+    rec[1] = 0x1a
+    rec[7] = 15
+    const inner = Buffer.concat([Buffer.from([0x20, 0xeb]), rec])
+    thinq.emit('data', Buffer.concat([Buffer.from([0xaa, inner.length + 4]), inner, Buffer.from([0x00, 0xbb])]))
+    assert.equal(ha.devices['washer-id'].properties.course, 'TUB_CLEAN')
+    dev.drop()
+})
+
 test('F21VDT_AKOR names every course its dial reaches', () => {
     // Read off the appliance one dial position at a time, in the order the panel lists
     // them. The values run 7 down to 1 and wrap to 14, closing back on 표준세탁.

@@ -12,6 +12,7 @@ describe('korean appliance value localization', () => {
             NONE: '없음',
             SMALL_LOAD: '소량 세탁',
             SPEEDWASH: '스피드 워시',
+            TUB_CLEAN: '통살균',
             SOAKING: '불림',
             NO_ERROR: '오류 없음',
             WIND: '바람 건조',
