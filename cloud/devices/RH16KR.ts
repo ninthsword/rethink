@@ -4,6 +4,7 @@ import type { Metadata } from '../thinq'
 import type { Device as Thinq2Device } from '../thinq2/device'
 import AABBDevice from './aabb_device'
 import HADevice from './base'
+import { DryerEnergyTotal, energyTotalComponent } from './energy_meter'
 
 const STATUS: Record<number, string> = {
     0: 'POWEROFF',
@@ -117,8 +118,16 @@ function mapped(map: Record<number, string>, raw: number) {
 }
 
 export default class Device extends AABBDevice {
+    private readonly energy: DryerEnergyTotal
+    /** rec[2] of the previous status record this handler processed. */
+    private previousState: number | undefined
+
     constructor(HA: Connection, thinq: Thinq2Device, meta: Metadata) {
         super(HA, thinq)
+        this.energy = new DryerEnergyTotal(thinq.id, (wh, cycles) => {
+            this.HA.publishProperty(this.id, 'energy_total', wh)
+            this.HA.publishProperty(this.id, 'total_cycles', cycles)
+        })
         this.setConfig(
             allowExtendedType({
                 ...HADevice.config(meta, { name: 'LG Dryer' }),
@@ -205,9 +214,16 @@ export default class Device extends AABBDevice {
                         unit_of_measurement: 'Wh',
                         state_class: 'total_increasing',
                     }),
+                    energy_total: energyTotalComponent(),
+                    total_cycles: sensor('total_cycles', 'mdi:counter', {
+                        name: 'Total cycles',
+                        state_class: 'total_increasing',
+                        suggested_display_precision: 0,
+                    }),
                 },
             }),
         )
+        this.energy.publish()
     }
 
     private processRecord(rec: Buffer) {
@@ -236,7 +252,17 @@ export default class Device extends AABBDevice {
         this.publishProperty('control_lock', (rec[16] & 0x10) !== 0 ? 'ON' : 'OFF')
         this.publishProperty('remote_start', (rec[17] & 0x01) !== 0 ? 'ON' : 'OFF')
         // Held after power-off and reset to 0 at the next power-on.
-        this.publishProperty('cycle_energy', rec[19] * 256 + rec[20])
+        const cycleWh = rec[19] * 256 + rec[20]
+        this.publishProperty('cycle_energy', cycleWh)
+        /*
+         * A cycle ends where the state moves into END, and the cycle energy in that record is
+         * final. A handler's first record has nothing before it, so it ends nothing, and a
+         * cycle switched off before END is not counted. Only RUNNING, END, POWEROFF has been
+         * recorded: a return from END to another state and back to END would be counted
+         * again, which the live check after deployment watches for.
+         */
+        if (state === 4 && this.previousState !== undefined && this.previousState !== 4) this.energy.addCycle(cycleWh)
+        this.previousState = state
         const error = rec[8]
         this.publishProperty('error', error === 0 ? 'OFF' : 'ON')
         this.publishProperty('error_message', mapped(ERROR, error))

@@ -210,6 +210,21 @@ describe('washer energy sensor names', () => {
     })
 })
 
+describe('dryer cycle count name', () => {
+    test('names the cumulative count and keeps the existing cycle count name', () => {
+        const config = {
+            device: { name: 'LG Dryer' },
+            components: {
+                total_cycles: { platform: 'sensor', name: 'Total cycles' },
+                cycle_count: { platform: 'sensor', name: 'Cycle count' },
+            },
+        } as unknown as DeviceDiscovery
+        const localized = localizeDiscovery(config, 'korean').components as Record<string, Record<string, unknown>>
+        assert.equal(localized.total_cycles.name, '누적 사용 횟수')
+        assert.equal(localized.cycle_count.name, '운전 횟수')
+    })
+})
+
 describe('Wi-Fi signal sensor name', () => {
     test('is translated in korean and left as is in english', () => {
         const config = {

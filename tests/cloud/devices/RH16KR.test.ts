@@ -1,5 +1,9 @@
 import assert from 'node:assert/strict'
-import { test } from 'node:test'
+import { mkdirSync, mkdtempSync, readFileSync, rmdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { afterEach, beforeEach, describe, test } from 'node:test'
+import { setEnergyDataDirectory } from '@/cloud/devices/energy_meter'
 import DUT from '@/cloud/devices/RH16KR'
 import type { Metadata } from '@/cloud/thinq'
 import { buf, MockHAConnection, MockThinq2Device } from '@/tests/helpers/mocks'
@@ -537,4 +541,200 @@ test('RH16KR decodes labelled option bits and validates active reservation time'
     assert.equal(report(0x01, 0, 2, 0).reserve_time, 0)
     assert.equal(report(0x01, 0, 20, 0).reserve_time, 0)
     assert.equal(report(0x01, 0, 3, 60).reserve_time, 0)
+})
+
+/** A status record carrying only the state rec[2] and the cycle energy rec[19..20]. */
+function energyRecord(state: number, wh: number) {
+    const rec = Buffer.alloc(27)
+    rec[1] = 0x19
+    rec[2] = state
+    rec[19] = wh >> 8
+    rec[20] = wh & 0xff
+    return Buffer.concat([Buffer.from([0xaa, 0x21, 0x30, 0xeb]), rec, Buffer.from([0, 0xbb])])
+}
+
+const RUNNING = 2
+const END = 4
+const POWEROFF = 0
+
+describe('RH16KR cumulative energy and cycles', () => {
+    let dir: string
+    beforeEach(() => {
+        dir = mkdtempSync(join(tmpdir(), 'rethink-dryer-energy-'))
+    })
+    afterEach(() => {
+        setEnergyDataDirectory(undefined as unknown as string)
+        rmSync(dir, { recursive: true, force: true })
+    })
+
+    function dryer(ha = new MockHAConnection()) {
+        const thinq = new MockThinq2Device('dryer-id', META)
+        new DUT(ha.asConnection(), thinq, META)
+        return { ha, thinq, p: () => ha.devices['dryer-id'].properties }
+    }
+    const filePath = () => join(dir, 'dryer-energy-dryer-id.json')
+    const saved = () => JSON.parse(readFileSync(filePath(), 'utf-8'))
+    /** The recorded 2026-11-22 shape: rising energy while running, END at 591, then off. */
+    function recordedCycle(thinq: MockThinq2Device, endWh: number) {
+        for (const wh of [0, 120, 300, endWh - 1]) thinq.emit('data', energyRecord(RUNNING, Math.max(wh, 0)))
+        thinq.emit('data', energyRecord(END, endWh))
+        thinq.emit('data', energyRecord(END, endWh))
+        thinq.emit('data', energyRecord(POWEROFF, endWh))
+    }
+
+    test('exposes the total and the count with exact fields', () => {
+        const { ha, p } = dryer()
+        const components = ha.devices['dryer-id'].config?.components as Record<string, Record<string, unknown>>
+        assert.deepEqual(components.energy_total, {
+            platform: 'sensor',
+            device_class: 'energy',
+            unique_id: '$deviceid-energy_total',
+            state_topic: '$this/energy_total',
+            name: '누적 전력 사용량',
+            unit_of_measurement: 'Wh',
+            state_class: 'total_increasing',
+            icon: 'mdi:lightning-bolt',
+        })
+        assert.deepEqual(components.total_cycles, {
+            platform: 'sensor',
+            unique_id: '$deviceid-total_cycles',
+            state_topic: '$this/total_cycles',
+            name: 'Total cycles',
+            icon: 'mdi:counter',
+            state_class: 'total_increasing',
+            suggested_display_precision: 0,
+        })
+        assert.equal(p().energy_total, 0, 'the total is published with its discovery')
+        assert.equal(p().total_cycles, 0, 'the count is published with its discovery')
+        const config = ha.devices['dryer-id'].config
+        assert.ok(config)
+        assert.equal(localizeDiscovery(config, 'korean').components.total_cycles.name, '누적 사용 횟수')
+    })
+
+    test('adds each cycle once, where the state moves into END', () => {
+        const { thinq, p } = dryer()
+        recordedCycle(thinq, 591)
+        assert.equal(p().energy_total, 591)
+        assert.equal(p().total_cycles, 1)
+        assert.equal(p().cycle_energy, 591, 'cycle_energy is still published on every record')
+
+        recordedCycle(thinq, 400)
+        assert.equal(p().energy_total, 991)
+        assert.equal(p().total_cycles, 2)
+    })
+
+    test('a handler whose first record is END or POWEROFF adds nothing', () => {
+        for (const state of [END, POWEROFF]) {
+            const { thinq, p } = dryer()
+            thinq.emit('data', energyRecord(state, 1457))
+            thinq.emit('data', energyRecord(state, 1457))
+            assert.equal(p().energy_total, 0, `state ${state}`)
+            assert.equal(p().total_cycles, 0, `state ${state}`)
+        }
+    })
+
+    test('a cycle switched off before END is not counted', () => {
+        const { thinq, p } = dryer()
+        for (const wh of [0, 120, 300]) thinq.emit('data', energyRecord(RUNNING, wh))
+        thinq.emit('data', energyRecord(POWEROFF, 300))
+        assert.equal(p().energy_total, 0)
+        assert.equal(p().total_cycles, 0)
+    })
+
+    test('a cycle ending at 0 counts as a cycle and adds no energy', () => {
+        const { thinq, p } = dryer()
+        recordedCycle(thinq, 591)
+        thinq.emit('data', energyRecord(RUNNING, 0))
+        thinq.emit('data', energyRecord(END, 0))
+        assert.equal(p().energy_total, 591)
+        assert.equal(p().total_cycles, 2)
+    })
+
+    test('keeps both values across a restart, owner-readable only', () => {
+        setEnergyDataDirectory(dir)
+        const first = dryer()
+        recordedCycle(first.thinq, 591)
+        assert.deepEqual(saved(), { totalWh: 591, cycles: 1 })
+        assert.equal(statSync(filePath()).mode & 0o777, 0o600)
+
+        const second = dryer()
+        assert.equal(second.p().energy_total, 591, 'the saved total is published at discovery')
+        assert.equal(second.p().total_cycles, 1, 'the saved count is published at discovery')
+        recordedCycle(second.thinq, 400)
+        assert.equal(second.p().energy_total, 991)
+        assert.equal(second.p().total_cycles, 2)
+        assert.deepEqual(saved(), { totalWh: 991, cycles: 2 })
+    })
+
+    test('two handlers alive over one directory keep both cycles', () => {
+        setEnergyDataDirectory(dir)
+        const first = dryer()
+        const second = dryer(new MockHAConnection())
+        first.thinq.emit('data', energyRecord(RUNNING, 300))
+        second.thinq.emit('data', energyRecord(RUNNING, 100))
+        first.thinq.emit('data', energyRecord(END, 591))
+        second.thinq.emit('data', energyRecord(END, 400))
+        assert.deepEqual(saved(), { totalWh: 991, cycles: 2 })
+        assert.equal(second.p().energy_total, 991)
+        assert.equal(second.p().total_cycles, 2)
+    })
+
+    test('lives in memory when no directory has been named', () => {
+        const { thinq, p } = dryer()
+        recordedCycle(thinq, 591)
+        assert.equal(p().energy_total, 591)
+        assert.equal(p().total_cycles, 1)
+
+        setEnergyDataDirectory(dir)
+        const next = dryer()
+        assert.equal(next.p().energy_total, 0, 'nothing was written')
+        assert.equal(next.p().total_cycles, 0, 'nothing was written')
+    })
+
+    test('a damaged file or an impossible saved value reads as 0', () => {
+        setEnergyDataDirectory(dir)
+        for (const [content, totalWh, cycles] of [
+            ['{ truncated', 0, 0],
+            ['{"totalWh":-5,"cycles":-1}', 0, 0],
+            ['{"totalWh":"many","cycles":"many"}', 0, 0],
+            ['{"totalWh":"42","cycles":"3"}', 0, 0],
+            ['{"totalWh":true,"cycles":true}', 0, 0],
+            ['{"totalWh":[7],"cycles":[2]}', 0, 0],
+            ['{"totalWh":591,"cycles":2.5}', 591, 0],
+            ['{"totalWh":591,"cycles":-3}', 591, 0],
+        ] as const) {
+            writeFileSync(filePath(), content)
+            const { p } = dryer()
+            assert.equal(p().energy_total, totalWh, content)
+            assert.equal(p().total_cycles, cycles, content)
+        }
+    })
+
+    test('a failed save never makes a published value drop', () => {
+        setEnergyDataDirectory(dir)
+        // A directory where the file belongs makes both the reread and the save fail.
+        mkdirSync(filePath())
+        const ha = new MockHAConnection()
+        const seen: Record<string, number[]> = {
+            energy_total: [],
+            total_cycles: [],
+        }
+        const publish = ha.publishProperty.bind(ha)
+        ha.publishProperty = (id: string, prop: string, value: string | number) => {
+            if (prop in seen) seen[prop].push(Number(value))
+            publish(id, prop, value)
+        }
+        const { thinq, p } = dryer(ha)
+        recordedCycle(thinq, 591)
+        assert.equal(p().energy_total, 591)
+        assert.equal(p().total_cycles, 1)
+
+        rmdirSync(filePath())
+        recordedCycle(thinq, 400)
+        assert.equal(p().energy_total, 991)
+        assert.equal(p().total_cycles, 2)
+        assert.deepEqual(saved(), { totalWh: 991, cycles: 2 })
+        for (const values of Object.values(seen))
+            for (let i = 1; i < values.length; i++) assert.ok(values[i] >= values[i - 1], String(values))
+    })
 })

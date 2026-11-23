@@ -233,3 +233,72 @@ export class WasherEnergyTotal {
         this.publish()
     }
 }
+
+/**
+ * A dryer's running total and cycle count, made of the energy each finished cycle reports.
+ *
+ * Kept the way the washer's total is: reread before every addition so a superseded handler
+ * and its replacement keep both cycles, and never below what was last published, since Home
+ * Assistant reads a drop in a total_increasing sensor as a meter reset.
+ */
+export class DryerEnergyTotal {
+    private published = { totalWh: 0, cycles: 0 }
+
+    constructor(
+        readonly deviceId: string,
+        private readonly publishValues: (wh: number, cycles: number) => void,
+    ) {
+        this.published = this.read()
+    }
+
+    private path() {
+        return dataDir ? join(dataDir, `dryer-energy-${this.deviceId}.json`) : undefined
+    }
+
+    /** A missing or damaged file, or a value that cannot be a reading, counts as zero. */
+    private read() {
+        const path = this.path()
+        if (!path) return { totalWh: 0, cycles: 0 }
+        try {
+            const saved = JSON.parse(readFileSync(path, 'utf-8')) as {
+                totalWh?: unknown
+                cycles?: unknown
+            }
+            const { totalWh, cycles } = saved
+            return {
+                totalWh: typeof totalWh === 'number' && Number.isFinite(totalWh) && totalWh >= 0 ? totalWh : 0,
+                cycles: typeof cycles === 'number' && Number.isInteger(cycles) && cycles >= 0 ? cycles : 0,
+            }
+        } catch {
+            return { totalWh: 0, cycles: 0 }
+        }
+    }
+
+    private save(values: { totalWh: number; cycles: number }) {
+        const path = this.path()
+        if (!path) return
+        const temporary = `${path}.tmp`
+        try {
+            writeFileSync(temporary, JSON.stringify(values), { mode: 0o600 })
+            renameSync(temporary, path)
+        } catch (err) {
+            log('status', this.deviceId, `unable to save the dryer energy total: ${err}`)
+        }
+    }
+
+    publish() {
+        this.publishValues(Math.round(this.published.totalWh), this.published.cycles)
+    }
+
+    /** A cycle of 0 Wh still counts as a cycle. */
+    addCycle(wh: number) {
+        const saved = this.read()
+        const values = {
+            totalWh: Math.max(saved.totalWh, this.published.totalWh) + (wh > 0 ? wh : 0),
+            cycles: Math.max(saved.cycles, this.published.cycles) + 1,
+        }
+        this.save(values)
+        this.published = values
+        this.publish()
+    }
+}
