@@ -9,7 +9,7 @@ confirm field meanings; Home Assistant state comes from the local appliance pack
 | Appliance           | modelId          | Local state exposed to Home Assistant                                                                                                                       |
 | ------------------- | ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Front-load washer   | `F21VDT_AKOR`    | power, current/previous state, completion, remaining/initial/reserved time, course fields, soil, spin, water temperature, rinse, dry level, tub-clean count, estimated energy, cumulative energy |
-| Dryer               | `RH16KR`, `RH16_N_KR` | power, state/full process table/completion, remaining/initial/reserved time, course/downloaded course, dry level, Eco Hybrid, anti-crease, Smart Care, control lock, reservation active, remote start, cycle energy |
+| Dryer               | `RH16KR`, `RH16_N_KR` | power, state/full process table/completion, remaining/initial/reserved time, course/downloaded course, dry level, Eco Hybrid, anti-crease, Smart Care, control lock, reservation active, remote start, cycle energy, cumulative energy, cumulative cycle count |
 | Kimchi refrigerator | `2REK1G03VI1902` | top/middle/bottom room temperatures, door, display lock, one-touch filter, monitor status                                                                   |
 | Mini washer         | `Pd0F_F`         | power, current/previous state, completion, remaining/initial/reserved time, error and door lock                                                             |
 | Dishwasher          | `D121111`        | power, state/process/completion, remaining/initial/reserved time, course/stored download course, tub-clean count, confirmed read-only settings               |
@@ -73,6 +73,17 @@ figure is added to `energy_total` (`total_increasing`, Wh), kept in
 `washer-energy-<device id>.json` in the energy data directory. A handler's first record
 ends nothing, so a cycle that ended while rethink was not running is not counted, and a
 repeated end record counts once.
+
+The `RH16KR` cumulative fields come from the dryer status records recorded on 2026-11-22,
+which went `RUNNING`, `END`, `POWEROFF` with `rec[19] * 256 + rec[20]` rising while running
+and holding its final value (591 Wh) from the `END` record on. A cycle ends where `rec[2]`
+moves into `END` (4) from any other state; that record's `cycle_energy` is added to
+`energy_total` (`total_increasing`, Wh) and 1 to `total_cycles` (`total_increasing`, no
+unit), both kept in `dryer-energy-<device id>.json` in the energy data directory. A
+handler's first record ends nothing, a repeated `END` or the `POWEROFF` after it ends
+nothing, and a cycle switched off before `END` is not counted. Add only one of
+`cycle_energy` and `energy_total` to Home Assistant's energy dashboard: both count the same
+energy, so adding both counts the dryer twice.
 
 ## Deferred controls and fields
 
