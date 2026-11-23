@@ -4,6 +4,7 @@ import type { Metadata } from '../thinq'
 import type { Device as Thinq2Device } from '../thinq2/device'
 import AABBDevice from './aabb_device'
 import HADevice from './base'
+import { energyTotalComponent, WasherEnergyTotal } from './energy_meter'
 
 // Korean front-loading washer. The offsets are based on packets captured from
 // this exact model and cross-checked against its ThinQ washerDryer snapshot.
@@ -151,8 +152,13 @@ function value(map: Record<number, string>, raw: number) {
 }
 
 export default class Device extends AABBDevice {
+    private readonly energy: WasherEnergyTotal
+    /** rec[25] of the previous status record this handler processed: 1 while a cycle runs. */
+    private previousCycleFlag: number | undefined
+
     constructor(HA: Connection, thinq: Thinq2Device, meta: Metadata) {
         super(HA, thinq)
+        this.energy = new WasherEnergyTotal(thinq.id, (wh) => this.HA.publishProperty(this.id, 'energy_total', wh))
         this.setConfig(
             allowExtendedType({
                 ...HADevice.config(meta, { name: 'LG Washer' }),
@@ -206,9 +212,18 @@ export default class Device extends AABBDevice {
                         state_class: 'total',
                         suggested_display_precision: 0,
                     }),
+                    // The appliance revises this estimate as the cycle runs, so it stays out
+                    // of long-term statistics; energy_total is the one the dashboard uses.
+                    estimated_energy: sensor('estimated_energy', 'mdi:lightning-bolt-outline', {
+                        name: 'Estimated energy',
+                        device_class: 'energy',
+                        unit_of_measurement: 'Wh',
+                    }),
+                    energy_total: energyTotalComponent(),
                 },
             }),
         )
+        this.energy.publish()
     }
 
     private processRecord(rec: Buffer) {
@@ -233,6 +248,14 @@ export default class Device extends AABBDevice {
         this.publishProperty('rinse', RINSE[rec[12]] ?? `RAW_${rec[12]}`)
         this.publishProperty('dry_level', value(DRY_LEVEL, rec[13]))
         this.publishProperty('tub_clean_count', rec[23])
+
+        const estimatedWh = rec[19] * 256 + rec[20]
+        this.publishProperty('estimated_energy', estimatedWh)
+        // The cycle ends where rec[25] falls from 1 to 0, and its estimate there is final. A
+        // handler's first record has nothing before it, so it ends nothing.
+        const cycleFlag = rec[25]
+        if (this.previousCycleFlag === 1 && cycleFlag === 0) this.energy.addCycle(estimatedWh)
+        this.previousCycleFlag = cycleFlag
     }
 
     processAABB(buf: Buffer) {

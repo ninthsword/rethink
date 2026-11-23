@@ -8,7 +8,7 @@ confirm field meanings; Home Assistant state comes from the local appliance pack
 
 | Appliance           | modelId          | Local state exposed to Home Assistant                                                                                                                       |
 | ------------------- | ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Front-load washer   | `F21VDT_AKOR`    | power, current/previous state, completion, remaining/initial/reserved time, course fields, soil, spin, water temperature, rinse, dry level, tub-clean count |
+| Front-load washer   | `F21VDT_AKOR`    | power, current/previous state, completion, remaining/initial/reserved time, course fields, soil, spin, water temperature, rinse, dry level, tub-clean count, estimated energy, cumulative energy |
 | Dryer               | `RH16KR`, `RH16_N_KR` | power, state/full process table/completion, remaining/initial/reserved time, course/downloaded course, dry level, Eco Hybrid, anti-crease, Smart Care, control lock, reservation active, remote start, cycle energy |
 | Kimchi refrigerator | `2REK1G03VI1902` | top/middle/bottom room temperatures, door, display lock, one-touch filter, monitor status                                                                   |
 | Mini washer         | `Pd0F_F`         | power, current/previous state, completion, remaining/initial/reserved time, error and door lock                                                             |
@@ -63,6 +63,16 @@ distinct from manual `control_lock` (`rec[16] & 0x10`). Earlier no-response occu
 with the door open, consistent with the official LG guidance to power on, wait for
 Wi-Fi, close the door, and hold for three seconds. `rec[17]` bit `0` is now exposed
 as the read-only `remote_start` sensor; this still adds no command or device write.
+
+The `F21VDT_AKOR` energy fields come from status records recorded on 2026-11-22.
+`rec[19] * 256 + rec[20]` is the running cycle estimate in Wh, published as
+`estimated_energy` without a `state_class`, since the appliance revises it during the
+cycle. `rec[25]` is 1 while a cycle runs; where it falls from 1 to 0 the estimate in that
+record is the cycle's final figure, which matched what LG's cloud adds up for the day. That
+figure is added to `energy_total` (`total_increasing`, Wh), kept in
+`washer-energy-<device id>.json` in the energy data directory. A handler's first record
+ends nothing, so a cycle that ended while rethink was not running is not counted, and a
+repeated end record counts once.
 
 ## Deferred controls and fields
 

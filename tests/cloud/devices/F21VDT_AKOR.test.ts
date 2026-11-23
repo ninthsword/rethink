@@ -1,5 +1,9 @@
 import assert from 'node:assert/strict'
-import { describe, test } from 'node:test'
+import { mkdirSync, mkdtempSync, readFileSync, rmdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { afterEach, beforeEach, describe, test } from 'node:test'
+import { setEnergyDataDirectory } from '@/cloud/devices/energy_meter'
 import DUT from '@/cloud/devices/F21VDT_AKOR'
 import type { Metadata } from '@/cloud/thinq'
 import { buf, MockHAConnection, MockThinq2Device } from '@/tests/helpers/mocks'
@@ -149,4 +153,165 @@ test('F21VDT_AKOR names every course its dial reaches', () => {
         assert.equal(ha.devices['washer-id'].properties.course, name, `raw ${raw}`)
     }
     dev.drop()
+})
+
+/** A status record carrying only the energy estimate rec[19..20] and the cycle flag rec[25]. */
+function energyRecord(wh: number, cycleFlag: number) {
+    const rec = Buffer.alloc(28)
+    rec[1] = 0x1a
+    rec[19] = wh >> 8
+    rec[20] = wh & 0xff
+    rec[25] = cycleFlag
+    return Buffer.concat([Buffer.from([0xaa, 0x22, 0x20, 0xeb]), rec, Buffer.from([0, 0xbb])])
+}
+
+describe('F21VDT_AKOR energy', () => {
+    let dir: string
+    beforeEach(() => {
+        dir = mkdtempSync(join(tmpdir(), 'rethink-washer-energy-'))
+    })
+    afterEach(() => {
+        setEnergyDataDirectory(undefined as unknown as string)
+        rmSync(dir, { recursive: true, force: true })
+    })
+
+    function washer(ha = new MockHAConnection()) {
+        const thinq = new MockThinq2Device('washer-id', META)
+        new DUT(ha.asConnection(), thinq, META)
+        return { ha, thinq, p: () => ha.devices['washer-id'].properties }
+    }
+    const savedTotal = () => JSON.parse(readFileSync(join(dir, 'washer-energy-washer-id.json'), 'utf-8')).totalWh
+
+    test('publishes the estimate and exposes both energy sensors', () => {
+        const { ha, thinq, p } = washer()
+        const components = ha.devices['washer-id'].config?.components as Record<string, Record<string, unknown>>
+        assert.deepEqual(components.estimated_energy, {
+            platform: 'sensor',
+            unique_id: '$deviceid-estimated_energy',
+            state_topic: '$this/estimated_energy',
+            name: 'Estimated energy',
+            icon: 'mdi:lightning-bolt-outline',
+            device_class: 'energy',
+            unit_of_measurement: 'Wh',
+        })
+        assert.deepEqual(components.energy_total, {
+            platform: 'sensor',
+            device_class: 'energy',
+            unique_id: '$deviceid-energy_total',
+            state_topic: '$this/energy_total',
+            name: '누적 전력 사용량',
+            unit_of_measurement: 'Wh',
+            state_class: 'total_increasing',
+            icon: 'mdi:lightning-bolt',
+        })
+        assert.equal(p().energy_total, 0, 'the total is published with its discovery')
+
+        const rec = Buffer.alloc(28)
+        rec[1] = 0x1a
+        rec[19] = 5
+        rec[20] = 111
+        thinq.emit('data', Buffer.concat([Buffer.from([0xaa, 0x22, 0x20, 0xeb]), rec, Buffer.from([0, 0xbb])]))
+        assert.equal(p().estimated_energy, 1391)
+    })
+
+    test('adds each finished cycle once, at the fall of rec[25]', () => {
+        const { thinq, p } = washer()
+        for (const wh of [0, 120, 800, 1468, 345, 900]) thinq.emit('data', energyRecord(wh, 1))
+        assert.equal(p().energy_total, 0, 'a fall in mid-cycle changes nothing')
+        thinq.emit('data', energyRecord(1391, 0))
+        assert.equal(p().energy_total, 1391)
+        thinq.emit('data', energyRecord(1392, 0))
+        assert.equal(p().energy_total, 1391, 'a repeated end record counts once')
+
+        for (const wh of [10, 300]) thinq.emit('data', energyRecord(wh, 1))
+        thinq.emit('data', energyRecord(631, 0))
+        assert.equal(p().energy_total, 2022)
+    })
+
+    test('a handler whose first record has rec[25] at 0 adds nothing', () => {
+        const { thinq, p } = washer()
+        thinq.emit('data', energyRecord(1391, 0))
+        thinq.emit('data', energyRecord(1391, 0))
+        assert.equal(p().energy_total, 0)
+    })
+
+    test('a cycle whose energy is 0 adds nothing', () => {
+        setEnergyDataDirectory(dir)
+        const { thinq, p } = washer()
+        thinq.emit('data', energyRecord(0, 1))
+        thinq.emit('data', energyRecord(0, 0))
+        assert.equal(p().energy_total, 0)
+        assert.throws(() => statSync(join(dir, 'washer-energy-washer-id.json')), 'nothing was written')
+    })
+
+    test('keeps the total across a restart, owner-readable only', () => {
+        setEnergyDataDirectory(dir)
+        const first = washer()
+        first.thinq.emit('data', energyRecord(900, 1))
+        first.thinq.emit('data', energyRecord(1391, 0))
+        assert.equal(savedTotal(), 1391)
+        assert.equal(statSync(join(dir, 'washer-energy-washer-id.json')).mode & 0o777, 0o600)
+
+        const second = washer()
+        assert.equal(second.p().energy_total, 1391, 'the saved total is published at discovery')
+        second.thinq.emit('data', energyRecord(400, 1))
+        second.thinq.emit('data', energyRecord(631, 0))
+        assert.equal(second.p().energy_total, 2022)
+        assert.equal(savedTotal(), 2022)
+    })
+
+    test('two handlers alive over one directory keep both cycles', () => {
+        setEnergyDataDirectory(dir)
+        const first = washer()
+        const second = washer(new MockHAConnection())
+        first.thinq.emit('data', energyRecord(900, 1))
+        second.thinq.emit('data', energyRecord(300, 1))
+        first.thinq.emit('data', energyRecord(1391, 0))
+        second.thinq.emit('data', energyRecord(631, 0))
+        assert.equal(savedTotal(), 2022)
+        assert.equal(second.p().energy_total, 2022)
+    })
+
+    test('lives in memory when no directory has been named', () => {
+        const { thinq, p } = washer()
+        thinq.emit('data', energyRecord(900, 1))
+        thinq.emit('data', energyRecord(1391, 0))
+        assert.equal(p().energy_total, 1391)
+
+        setEnergyDataDirectory(dir)
+        assert.equal(washer().p().energy_total, 0, 'nothing was written')
+    })
+
+    test('a damaged file or an impossible saved value reads as 0', () => {
+        setEnergyDataDirectory(dir)
+        const path = join(dir, 'washer-energy-washer-id.json')
+        for (const content of [
+            '{ truncated',
+            '{"totalWh":-5}',
+            '{"totalWh":"many"}',
+            '{"totalWh":"42"}',
+            '{"totalWh":true}',
+            '{"totalWh":[7]}',
+        ]) {
+            writeFileSync(path, content)
+            assert.equal(washer().p().energy_total, 0, content)
+        }
+    })
+
+    test('a failed save never makes the published total drop', () => {
+        setEnergyDataDirectory(dir)
+        // A directory where the file belongs makes both the reread and the save fail.
+        const path = join(dir, 'washer-energy-washer-id.json')
+        mkdirSync(path)
+        const { thinq, p } = washer()
+        thinq.emit('data', energyRecord(900, 1))
+        thinq.emit('data', energyRecord(1391, 0))
+        assert.equal(p().energy_total, 1391)
+
+        rmdirSync(path)
+        thinq.emit('data', energyRecord(300, 1))
+        thinq.emit('data', energyRecord(631, 0))
+        assert.equal(p().energy_total, 2022)
+        assert.equal(savedTotal(), 2022)
+    })
 })

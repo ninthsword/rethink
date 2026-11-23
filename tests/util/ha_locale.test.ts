@@ -195,6 +195,21 @@ describe('korean appliance value localization', () => {
     })
 })
 
+describe('washer energy sensor names', () => {
+    test('names the estimate and keeps the shared cumulative name', () => {
+        const config = {
+            device: { name: 'LG Washer' },
+            components: {
+                estimated_energy: { platform: 'sensor', name: 'Estimated energy' },
+                energy_total: { platform: 'sensor', name: '누적 전력 사용량' },
+            },
+        } as unknown as DeviceDiscovery
+        const localized = localizeDiscovery(config, 'korean').components as Record<string, Record<string, unknown>>
+        assert.equal(localized.estimated_energy.name, '예상 전력 사용량')
+        assert.equal(localized.energy_total.name, '누적 전력 사용량')
+    })
+})
+
 describe('Wi-Fi signal sensor name', () => {
     test('is translated in korean and left as is in english', () => {
         const config = {
