@@ -110,6 +110,11 @@ export default class Device extends AABBDevice {
                         name: 'Door lock',
                         icon: 'mdi:lock',
                     },
+                    tub_clean_count: {
+                        ...sensor('tub_clean_count', 'mdi:washing-machine'),
+                        state_class: 'total',
+                        suggested_display_precision: 0,
+                    },
                 },
             }),
         )
@@ -138,5 +143,8 @@ export default class Device extends AABBDevice {
         if (buf[0] !== 0x20) return
         if (buf[1] === 0xeb && buf.length === 29) this.processRecord(buf.subarray(2, 29))
         else if (buf[1] === 0xec && buf.length === 56) this.processRecord(buf.subarray(29, 56))
+        // Washes since the last tub clean, in the same compact 20 d8 update the top-loading
+        // washer (Hd0C_F) sends. It sent 0x0c from 2026-11-20 on; the ThinQ app showed 12 on 2026-11-23.
+        else if (buf[1] === 0xd8 && buf.length === 3) this.publishProperty('tub_clean_count', buf[2])
     }
 }
