@@ -169,3 +169,67 @@ export class EnergyMeter {
         this.save()
     }
 }
+
+/**
+ * A washer's running total, made of the energy estimate each finished cycle reports.
+ *
+ * A superseded handler can stay alive beside its replacement until its old socket closes, so
+ * the file is read again before every addition and neither handler overwrites the other's
+ * cycle. The total never goes below what was last published: Home Assistant reads a drop in
+ * a total_increasing sensor as a meter reset, so a save that failed is carried forward rather
+ * than lost on the next reread.
+ */
+export class WasherEnergyTotal {
+    private published = 0
+
+    constructor(
+        readonly deviceId: string,
+        private readonly publishTotal: (wh: number) => void,
+    ) {
+        this.published = this.read()
+    }
+
+    private path() {
+        return dataDir ? join(dataDir, `washer-energy-${this.deviceId}.json`) : undefined
+    }
+
+    /** A missing or damaged file, or a value that cannot be a meter reading, counts as zero. */
+    private read() {
+        const path = this.path()
+        if (!path) return 0
+        try {
+            const totalWh = (JSON.parse(readFileSync(path, 'utf-8')) as { totalWh?: unknown }).totalWh
+            return typeof totalWh === 'number' && Number.isFinite(totalWh) && totalWh >= 0 ? totalWh : 0
+        } catch {
+            return 0
+        }
+    }
+
+    private save(totalWh: number) {
+        const path = this.path()
+        if (!path) return
+        const temporary = `${path}.tmp`
+        try {
+            writeFileSync(temporary, JSON.stringify({ totalWh }), { mode: 0o600 })
+            renameSync(temporary, path)
+        } catch (err) {
+            log('status', this.deviceId, `unable to save the washer energy total: ${err}`)
+        }
+    }
+
+    get totalWh() {
+        return this.published
+    }
+
+    publish() {
+        this.publishTotal(Math.round(this.published))
+    }
+
+    addCycle(wh: number) {
+        if (!(wh > 0)) return
+        const total = Math.max(this.read(), this.published) + wh
+        this.save(total)
+        this.published = total
+        this.publish()
+    }
+}
