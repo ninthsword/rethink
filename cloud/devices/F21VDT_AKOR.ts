@@ -66,6 +66,9 @@ const COURSE: Record<number, string> = {
     12: 'LINGERIE_WOOL',
     13: 'RINSE_SPIN',
     14: 'DOWNLOADED',
+    // Not a dial position: the owner identified 15 as 통살균 from a tub-clean run on
+    // 2026-11-22, which the course field reported for about 80 minutes.
+    15: 'TUB_CLEAN',
 }
 /*
  * Each byte was read from the `f0 25` download command captured while that course was

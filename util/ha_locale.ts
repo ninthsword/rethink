@@ -437,6 +437,7 @@ const KOREAN_VALUES: Record<string, string> = {
     LINGERIE_WOOL: '란제리/울',
     COLOR_CARE: '컬러케어',
     QUIET_WASH: '조용조용',
+    TUB_CLEAN: '통살균',
     smart: '스마트',
     fast: '쾌속',
     silent: '저소음',
