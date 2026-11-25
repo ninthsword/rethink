@@ -64,11 +64,13 @@ with the door open, consistent with the official LG guidance to power on, wait f
 Wi-Fi, close the door, and hold for three seconds. `rec[17]` bit `0` is now exposed
 as the read-only `remote_start` sensor; this still adds no command or device write.
 
-The `F21VDT_AKOR` energy fields come from status records recorded on 2026-11-22.
+The `F21VDT_AKOR` energy fields come from status records recorded on 2026-11-22 and 2026-11-23.
 `rec[19] * 256 + rec[20]` is the running cycle estimate in Wh, published as
 `estimated_energy` without a `state_class`, since the appliance revises it during the
-cycle. `rec[25]` is 1 while a cycle runs; where it falls from 1 to 0 the estimate in that
-record is the cycle's final figure, which matched what LG's cloud adds up for the day. That
+cycle. The estimate in the record whose state `rec[2]` becomes 60 (END) is the cycle's final
+figure, which matched what LG's cloud adds up for the day (2026-11-22: 1391, 631 and 1771;
+2026-11-23: 126). `rec[25]` is not the end marker: it was 1 through the 2026-11-22 cycles and 2
+through the 2026-11-23 one. A cycle switched off before END is not counted. That
 figure is added to `energy_total` (`total_increasing`, Wh), kept in
 `washer-energy-<device id>.json` in the energy data directory. A handler's first record
 ends nothing, so a cycle that ended while rethink was not running is not counted, and a

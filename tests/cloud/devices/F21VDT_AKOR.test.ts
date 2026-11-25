@@ -155,13 +155,18 @@ test('F21VDT_AKOR names every course its dial reaches', () => {
     dev.drop()
 })
 
-/** A status record carrying only the energy estimate rec[19..20] and the cycle flag rec[25]. */
-function energyRecord(wh: number, cycleFlag: number) {
+/**
+ * A status record carrying only the energy estimate rec[19..20]: running (state 23, RUNNING)
+ * when `running` is nonzero, else END (state 60). rec[25] takes `running` as the appliance's
+ * own flag does, which the cycle end no longer depends on.
+ */
+function energyRecord(wh: number, running: number, state = running ? 23 : 60) {
     const rec = Buffer.alloc(28)
     rec[1] = 0x1a
+    rec[2] = state
     rec[19] = wh >> 8
     rec[20] = wh & 0xff
-    rec[25] = cycleFlag
+    rec[25] = running
     return Buffer.concat([Buffer.from([0xaa, 0x22, 0x20, 0xeb]), rec, Buffer.from([0, 0xbb])])
 }
 
@@ -214,7 +219,7 @@ describe('F21VDT_AKOR energy', () => {
         assert.equal(p().estimated_energy, 1391)
     })
 
-    test('adds each finished cycle once, at the fall of rec[25]', () => {
+    test('adds each finished cycle once, at the record whose state becomes END', () => {
         const { thinq, p } = washer()
         for (const wh of [0, 120, 800, 1468, 345, 900]) thinq.emit('data', energyRecord(wh, 1))
         assert.equal(p().energy_total, 0, 'a fall in mid-cycle changes nothing')
@@ -228,7 +233,32 @@ describe('F21VDT_AKOR energy', () => {
         assert.equal(p().energy_total, 2022)
     })
 
-    test('a handler whose first record has rec[25] at 0 adds nothing', () => {
+    test('counts the 2026-11-23 cycle, whose rec[25] stayed 2, at its END record', () => {
+        const { thinq, p } = washer()
+        for (const wh of [0, 231]) thinq.emit('data', energyRecord(wh, 2))
+        for (const wh of [739, 108, 1162]) thinq.emit('data', energyRecord(wh, 2, 30))
+        for (const wh of [92, 1212]) thinq.emit('data', energyRecord(wh, 2, 40))
+        thinq.emit('data', energyRecord(126, 0))
+        assert.equal(p().energy_total, 126)
+        thinq.emit('data', energyRecord(126, 0, 0))
+        assert.equal(p().energy_total, 126, 'the power-off after END adds nothing')
+    })
+
+    test('an END record still carrying a nonzero rec[25] ends the cycle', () => {
+        const { thinq, p } = washer()
+        thinq.emit('data', energyRecord(500, 1, 40))
+        thinq.emit('data', energyRecord(631, 1, 60))
+        assert.equal(p().energy_total, 631)
+    })
+
+    test('a cycle switched off before END is not counted', () => {
+        const { thinq, p } = washer()
+        for (const wh of [0, 300, 600]) thinq.emit('data', energyRecord(wh, 1))
+        thinq.emit('data', energyRecord(600, 0, 0))
+        assert.equal(p().energy_total, 0)
+    })
+
+    test('a handler whose first record is END adds nothing', () => {
         const { thinq, p } = washer()
         thinq.emit('data', energyRecord(1391, 0))
         thinq.emit('data', energyRecord(1391, 0))
