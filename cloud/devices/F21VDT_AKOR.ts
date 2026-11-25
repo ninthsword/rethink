@@ -153,8 +153,8 @@ function value(map: Record<number, string>, raw: number) {
 
 export default class Device extends AABBDevice {
     private readonly energy: WasherEnergyTotal
-    /** rec[25] of the previous status record this handler processed: 1 while a cycle runs. */
-    private previousCycleFlag: number | undefined
+    /** The state rec[2] of the previous status record this handler processed. */
+    private previousState: number | undefined
 
     constructor(HA: Connection, thinq: Thinq2Device, meta: Metadata) {
         super(HA, thinq)
@@ -251,11 +251,15 @@ export default class Device extends AABBDevice {
 
         const estimatedWh = rec[19] * 256 + rec[20]
         this.publishProperty('estimated_energy', estimatedWh)
-        // The cycle ends where rec[25] falls from 1 to 0, and its estimate there is final. A
-        // handler's first record has nothing before it, so it ends nothing.
-        const cycleFlag = rec[25]
-        if (this.previousCycleFlag === 1 && cycleFlag === 0) this.energy.addCycle(estimatedWh)
-        this.previousCycleFlag = cycleFlag
+        // The cycle ends at the record whose state becomes END, and its estimate there is
+        // final: 126 Wh on 2026-11-23, the figure LG's cloud recorded for the day. rec[25] was
+        // first taken as the end marker, but it was 2, not 1, through that cycle. A handler's
+        // first record has nothing before it, so it ends nothing. A return from END to another
+        // state (REFRESHING, for one) and back to END would be counted again; no recorded cycle
+        // has done that, and the live checks watch for it.
+        if (this.previousState !== undefined && this.previousState !== 60 && state === 60)
+            this.energy.addCycle(estimatedWh)
+        this.previousState = state
     }
 
     processAABB(buf: Buffer) {
